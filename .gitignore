@@ -1,0 +1,34 @@
+node_modules/
+dist/
+.next/
+out/
+coverage/
+.turbo/
+*.tsbuildinfo
+
+# contracts
+target/
+cache/
+artifacts/
+broadcast/
+out/
+lib/
+
+# harness / editor
+.claude/
+
+# env
+.env
+.env.local
+.env.*.local
+
+# soroban
+.soroban/
+contracts/stellar-soroban/target/
+
+# solana
+test-ledger/
+
+# misc
+.DS_Store
+*.log

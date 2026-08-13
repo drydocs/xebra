@@ -1,0 +1,5 @@
+packages:
+  - "apps/*"
+  - "packages/*"
+  - "contracts/arc-evm"
+  - "contracts/stellar-soroban"

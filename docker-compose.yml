@@ -1,0 +1,95 @@
+name: xebra
+
+services:
+  # --- Arc (EVM) local chain ---
+  anvil:
+    image: ghcr.io/foundry-rs/foundry:latest
+    entrypoint: ["anvil"]
+    command: ["--host", "0.0.0.0", "--chain-id", "9001", "--block-time", "1"]
+    ports:
+      - "8545:8545"
+
+  # --- Stellar local network (includes Horizon + Soroban RPC) ---
+  stellar:
+    image: stellar/quickstart:testing
+    command: ["--local", "--enable-soroban-rpc"]
+    ports:
+      - "8000:8000"   # Horizon + friendbot
+      - "8001:8001"   # Soroban RPC
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8000/"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # --- Solana local validator ---
+  solana-test-validator:
+    image: solanalabs/solana:stable
+    command:
+      [
+        "solana-test-validator",
+        "--rpc-port", "8899",
+        "--faucet-port", "9900",
+        "--reset",
+      ]
+    ports:
+      - "8899:8899"
+      - "9900:9900"
+
+  # --- Shared data layer ---
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: xebra
+      POSTGRES_PASSWORD: xebra
+      POSTGRES_DB: xebra
+    ports:
+      - "5432:5432"
+    volumes:
+      - xebra-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U xebra"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # --- Event backbone ---
+  redpanda:
+    image: docker.redpanda.com/redpandadata/redpanda:v24.3.1
+    command:
+      - redpanda
+      - start
+      - --smp=1
+      - --memory=512M
+      - --overprovisioned
+      - --node-id=0
+      - --check=false
+      - --kafka-addr=PLAINTEXT://0.0.0.0:29092,OUTSIDE://0.0.0.0:9092
+      - --advertise-kafka-addr=PLAINTEXT://redpanda:29092,OUTSIDE://localhost:9092
+      - --pandaproxy-addr=0.0.0.0:8082
+      - --advertise-pandaproxy-addr=localhost:8082
+    ports:
+      - "9092:9092"
+      - "8082:8082"
+
+  redpanda-console:
+    image: docker.redpanda.com/redpandadata/console:v2.8.1
+    environment:
+      KAFKA_BROKERS: redpanda:29092
+    ports:
+      - "8090:8080"
+    depends_on:
+      - redpanda
+
+volumes:
+  xebra-postgres:

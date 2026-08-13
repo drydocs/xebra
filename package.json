@@ -1,0 +1,29 @@
+{
+  "name": "xebra",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Intent-based swap-capable cross-chain bridge. Arc<->Stellar, Stellar->Solana.",
+  "packageManager": "pnpm@9.15.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "format": "biome format --write .",
+    "test": "turbo run test",
+    "test:contracts": "turbo run test --filter=./contracts/*",
+    "test:integration": "turbo run test:integration",
+    "typecheck": "turbo run typecheck",
+    "clean": "turbo run clean && rm -rf node_modules",
+    "db:generate": "pnpm --filter @xebra/db generate",
+    "db:migrate": "pnpm --filter @xebra/db migrate"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.4",
+    "turbo": "^2.3.0",
+    "typescript": "^5.7.0"
+  }
+}
