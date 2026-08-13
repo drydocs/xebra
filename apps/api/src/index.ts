@@ -1,10 +1,36 @@
 /**
- * @xebra/api
- *
- * tRPC + thin REST/OpenAPI facade over Postgres — the only thing apps/web talks to. See docs/architecture.md #8.
- *
- * STATUS: scaffold placeholder — implementation lands in its phase task
- * (see /docs/architecture.md phased delivery plan).
+ * @xebra/api — tRPC + thin REST/OpenAPI facade over Postgres. The only thing apps/web talks to;
+ * see docs/architecture.md §8.
  */
 
-console.log("@xebra/api: scaffold placeholder, not yet implemented");
+import { createHTTPServer } from "@trpc/server/adapters/standalone";
+import pino from "pino";
+import { createContextFactory, createDbFromEnv } from "./context.js";
+import { appRouter } from "./router.js";
+
+const logger = pino({ name: "api" });
+
+async function main() {
+  const db = createDbFromEnv();
+  const port = Number(process.env.PORT ?? 4000);
+
+  const server = createHTTPServer({
+    router: appRouter,
+    createContext: createContextFactory(db),
+  });
+
+  server.listen(port);
+  logger.info({ port }, "api: listening");
+
+  for (const signal of ["SIGINT", "SIGTERM"] as const) {
+    process.on(signal, () => {
+      logger.info({ signal }, "api: shutting down");
+      server.server.close(() => process.exit(0));
+    });
+  }
+}
+
+main().catch((err) => {
+  logger.error({ err }, "api: fatal startup error");
+  process.exit(1);
+});
