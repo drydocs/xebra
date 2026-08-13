@@ -14,8 +14,13 @@
     "clean": "rm -rf dist .turbo"
   },
   "dependencies": {
+    "@xebra/chain-adapters": "workspace:*",
     "@xebra/db": "workspace:*",
-    "@xebra/intent-schema": "workspace:*"
+    "@xebra/event-bus": "workspace:*",
+    "@xebra/intent-schema": "workspace:*",
+    "pino": "^9.5.0",
+    "viem": "^2.21.0",
+    "zod": "^3.24.0"
   },
   "devDependencies": {
     "typescript": "^5.7.0",

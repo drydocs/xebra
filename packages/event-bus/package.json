@@ -1,5 +1,5 @@
 {
-  "name": "@xebra/chain-adapters",
+  "name": "@xebra/event-bus",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -13,18 +13,11 @@
     "dev": "tsc -p tsconfig.json --watch",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:integration": "RUN_ANVIL_TESTS=1 vitest run src/arc/decode.live.test.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "clean": "rm -rf dist .turbo"
   },
   "dependencies": {
-    "@solana/spl-token": "^0.4.9",
-    "@solana/web3.js": "^1.95.0",
-    "@stellar/stellar-sdk": "^13.0.0",
-    "@xebra/event-bus": "workspace:*",
-    "@xebra/intent-schema": "workspace:*",
-    "bs58": "^6.0.0",
-    "viem": "^2.21.0"
+    "kafkajs": "^2.2.4"
   },
   "devDependencies": {
     "typescript": "^5.7.0",

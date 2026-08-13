@@ -14,8 +14,14 @@
     "clean": "rm -rf dist .turbo"
   },
   "dependencies": {
+    "@solana/web3.js": "^1.95.0",
+    "@xebra/chain-adapters": "workspace:*",
+    "bs58": "^6.0.0",
     "@xebra/db": "workspace:*",
-    "@xebra/intent-schema": "workspace:*"
+    "@xebra/event-bus": "workspace:*",
+    "@xebra/intent-schema": "workspace:*",
+    "pino": "^9.5.0",
+    "zod": "^3.24.0"
   },
   "devDependencies": {
     "typescript": "^5.7.0",

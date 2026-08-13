@@ -14,8 +14,13 @@
     "clean": "rm -rf dist .turbo"
   },
   "dependencies": {
+    "@stellar/stellar-sdk": "^13.0.0",
+    "@xebra/chain-adapters": "workspace:*",
     "@xebra/db": "workspace:*",
-    "@xebra/intent-schema": "workspace:*"
+    "@xebra/event-bus": "workspace:*",
+    "@xebra/intent-schema": "workspace:*",
+    "pino": "^9.5.0",
+    "zod": "^3.24.0"
   },
   "devDependencies": {
     "typescript": "^5.7.0",
