@@ -65,4 +65,15 @@ pnpm dev
 
 ## Status
 
-Scaffold in progress — see `docs/architecture.md` for the phased delivery plan. Corridor 1 (Arc→Stellar) contracts and Corridor 2 (Stellar→Solana) contracts are being built out per that plan; nothing here is deployed to a public network yet.
+See `docs/architecture.md` for the phased delivery plan. Nothing here is deployed to a public network yet. Progress against that plan:
+
+**Built and verified** (compiled/tested; several pieces run live — see each package's own README for exactly what):
+- `contracts/arc-evm` — full XebraEscrow.sol, 17 Foundry tests incl. both dispute outcomes.
+- `contracts/stellar-soroban` — full Stellar-source XebraEscrow, 14 tests, release wasm builds.
+- `packages/intent-schema`, `router-core`, `chain-adapters`, `cctp-client`, `event-bus`, `db` — all with real logic and tests; `chain-adapters`' Arc log decoding is proven against a real anvil-deployed contract (`arc/decode.live.test.ts`); `db`'s schema has been migrated onto and queried against a live Postgres.
+- `apps/api` — tRPC + Postgres, run live end-to-end against a seeded database.
+- `apps/cctp-relay`, `apps/indexer-arc`, `apps/indexer-stellar`, `apps/indexer-solana`, `apps/solver` — real orchestration logic (each unit-tested with injected/mocked chain clients), thin live wiring around it. Not yet run against a live Soroban RPC, Solana validator, or Redpanda cluster (no local Stellar quickstart or solana-test-validator was available in this build's environment — see individual module doc comments, e.g. `packages/chain-adapters/src/stellar/decode-soroban-events.ts`, for exactly what is and isn't independently verified).
+
+**Known gap**: nothing yet consumes the event backbone to populate `packages/db`'s tables (the "Kafka→DB projector" implied by docs/architecture.md §8's service table). `apps/api` currently only reads whatever a DB seed/migration puts in Postgres; `apps/solver` reads intents directly off live events instead of via the DB for this reason. This projector is the natural next piece of backend work.
+
+**Not yet built**: `apps/web` (frontend), `apps/arbiter-service`, Terraform/observability (hardening phase).

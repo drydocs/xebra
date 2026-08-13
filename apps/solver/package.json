@@ -14,11 +14,17 @@
     "clean": "rm -rf dist .turbo"
   },
   "dependencies": {
+    "@solana/spl-token": "^0.4.9",
+    "@solana/web3.js": "^1.95.0",
+    "@stellar/stellar-sdk": "^13.0.0",
     "@xebra/db": "workspace:*",
     "@xebra/intent-schema": "workspace:*",
     "@xebra/chain-adapters": "workspace:*",
     "@xebra/cctp-client": "workspace:*",
-    "@xebra/router-core": "workspace:*"
+    "@xebra/event-bus": "workspace:*",
+    "@xebra/router-core": "workspace:*",
+    "pino": "^9.5.0",
+    "zod": "^3.24.0"
   },
   "devDependencies": {
     "typescript": "^5.7.0",
