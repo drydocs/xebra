@@ -1,10 +1,8 @@
 /**
- * @xebra/db
- *
- * Drizzle schema + migrations, shared Postgres access for all backend services. See docs/architecture.md #10.
- *
- * STATUS: scaffold placeholder — implementation lands in its phase task
- * (see /docs/architecture.md phased delivery plan).
+ * @xebra/db — Drizzle schema + Postgres client, shared by every backend service
+ * (apps/api, apps/solver, apps/cctp-relay, apps/indexer-*, apps/arbiter-service).
+ * See docs/architecture.md §10.
  */
 
-export const XEBRA_PACKAGE = "db";
+export * from "./schema.js";
+export * from "./client.js";
