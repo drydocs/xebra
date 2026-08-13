@@ -1,10 +1,10 @@
 /**
- * @xebra/chain-adapters
+ * @xebra/chain-adapters — Watch/Fill/Claim adapter interfaces and per-chain implementations,
+ * composed by apps/solver per corridor. See docs/architecture.md §7.
  *
- * Watch/Fill/Claim adapter interfaces + per-chain implementations, composed by apps/solver. See docs/architecture.md #7.
- *
- * STATUS: scaffold placeholder — implementation lands in its phase task
- * (see /docs/architecture.md phased delivery plan).
+ * Currently implemented: the Solana memo/transfer delivery convention (§4), consumed by the
+ * Solana Fill/Claim adapters once apps/solver's chain-adapter refactor lands.
  */
 
-export const XEBRA_PACKAGE = "chain-adapters";
+export * from "./solana/delivery.js";
+export * from "./solana/verify.js";
