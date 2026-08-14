@@ -14,6 +14,7 @@ apps/
   solver/                # multi-chain fill bot (chain-adapter composed per corridor)
   cctp-relay/            # CCTP mint-relay service (gas-sponsors the Solana receiveMessage call)
   arbiter-service/       # KMS-backed resolve() submitter for the v1 admin-arbiter role
+  projector/              # Kafka->DB projector — populates packages/db from the event backbone
   indexer-arc/            # Arc (EVM) chain watcher
   indexer-stellar/        # Stellar (classic + Soroban) chain watcher
   indexer-solana/         # Solana chain watcher
@@ -74,7 +75,10 @@ See `docs/architecture.md` for the phased delivery plan. Nothing here is deploye
 - `apps/api` — tRPC + Postgres, run live end-to-end against a seeded database.
 - `apps/cctp-relay`, `apps/indexer-arc`, `apps/indexer-stellar`, `apps/indexer-solana`, `apps/solver` — real orchestration logic (each unit-tested with injected/mocked chain clients), thin live wiring around it. Not yet run against a live Soroban RPC, Solana validator, or Redpanda cluster (no local Stellar quickstart or solana-test-validator was available in this build's environment — see individual module doc comments, e.g. `packages/chain-adapters/src/stellar/decode-soroban-events.ts`, for exactly what is and isn't independently verified).
 - `apps/web` — Next.js frontend, **produces a real successful production build** (`pnpm build`), not just a typecheck; two build-breaking issues (a wagmi dependency-bundling failure, an SSR `window` crash) were found and fixed by actually running it rather than trusting the code by inspection. See `apps/web/README.md`.
+- `packages/arbiter-signer` — KMS-backed EVM (secp256k1) + Stellar (Ed25519) signer adapters for the v1 arbiter. No real KMS available, so tested against genuine keypairs/signatures via `@noble/curves` standing in for KMS responses — real DER parsing, real recovery-bit math, real low-S normalization, not mocked success responses.
+- `apps/arbiter-service` — KMS-backed `resolve()` submitter for both escrows (viem custom account + Soroban tx signing), wired to live `IntentChallenged` events. The actual claim-verification step isn't wired yet — see the module doc comment in `apps/arbiter-service/src/index.ts`.
+- `apps/projector` — the "Kafka→DB projector" that was the previous known gap: consumes the event backbone and populates `packages/db`'s `intents`/`escrow_events` tables. **Verified against a live Postgres** (podman) — inserted a real `IntentOpened` event, confirmed the row and its corridor mapping, confirmed redelivering the same event is a no-op (idempotency), then advanced status via a later event and confirmed `escrow_events` appended correctly. `apps/api` and `apps/solver` don't consume from it yet (still read a manual seed / raw events respectively — see below).
 
-**Known gap**: nothing yet consumes the event backbone to populate `packages/db`'s tables (the "Kafka→DB projector" implied by docs/architecture.md §8's service table). `apps/api` currently only reads whatever a DB seed/migration puts in Postgres; `apps/solver` reads intents directly off live events instead of via the DB for this reason. This projector is the natural next piece of backend work.
+**Known gap, narrowed**: the projector above only populates `intents.status` and `escrow_events`, not the `claims` table (solver address, delivered amount, challenge bond/timestamps — a second per-chain payload mapping in the same shape as `project-intent-opened.ts`'s Arc/Soroban split, not yet written). This is what still blocks `apps/arbiter-service` from looking up a challenged claim's destination-chain proof, and what `apps/api`/`apps/solver` would need to fully switch over from their current manual-seed / raw-event workarounds to reading the DB.
 
-**Not yet built**: `apps/arbiter-service`, Terraform/observability (hardening phase).
+**Not yet built**: Terraform/observability (hardening phase).
