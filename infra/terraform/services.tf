@@ -104,9 +104,12 @@ locals {
         STELLAR_ESCROW_CONTRACT_ID = var.soroban_escrow_contract_id
         STELLAR_NETWORK_PASSPHRASE = var.stellar_network_passphrase
         ARBITER_STELLAR_KMS_KEY_ID = module.kms.stellar_key_id
+        SOLANA_RPC_URL             = var.solana_rpc_url
         KMS_REGION                 = var.aws_region
       }
-      secrets               = {}
+      secrets = {
+        DATABASE_URL = module.database.database_url_secret_arn
+      }
       task_role_policy_arns = [module.kms.usage_policy_arn]
       container_port        = null
       target_group_arn      = null

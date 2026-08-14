@@ -1,24 +1,25 @@
 import type { Database } from "@xebra/db";
-import { escrowEvents, intents } from "@xebra/db";
+import { claims, escrowEvents, intents } from "@xebra/db";
 import type { ChainEvent } from "@xebra/event-bus";
 import { eq } from "drizzle-orm";
 import type { Logger } from "pino";
+import {
+  projectIntentChallenged,
+  projectIntentClaimed,
+  projectIntentResolved,
+} from "./project-claim.js";
 import { projectIntentOpened } from "./project-intent-opened.js";
 
 /**
  * Populates packages/db's tables from the event backbone — the piece flagged as a known gap
  * throughout the rest of this codebase (see repo README's Status section, apps/solver's and
- * apps/arbiter-service's module doc comments). Idempotent by design: `intents` inserts use
- * `onConflictDoNothing` (an IntentOpened event redelivered — Kafka's at-least-once delivery —
- * shouldn't error), and `escrow_events` is a pure append-only audit log keyed by the event's own
- * dedup id, so redelivery there is a harmless duplicate-key no-op too.
+ * apps/arbiter-service's module doc comments). Idempotent by design: `intents`/`claims` inserts
+ * use `onConflictDoNothing` (an event redelivered — Kafka's at-least-once delivery — shouldn't
+ * error), and `escrow_events` is a pure append-only audit log keyed by the event's own dedup id,
+ * so redelivery there is a harmless duplicate-key no-op too.
  *
- * Status transitions for non-Opened events (Claimed/Challenged/Resolved/Finalized/Refunded) are
- * intentionally the only thing projected for those event types right now — updating `claims`
- * with full field detail (solver address, delivered amount, challenge bond/timestamps) is real
- * work with its own per-chain payload-shape mapping (mirroring project-intent-opened.ts's
- * Arc-vs-Soroban split) that didn't fit this pass; `intents.status` alone is enough to unblock
- * apps/api's status queries, which is the most load-bearing gap this closes first.
+ * `claims` is now populated (see project-claim.ts) — this is what unblocks
+ * apps/arbiter-service's claim-verification lookup, per that file's own module doc comment.
  */
 
 const STATUS_BY_EVENT_TYPE: Partial<Record<ChainEvent["eventType"], string>> = {
@@ -39,6 +40,38 @@ export async function projectEvent(db: Database, event: ChainEvent, logger: Logg
       return;
     }
     await db.insert(intents).values(row).onConflictDoNothing();
+  }
+
+  if (event.eventType === "IntentClaimed") {
+    const row = projectIntentClaimed(event);
+    if (!row) {
+      logger.warn(
+        { eventId: event.id },
+        "projector: IntentClaimed event didn't match a known payload shape, skipping claims insert",
+      );
+    } else {
+      await db.insert(claims).values(row).onConflictDoNothing();
+    }
+  }
+
+  const claimUpdate =
+    event.eventType === "IntentChallenged"
+      ? projectIntentChallenged(event)
+      : event.eventType === "IntentResolved"
+        ? projectIntentResolved(event)
+        : null;
+  if (claimUpdate && event.intentHash) {
+    try {
+      await db.update(claims).set(claimUpdate).where(eq(claims.intentHash, event.intentHash));
+    } catch (err) {
+      // The claim row may not exist yet if this event was delivered out of order relative to
+      // its IntentClaimed event — same out-of-order-delivery reasoning as the intents status
+      // update below.
+      logger.warn(
+        { eventId: event.id, err },
+        "projector: claims update failed, possibly out-of-order delivery",
+      );
+    }
   }
 
   const newStatus = STATUS_BY_EVENT_TYPE[event.eventType];

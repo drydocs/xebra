@@ -5,31 +5,32 @@
  * @xebra/chain-adapters — the same falsifiable check anyone else could run) and submits
  * resolve() on whichever escrow raised the challenge.
  *
- * NOT FULLY WIRED: resolving a challenge needs the claim's asserted destination tx reference,
- * minDestAmount, destAsset, and destAddress — fields carried on the earlier IntentClaimed
- * event, not IntentChallenged itself. Correlating the two currently requires the "Kafka->DB
- * projector" gap noted in the repo README (nothing yet persists events to Postgres for lookup).
- * The pieces that ARE real and independently verified: decide.ts (the validity decision, a
- * one-line wrapper around chain-adapters' own verification — no separate arbiter policy),
- * evm-account.ts + resolve-arc.ts (KMS-signed Arc resolve() calls, tested against real
- * secp256k1 signing/recovery), and resolve-soroban.ts (KMS-signed Soroban resolve() calls).
- * This file wires the KMS signers to live events but cannot yet fetch the claim data resolve()
- * needs — once the projector exists, the handler below becomes:
- *
- *   const claim = await lookupClaim(db, event.intentHash);
- *   const verified = await verifyClaimAgainstDestinationChain(claim);
- *   const claimValid = decideClaimValidity(verified);
- *   const result = event.chainId === ChainId.ArcEvm
- *     ? await resolveOnArc(config.ARC_RPC_URL, config.ARC_ESCROW_ADDRESS, evmSigner, event.intentHash, claimValid)
- *     : await resolveOnSoroban(sorobanServer, config.STELLAR_ESCROW_CONTRACT_ID, stellarSigner, config.STELLAR_NETWORK_PASSPHRASE, event.intentHash, claimValid);
+ * v1 scope: only the Stellar->Solana corridor's verification path is wired (see
+ * verify-claim.ts) — resolving a challenge on the existing Arc->Stellar corridor still logs and
+ * skips, since that corridor's Horizon-based fulfillment match check isn't written yet. The
+ * pieces that ARE real and independently verified: decide.ts (the validity decision, a one-line
+ * wrapper around chain-adapters' own verification — no separate arbiter policy), evm-account.ts
+ * + resolve-arc.ts (KMS-signed Arc resolve() calls, tested against real secp256k1
+ * signing/recovery), resolve-soroban.ts (KMS-signed Soroban resolve() calls), and lookup-claim.ts
+ * / verify-claim.ts (the claims-table lookup and Solana-delivery verification this file now
+ * wires end to end — see apps/projector/src/project-claim.ts for what populates `claims`).
  */
 
 import { KMSClient } from "@aws-sdk/client-kms";
+import { Connection as SolanaConnection } from "@solana/web3.js";
+import { rpc } from "@stellar/stellar-sdk";
 import { createKmsEvmSigner, createKmsStellarSigner } from "@xebra/arbiter-signer";
+import { createDb } from "@xebra/db";
 import { createEventConsumer, createKafkaClient } from "@xebra/event-bus";
-import { startObservability } from "@xebra/observability";
+import { ChainId } from "@xebra/intent-schema";
+import { registerPolledGauge, startObservability } from "@xebra/observability";
 import pino from "pino";
 import { loadConfig } from "./config.js";
+import { decideClaimValidity } from "./decide.js";
+import { lookupClaim } from "./lookup-claim.js";
+import { resolveOnArc } from "./resolve-arc.js";
+import { resolveOnSoroban } from "./resolve-soroban.js";
+import { verifyClaimAgainstDestinationChain } from "./verify-claim.js";
 
 const logger = pino({ name: "arbiter-service" });
 
@@ -37,14 +38,26 @@ async function main() {
   const config = loadConfig();
   const obs = startObservability({ serviceName: "arbiter-service" });
   const kms = new KMSClient({ region: config.KMS_REGION });
+  const db = createDb(config.DATABASE_URL);
+  const solanaConnection = new SolanaConnection(config.SOLANA_RPC_URL, "confirmed");
+  const sorobanServer = new rpc.Server(config.SOROBAN_RPC_URL);
 
-  // docs/architecture.md §11's "arbiter KMS failures" alert. Only the startup GetPublicKey calls
-  // are wired to this counter today — the resolve() path's KMS Sign calls (resolve-arc.ts /
-  // resolve-soroban.ts) aren't reachable yet (see this file's module doc comment on the
-  // Kafka->DB projector gap); wrap those the same way once that path is live.
+  // docs/architecture.md §11's "arbiter KMS failures" alert — covers both the startup
+  // GetPublicKey calls below and, now that the resolve path is wired, the Sign calls inside
+  // resolveOnArc/resolveOnSoroban.
   const kmsFailures = obs.meter.createCounter("arbiter_kms_failures_total", {
     description: "KMS calls made by the arbiter service that threw.",
   });
+  let pendingChallenges = 0;
+  registerPolledGauge(
+    obs.meter,
+    "arbiter_pending_challenges",
+    {
+      description:
+        "IntentChallenged events observed but not yet resolved (claim missing or destination unverifiable).",
+    },
+    () => pendingChallenges,
+  );
 
   const [evmSigner, stellarSigner] = await Promise.all([
     createKmsEvmSigner(kms, config.ARBITER_EVM_KMS_KEY_ID).catch((err) => {
@@ -70,11 +83,67 @@ async function main() {
     async (event) => {
       if (event.eventType !== "IntentChallenged" || !event.intentHash) return;
 
-      logger.warn(
-        { intentHash: event.intentHash, chainId: event.chainId },
-        "arbiter-service: challenge observed, but claim verification is not wired yet (needs the " +
-          "Kafka->DB projector — see this file's module doc comment); resolve() not submitted",
+      const claim = await lookupClaim(db, event.intentHash);
+      if (!claim) {
+        pendingChallenges++;
+        logger.warn(
+          { intentHash: event.intentHash, chainId: event.chainId },
+          "arbiter-service: challenge observed but no claim row found yet (possibly out-of-order " +
+            "delivery relative to IntentClaimed) — not resolving",
+        );
+        return;
+      }
+
+      const verification = await verifyClaimAgainstDestinationChain(solanaConnection, claim);
+      if (!verification.ok) {
+        pendingChallenges++;
+        logger.warn(
+          { intentHash: event.intentHash, reason: verification.reason },
+          "arbiter-service: can't verify this claim's destination chain yet — not resolving",
+        );
+        return;
+      }
+
+      const claimValid = decideClaimValidity(verification.verified);
+      logger.info(
+        {
+          intentHash: event.intentHash,
+          chainId: event.chainId,
+          claimValid,
+          reason: verification.reason,
+        },
+        "arbiter-service: resolving challenge",
       );
+
+      try {
+        const result =
+          event.chainId === ChainId.ArcEvm
+            ? await resolveOnArc(
+                config.ARC_RPC_URL,
+                config.ARC_ESCROW_ADDRESS as `0x${string}`,
+                evmSigner,
+                event.intentHash as `0x${string}`,
+                claimValid,
+              )
+            : await resolveOnSoroban(
+                sorobanServer,
+                config.STELLAR_ESCROW_CONTRACT_ID,
+                stellarSigner,
+                config.STELLAR_NETWORK_PASSPHRASE,
+                event.intentHash,
+                claimValid,
+              );
+        logger.info(
+          { intentHash: event.intentHash, ...result },
+          "arbiter-service: resolve() submitted",
+        );
+      } catch (err) {
+        kmsFailures.add(1, { operation: "resolve" });
+        logger.error(
+          { intentHash: event.intentHash, err },
+          "arbiter-service: resolve() submission failed",
+        );
+      }
     },
   );
 

@@ -1,4 +1,12 @@
-import { type Database, chains, corridors, createDb, escrowEvents, intents } from "@xebra/db";
+import {
+  type Database,
+  chains,
+  claims,
+  corridors,
+  createDb,
+  escrowEvents,
+  intents,
+} from "@xebra/db";
 import type { ChainEvent } from "@xebra/event-bus";
 import { ChainId } from "@xebra/intent-schema";
 import { eq } from "drizzle-orm";
@@ -55,6 +63,7 @@ describeIfDb("projectEvent (integration)", () => {
 
   afterAll(async () => {
     await db.delete(escrowEvents);
+    await db.delete(claims);
     await db.delete(intents);
     await db.delete(corridors);
     await db.delete(chains);
@@ -95,5 +104,68 @@ describeIfDb("projectEvent (integration)", () => {
       .from(escrowEvents)
       .where(eq(escrowEvents.intentHash, INTENT_HASH));
     expect(events.map((e) => e.eventType).sort()).toEqual(["IntentClaimed", "IntentOpened"]);
+  });
+
+  it("projects a real claim through claimed -> challenged -> resolved", async () => {
+    // Field shapes here match real events observed against a live testnet deployment (see
+    // decode-soroban-events.ts's module doc comment) — snake_case struct field names.
+    const claimedEvent: ChainEvent = {
+      id: "2:tx3:0",
+      chainId: ChainId.Stellar,
+      intentHash: INTENT_HASH,
+      eventType: "IntentClaimed",
+      txRef: "tx3",
+      blockOrLedgerNumber: "101",
+      observedAt: new Date().toISOString(),
+      payload: {
+        solver: "GAUOB3MN5QAJV75G7ID253KYOWCRYB7U6BQ4WOVPXJAGVRNGRI7NJVTT",
+        dest_tx_ref: "0x64656d6f",
+        delivered_amount: "1000000",
+        solver_bond: "250000000",
+        challenge_deadline: "2000000000",
+      },
+    };
+    await projectEvent(db, claimedEvent, logger);
+
+    const [claimedRow] = await db.select().from(claims).where(eq(claims.intentHash, INTENT_HASH));
+    expect(claimedRow?.solverAddress).toBe(
+      "GAUOB3MN5QAJV75G7ID253KYOWCRYB7U6BQ4WOVPXJAGVRNGRI7NJVTT",
+    );
+    expect(claimedRow?.bondAmount).toBe("250000000");
+    expect(claimedRow?.challengeStatus).toBe("none");
+
+    const challengedEvent: ChainEvent = {
+      ...claimedEvent,
+      id: "2:tx4:0",
+      txRef: "tx4",
+      eventType: "IntentChallenged",
+      payload: {
+        challenger: "GBK6PMDBP4JSAYMIVWOXE5ESIY5F6U6JVEXRNO22J7WHGAB4H46ACMDQ",
+        challenger_bond: "250000000",
+      },
+    };
+    await projectEvent(db, challengedEvent, logger);
+
+    const [challengedRow] = await db
+      .select()
+      .from(claims)
+      .where(eq(claims.intentHash, INTENT_HASH));
+    expect(challengedRow?.challengeStatus).toBe("challenged");
+    expect(challengedRow?.challengerAddress).toBe(
+      "GBK6PMDBP4JSAYMIVWOXE5ESIY5F6U6JVEXRNO22J7WHGAB4H46ACMDQ",
+    );
+
+    const resolvedEvent: ChainEvent = {
+      ...claimedEvent,
+      id: "2:tx5:0",
+      txRef: "tx5",
+      eventType: "IntentResolved",
+      payload: { claim_valid: false },
+    };
+    await projectEvent(db, resolvedEvent, logger);
+
+    const [resolvedRow] = await db.select().from(claims).where(eq(claims.intentHash, INTENT_HASH));
+    expect(resolvedRow?.challengeStatus).toBe("resolved_invalid");
+    expect(resolvedRow?.resolvedAt).not.toBeNull();
   });
 });
