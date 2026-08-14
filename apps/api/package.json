@@ -26,6 +26,7 @@
     "@trpc/server": "^11.0.0",
     "@xebra/db": "workspace:*",
     "@xebra/intent-schema": "workspace:*",
+    "@xebra/observability": "workspace:*",
     "@xebra/router-core": "workspace:*",
     "drizzle-orm": "^0.36.0",
     "pino": "^9.5.0",

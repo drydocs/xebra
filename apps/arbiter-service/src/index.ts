@@ -27,6 +27,7 @@
 import { KMSClient } from "@aws-sdk/client-kms";
 import { createKmsEvmSigner, createKmsStellarSigner } from "@xebra/arbiter-signer";
 import { createEventConsumer, createKafkaClient } from "@xebra/event-bus";
+import { startObservability } from "@xebra/observability";
 import pino from "pino";
 import { loadConfig } from "./config.js";
 
@@ -34,11 +35,26 @@ const logger = pino({ name: "arbiter-service" });
 
 async function main() {
   const config = loadConfig();
+  const obs = startObservability({ serviceName: "arbiter-service" });
   const kms = new KMSClient({ region: config.KMS_REGION });
 
+  // docs/architecture.md §11's "arbiter KMS failures" alert. Only the startup GetPublicKey calls
+  // are wired to this counter today — the resolve() path's KMS Sign calls (resolve-arc.ts /
+  // resolve-soroban.ts) aren't reachable yet (see this file's module doc comment on the
+  // Kafka->DB projector gap); wrap those the same way once that path is live.
+  const kmsFailures = obs.meter.createCounter("arbiter_kms_failures_total", {
+    description: "KMS calls made by the arbiter service that threw.",
+  });
+
   const [evmSigner, stellarSigner] = await Promise.all([
-    createKmsEvmSigner(kms, config.ARBITER_EVM_KMS_KEY_ID),
-    createKmsStellarSigner(kms, config.ARBITER_STELLAR_KMS_KEY_ID),
+    createKmsEvmSigner(kms, config.ARBITER_EVM_KMS_KEY_ID).catch((err) => {
+      kmsFailures.add(1, { operation: "createKmsEvmSigner" });
+      throw err;
+    }),
+    createKmsStellarSigner(kms, config.ARBITER_STELLAR_KMS_KEY_ID).catch((err) => {
+      kmsFailures.add(1, { operation: "createKmsStellarSigner" });
+      throw err;
+    }),
   ]);
   logger.info(
     { evmAddress: evmSigner.address, stellarAddress: stellarSigner.publicKey },
@@ -69,6 +85,7 @@ async function main() {
     process.on(signal, async () => {
       logger.info({ signal }, "arbiter-service: shutting down");
       await consumer.stop();
+      await obs.shutdown();
       process.exit(0);
     });
   }

@@ -17,6 +17,7 @@
 
 import { Connection, Keypair } from "@solana/web3.js";
 import { createIrisClient } from "@xebra/cctp-client";
+import { registerPolledGauge, startObservability } from "@xebra/observability";
 import pino from "pino";
 import { loadConfig } from "./config.js";
 import { InMemoryRelayJobStore } from "./job-store.js";
@@ -27,10 +28,20 @@ const logger = pino({ name: "cctp-relay" });
 
 async function main() {
   const config = loadConfig();
+  const obs = startObservability({ serviceName: "cctp-relay" });
 
   const connection = new Connection(config.SOLANA_RPC_URL, "confirmed");
   const payer = Keypair.fromSecretKey(Buffer.from(config.RELAY_SOLANA_KEYPAIR, "base64"));
   const iris = createIrisClient(config.IRIS_BASE_URL);
+
+  // docs/architecture.md §11's "relay SOL balance low" alert: sampled on every metric export
+  // cycle rather than pushed, so a stalled relay's balance is still visible in Grafana.
+  registerPolledGauge(
+    obs.meter,
+    "relay_sol_balance_lamports",
+    { description: "The relay hot wallet's SOL balance, in lamports." },
+    async () => connection.getBalance(payer.publicKey),
+  );
 
   const mint = createSolanaMintSubmitter(connection, payer, async () => {
     throw new Error(
@@ -49,6 +60,7 @@ async function main() {
       maxAttempts: config.RELAY_MAX_ATTEMPTS,
     },
     logger,
+    meter: obs.meter,
   });
 
   logger.info({ solanaRpc: config.SOLANA_RPC_URL }, "cctp-relay: worker started");
@@ -57,6 +69,7 @@ async function main() {
     process.on(signal, async () => {
       logger.info({ signal }, "cctp-relay: shutting down");
       await worker.close();
+      await obs.shutdown();
       process.exit(0);
     });
   }

@@ -4,6 +4,7 @@
  */
 
 import { createHTTPServer } from "@trpc/server/adapters/standalone";
+import { startObservability } from "@xebra/observability";
 import pino from "pino";
 import { createContextFactory, createDbFromEnv } from "./context.js";
 import { appRouter } from "./router.js";
@@ -13,6 +14,7 @@ const logger = pino({ name: "api" });
 async function main() {
   const db = createDbFromEnv();
   const port = Number(process.env.PORT ?? 4000);
+  const obs = startObservability({ serviceName: "api" });
 
   const server = createHTTPServer({
     router: appRouter,
@@ -25,7 +27,9 @@ async function main() {
   for (const signal of ["SIGINT", "SIGTERM"] as const) {
     process.on(signal, () => {
       logger.info({ signal }, "api: shutting down");
-      server.close(() => process.exit(0));
+      server.close(() => {
+        obs.shutdown().finally(() => process.exit(0));
+      });
     });
   }
 }

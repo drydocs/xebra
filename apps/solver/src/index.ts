@@ -9,9 +9,15 @@
  * re-implemented here — see the frozen v1 spec for that corridor's solver behavior.
  */
 
+import {
+  TokenAccountNotFoundError,
+  getAccount,
+  getAssociatedTokenAddressSync,
+} from "@solana/spl-token";
 import { Connection as SolanaConnection, Keypair as SolanaKeypair } from "@solana/web3.js";
 import { Keypair as StellarKeypair, rpc } from "@stellar/stellar-sdk";
 import { createEventConsumer, createKafkaClient } from "@xebra/event-bus";
+import { startObservability } from "@xebra/observability";
 import pino from "pino";
 import { createSolanaFillAdapter } from "./adapters/solana-fill.js";
 import { createStellarClaimAdapter } from "./adapters/stellar-claim.js";
@@ -23,6 +29,7 @@ const logger = pino({ name: "solver" });
 
 async function main() {
   const config = loadConfig();
+  const obs = startObservability({ serviceName: "solver" });
 
   const solanaConnection = new SolanaConnection(config.SOLANA_RPC_URL, "confirmed");
   const solanaKeypair = SolanaKeypair.fromSecretKey(
@@ -31,11 +38,30 @@ async function main() {
   const sorobanServer = new rpc.Server(config.SOROBAN_RPC_URL);
   const stellarKeypair = StellarKeypair.fromSecret(config.SOLVER_STELLAR_SECRET);
 
+  // Backs docs/architecture.md §11's "per-chain solver inventory low" alert: recorded on every
+  // fill quote, so a Grafana panel/alert can watch this gauge directly rather than needing the
+  // separate solver_inventory_snapshots table populated first.
+  const inventoryGauge = obs.meter.createGauge("solver_inventory_amount", {
+    description:
+      "Solver's Solana token balance for a destination-asset mint, sampled on each fill quote.",
+  });
+
   const fill = createSolanaFillAdapter(solanaConnection, solanaKeypair, {
-    // TODO: wire to real SPL balance checks (getAccount/getTokenAccountBalance) — placeholder
-    // "always sufficient" until inventory tracking (docs/architecture.md §11's
-    // solver_inventory_snapshots) is wired up.
-    getBalance: async () => 2n ** 64n,
+    async getBalance(mint) {
+      const ata = getAssociatedTokenAddressSync(mint, solanaKeypair.publicKey);
+      let amount: bigint;
+      try {
+        amount = (await getAccount(solanaConnection, ata)).amount;
+      } catch (err) {
+        if (err instanceof TokenAccountNotFoundError) {
+          amount = 0n;
+        } else {
+          throw err;
+        }
+      }
+      inventoryGauge.record(Number(amount), { mint: mint.toBase58() });
+      return amount;
+    },
   });
   const claim = createStellarClaimAdapter(
     sorobanServer,
@@ -60,6 +86,7 @@ async function main() {
     process.on(signal, async () => {
       logger.info({ signal }, "solver: shutting down");
       await consumer.stop();
+      await obs.shutdown();
       process.exit(0);
     });
   }

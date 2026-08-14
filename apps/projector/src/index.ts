@@ -9,8 +9,10 @@
 
 import { createDb } from "@xebra/db";
 import { createEventConsumer, createKafkaClient } from "@xebra/event-bus";
+import { registerPolledGauge, startObservability } from "@xebra/observability";
 import pino from "pino";
 import { z } from "zod";
+import { countNearingClose, fetchUnchallengedClaimedRows } from "./near-window-close.js";
 import { projectEvent } from "./projector.js";
 
 const logger = pino({ name: "projector" });
@@ -18,11 +20,30 @@ const logger = pino({ name: "projector" });
 const ConfigSchema = z.object({
   DATABASE_URL: z.string().min(1),
   KAFKA_BROKERS: z.string().min(1),
+  // docs/architecture.md §11's alert fires once a claim is within this many ms of its challenge
+  // window closing with nobody having disputed it — default 10 minutes.
+  NEAR_WINDOW_CLOSE_THRESHOLD_MS: z.coerce.number().int().positive().default(600_000),
 });
 
 async function main() {
   const config = ConfigSchema.parse(process.env);
   const db = createDb(config.DATABASE_URL);
+  const obs = startObservability({ serviceName: "projector" });
+
+  registerPolledGauge(
+    obs.meter,
+    "unclaimed_intents_nearing_window_close",
+    {
+      description:
+        "Claimed-but-unchallenged intents within NEAR_WINDOW_CLOSE_THRESHOLD_MS of their challenge window closing.",
+    },
+    async () =>
+      countNearingClose(
+        await fetchUnchallengedClaimedRows(db),
+        config.NEAR_WINDOW_CLOSE_THRESHOLD_MS,
+        Date.now(),
+      ),
+  );
 
   const kafka = createKafkaClient({
     clientId: "projector",
@@ -39,6 +60,7 @@ async function main() {
     process.on(signal, async () => {
       logger.info({ signal }, "projector: shutting down");
       await consumer.stop();
+      await obs.shutdown();
       process.exit(0);
     });
   }

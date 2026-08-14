@@ -14,10 +14,12 @@
     "clean": "rm -rf dist .turbo"
   },
   "dependencies": {
+    "@opentelemetry/api": "^1.9.1",
     "@solana/web3.js": "^1.95.0",
     "@xebra/cctp-client": "workspace:*",
     "@xebra/db": "workspace:*",
     "@xebra/intent-schema": "workspace:*",
+    "@xebra/observability": "workspace:*",
     "bullmq": "^5.34.0",
     "ioredis": "^5.4.1",
     "pino": "^9.5.0",

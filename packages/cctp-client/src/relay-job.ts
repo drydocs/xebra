@@ -25,6 +25,9 @@ export interface RelayJobState {
   destTxSignature?: string;
   attempts: number;
   lastError?: string;
+  /** Epoch ms the job was first queued — carried through every transition via `{...job}`, used
+   *  to derive attestation-pending age for docs/architecture.md §11's alert of the same name. */
+  createdAt: number;
 }
 
 /** Submits the destination-chain `receiveMessage` call. Deliberately an injected interface,
@@ -39,12 +42,15 @@ export interface MintSubmitter {
   ): Promise<{ signature: string }>;
 }
 
-export function createQueuedJob(input: {
-  id: string;
-  sourceDomainId: number;
-  sourceTxHash: string;
-}): RelayJobState {
-  return { ...input, status: "queued", attempts: 0 };
+export function createQueuedJob(
+  input: {
+    id: string;
+    sourceDomainId: number;
+    sourceTxHash: string;
+  },
+  now: number = Date.now(),
+): RelayJobState {
+  return { ...input, status: "queued", attempts: 0, createdAt: now };
 }
 
 /** Advances a job by exactly one step from its current state. Call repeatedly (e.g. on a

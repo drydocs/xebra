@@ -1,3 +1,4 @@
+import type { Meter } from "@opentelemetry/api";
 import type { RelayJobState } from "@xebra/cctp-client";
 import { type ConnectionOptions, Queue, Worker } from "bullmq";
 import type { Logger } from "pino";
@@ -10,17 +11,24 @@ export interface StartWorkerOptions {
   connection: ConnectionOptions;
   deps: Omit<ProcessJobDeps, "store"> & { store: RelayJobStore };
   logger: Logger;
+  /** Optional — when provided, records docs/architecture.md §11's "CCTP attestation pending
+   *  past threshold" alert signal on every processed job still waiting on Iris. */
+  meter?: Meter;
 }
 
 /**
  * Thin BullMQ shell around `processJob` (the actual, unit-tested pipeline logic). This file's
  * job is queue mechanics only: pull a job, call processJob, act on its ScheduleDecision.
  */
-export function startWorker({ connection, deps, logger }: StartWorkerOptions): {
+export function startWorker({ connection, deps, logger, meter }: StartWorkerOptions): {
   queue: Queue;
   worker: Worker;
 } {
   const queue = new Queue<RelayJobState>(QUEUE_NAME, { connection });
+  const attestationAgeGauge = meter?.createGauge("cctp_attestation_pending_age_ms", {
+    description:
+      "Time since a relay job was queued, for jobs still waiting on Circle's Iris attestation.",
+  });
 
   const worker = new Worker<RelayJobState>(
     QUEUE_NAME,
@@ -30,6 +38,10 @@ export function startWorker({ connection, deps, logger }: StartWorkerOptions): {
         { jobId: result.job.id, status: result.job.status, decision: result.decision },
         "cctp-relay: processed job",
       );
+
+      if (result.job.status === "waiting_attestation") {
+        attestationAgeGauge?.record(Date.now() - result.job.createdAt, { jobId: result.job.id });
+      }
 
       switch (result.decision.type) {
         case "requeue":

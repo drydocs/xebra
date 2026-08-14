@@ -7,6 +7,7 @@
 
 import { Horizon, rpc } from "@stellar/stellar-sdk";
 import { createEventProducer, createKafkaClient } from "@xebra/event-bus";
+import { startObservability } from "@xebra/observability";
 import pino from "pino";
 import { loadConfig } from "./config.js";
 import {
@@ -50,6 +51,7 @@ function createHorizonSource(server: Horizon.Server): HorizonPaymentSource {
 
 async function main() {
   const config = loadConfig();
+  const obs = startObservability({ serviceName: "indexer-stellar" });
 
   const sorobanServer = new rpc.Server(config.SOROBAN_RPC_URL);
   const horizonServer = new Horizon.Server(config.HORIZON_URL);
@@ -77,6 +79,7 @@ async function main() {
       logger.info({ signal }, "indexer-stellar: shutting down");
       running = false;
       await producer.disconnect();
+      await obs.shutdown();
       process.exit(0);
     });
   }

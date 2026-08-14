@@ -6,6 +6,7 @@
 
 import { Connection, PublicKey } from "@solana/web3.js";
 import { createEventProducer, createKafkaClient } from "@xebra/event-bus";
+import { startObservability } from "@xebra/observability";
 import pino from "pino";
 import { loadConfig } from "./config.js";
 import { type SolanaTxSource, pollOnce } from "./watch.js";
@@ -25,6 +26,7 @@ function createTxSource(connection: Connection): SolanaTxSource {
 
 async function main() {
   const config = loadConfig();
+  const obs = startObservability({ serviceName: "indexer-solana" });
   const connection = new Connection(config.SOLANA_RPC_URL, "confirmed");
   const source = createTxSource(connection);
 
@@ -45,6 +47,7 @@ async function main() {
       logger.info({ signal }, "indexer-solana: shutting down");
       running = false;
       await producer.disconnect();
+      await obs.shutdown();
       process.exit(0);
     });
   }

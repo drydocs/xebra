@@ -6,6 +6,7 @@
  */
 
 import { createEventProducer, createKafkaClient } from "@xebra/event-bus";
+import { startObservability } from "@xebra/observability";
 import pino from "pino";
 import { loadConfig } from "./config.js";
 import { startWatching } from "./watch.js";
@@ -14,6 +15,7 @@ const logger = pino({ name: "indexer-arc" });
 
 async function main() {
   const config = loadConfig();
+  const obs = startObservability({ serviceName: "indexer-arc" });
 
   const kafka = createKafkaClient({
     clientId: "indexer-arc",
@@ -35,6 +37,7 @@ async function main() {
       logger.info({ signal }, "indexer-arc: shutting down");
       stop();
       await producer.disconnect();
+      await obs.shutdown();
       process.exit(0);
     });
   }

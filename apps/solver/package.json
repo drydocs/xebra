@@ -22,6 +22,7 @@
     "@xebra/chain-adapters": "workspace:*",
     "@xebra/cctp-client": "workspace:*",
     "@xebra/event-bus": "workspace:*",
+    "@xebra/observability": "workspace:*",
     "@xebra/router-core": "workspace:*",
     "pino": "^9.5.0",
     "zod": "^3.24.0"
