@@ -10,6 +10,10 @@ import {
   hex32ToBytes,
 } from "@xebra/intent-schema";
 import type { ClaimLookup } from "./lookup-claim.js";
+import {
+  type StellarFulfillmentSource,
+  verifyStellarFulfillment,
+} from "./verify-stellar-fulfillment.js";
 
 export type VerifyClaimResult =
   | { ok: true; verified: boolean; reason?: string }
@@ -18,26 +22,27 @@ export type VerifyClaimResult =
 /**
  * Dispatches to the right destination-chain verification for a claim, then hands the caller a
  * plain pass/fail — `decide.ts`'s `decideClaimValidity` is the one-line wrapper around this
- * that turns it into the `claimValid` bool `resolve()` needs. v1 scope: only the Solana
- * destination (this session's new Stellar->Solana corridor) is wired; the existing Arc->Stellar
- * corridor's Horizon-based fulfillment-payment match check is real, documented follow-on work
- * (its decode half already exists in @xebra/chain-adapters' `decodeFulfillmentPayment`, but the
- * "does this payment satisfy this specific claim" comparison isn't written yet) — `ok: false`
- * below for that case is a "can't verify yet," not a claim-is-invalid verdict, and callers must
- * not resolve a challenge on it.
+ * that turns it into the `claimValid` bool `resolve()` needs. Covers both corridors: the new
+ * Stellar->Solana one (this session's build) and the existing Arc->Stellar one (see
+ * verify-stellar-fulfillment.ts for that corridor's Horizon-based match check).
  */
 export async function verifyClaimAgainstDestinationChain(
   solanaConnection: Connection,
+  stellarSource: StellarFulfillmentSource,
   { intent, claim }: ClaimLookup,
 ): Promise<VerifyClaimResult> {
   // `intents` has no standalone destChain column — the destination chain lives on
   // `destAddress.chainId` (see packages/db/src/schema.ts; project-intent-opened.ts sets it when
   // the row is first projected).
   const destChain = (intent.destAddress as ChainAddress).chainId;
+
+  if (destChain === ChainId.Stellar) {
+    return verifyStellarFulfillment(stellarSource, { intent, claim });
+  }
   if (destChain !== ChainId.Solana) {
     return {
       ok: false,
-      reason: `destination chain ${destChain} verification isn't wired yet (only Solana is)`,
+      reason: `destination chain ${destChain} verification isn't wired yet (only Solana and Stellar are)`,
     };
   }
 

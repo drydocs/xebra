@@ -5,20 +5,19 @@
  * @xebra/chain-adapters — the same falsifiable check anyone else could run) and submits
  * resolve() on whichever escrow raised the challenge.
  *
- * v1 scope: only the Stellar->Solana corridor's verification path is wired (see
- * verify-claim.ts) — resolving a challenge on the existing Arc->Stellar corridor still logs and
- * skips, since that corridor's Horizon-based fulfillment match check isn't written yet. The
- * pieces that ARE real and independently verified: decide.ts (the validity decision, a one-line
- * wrapper around chain-adapters' own verification — no separate arbiter policy), evm-account.ts
- * + resolve-arc.ts (KMS-signed Arc resolve() calls, tested against real secp256k1
- * signing/recovery), resolve-soroban.ts (KMS-signed Soroban resolve() calls), and lookup-claim.ts
- * / verify-claim.ts (the claims-table lookup and Solana-delivery verification this file now
- * wires end to end — see apps/projector/src/project-claim.ts for what populates `claims`).
+ * Both corridors' verification paths are wired: the new Stellar->Solana corridor
+ * (verify-claim.ts's Solana branch, against a real fetched+parsed Solana tx) and the existing
+ * Arc->Stellar corridor (verify-stellar-fulfillment.ts, against a real fetched Horizon payment).
+ * decide.ts is the one-line wrapper turning either verification into the `claimValid` bool
+ * `resolve()` needs — no separate arbiter policy layer. lookup-claim.ts is the join against
+ * apps/projector/src/project-claim.ts's now-populated `claims` table that makes any of this
+ * possible. evm-account.ts + resolve-arc.ts / resolve-soroban.ts submit the actual KMS-signed
+ * resolve() call on whichever escrow raised the challenge.
  */
 
 import { KMSClient } from "@aws-sdk/client-kms";
 import { Connection as SolanaConnection } from "@solana/web3.js";
-import { rpc } from "@stellar/stellar-sdk";
+import { Horizon, rpc } from "@stellar/stellar-sdk";
 import { createKmsEvmSigner, createKmsStellarSigner } from "@xebra/arbiter-signer";
 import { createDb } from "@xebra/db";
 import { createEventConsumer, createKafkaClient } from "@xebra/event-bus";
@@ -31,6 +30,7 @@ import { lookupClaim } from "./lookup-claim.js";
 import { resolveOnArc } from "./resolve-arc.js";
 import { resolveOnSoroban } from "./resolve-soroban.js";
 import { verifyClaimAgainstDestinationChain } from "./verify-claim.js";
+import type { StellarFulfillmentSource } from "./verify-stellar-fulfillment.js";
 
 const logger = pino({ name: "arbiter-service" });
 
@@ -41,6 +41,23 @@ async function main() {
   const db = createDb(config.DATABASE_URL);
   const solanaConnection = new SolanaConnection(config.SOLANA_RPC_URL, "confirmed");
   const sorobanServer = new rpc.Server(config.SOROBAN_RPC_URL);
+  const horizonServer = new Horizon.Server(config.HORIZON_URL);
+  const stellarSource: StellarFulfillmentSource = {
+    getTransaction: (hash) => horizonServer.transactions().transaction(hash).call(),
+    getPaymentsForTransaction: async (hash) => {
+      const page = await horizonServer.payments().forTransaction(hash).call();
+      return page.records.filter(
+        (
+          r,
+        ): r is
+          | Horizon.ServerApi.PaymentOperationRecord
+          | Horizon.ServerApi.PathPaymentOperationRecord =>
+          r.type === "payment" ||
+          r.type === "path_payment_strict_receive" ||
+          r.type === "path_payment_strict_send",
+      );
+    },
+  };
 
   // docs/architecture.md §11's "arbiter KMS failures" alert — covers both the startup
   // GetPublicKey calls below and, now that the resolve path is wired, the Sign calls inside
@@ -94,7 +111,11 @@ async function main() {
         return;
       }
 
-      const verification = await verifyClaimAgainstDestinationChain(solanaConnection, claim);
+      const verification = await verifyClaimAgainstDestinationChain(
+        solanaConnection,
+        stellarSource,
+        claim,
+      );
       if (!verification.ok) {
         pendingChallenges++;
         logger.warn(

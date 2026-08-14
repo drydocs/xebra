@@ -16,6 +16,9 @@ const ConfigSchema = z.object({
   /** Only used for verifying claims on the Stellar->Solana corridor (destination-chain proof
    *  fetch) — see verify-claim.ts. */
   SOLANA_RPC_URL: z.string().url(),
+  /** Only used for verifying claims on the existing Arc->Stellar corridor (destination-chain
+   *  proof fetch) — see verify-stellar-fulfillment.ts. */
+  HORIZON_URL: z.string().url(),
 
   KMS_REGION: z.string().min(1).default("us-east-1"),
 });

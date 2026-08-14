@@ -105,6 +105,7 @@ locals {
         STELLAR_NETWORK_PASSPHRASE = var.stellar_network_passphrase
         ARBITER_STELLAR_KMS_KEY_ID = module.kms.stellar_key_id
         SOLANA_RPC_URL             = var.solana_rpc_url
+        HORIZON_URL                = var.horizon_url
         KMS_REGION                 = var.aws_region
       }
       secrets = {

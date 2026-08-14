@@ -14,6 +14,12 @@ import bs58 from "bs58";
 import { describe, expect, it, vi } from "vitest";
 import type { ClaimLookup } from "./lookup-claim.js";
 import { verifyClaimAgainstDestinationChain } from "./verify-claim.js";
+import type { StellarFulfillmentSource } from "./verify-stellar-fulfillment.js";
+
+const unusedStellarSource: StellarFulfillmentSource = {
+  getTransaction: vi.fn(),
+  getPaymentsForTransaction: vi.fn(),
+};
 
 const INTENT_HASH = `0x${"66".repeat(32)}` as const;
 const DEST_ASSET_ID = `0x${"55".repeat(32)}` as const;
@@ -31,13 +37,21 @@ const RECIPIENT = new PublicKey(
 );
 
 function claimLookup(overrides: { destChain?: ChainId } = {}): ClaimLookup {
+  const destChain = overrides.destChain ?? ChainId.Solana;
   const intent = {
     intentHash: INTENT_HASH,
     destAssetId: DEST_ASSET_ID,
     minDestAmount: "900000000",
     destAddress: {
-      chainId: overrides.destChain ?? ChainId.Solana,
-      encoding: AddrEncoding.SolanaEd25519_32,
+      chainId: destChain,
+      // Only Solana's encoding matters for the fixtures that actually reach chain-specific
+      // address decoding in this file's tests (the Stellar-dispatch test below fakes out the
+      // Stellar side entirely) — real encoding/chainId pairing is exercised in
+      // verify-stellar-fulfillment.test.ts.
+      encoding:
+        destChain === ChainId.Stellar
+          ? AddrEncoding.StellarEd25519_32
+          : AddrEncoding.SolanaEd25519_32,
       raw: DEST_ADDRESS_RAW,
     },
   } as unknown as typeof intents.$inferSelect;
@@ -85,7 +99,11 @@ describe("verifyClaimAgainstDestinationChain", () => {
       getParsedTransaction: vi.fn(async () => fixtureTx()),
     } as unknown as Connection;
 
-    const result = await verifyClaimAgainstDestinationChain(connection, claimLookup());
+    const result = await verifyClaimAgainstDestinationChain(
+      connection,
+      unusedStellarSource,
+      claimLookup(),
+    );
     expect(result).toEqual({ ok: true, verified: true });
   });
 
@@ -97,19 +115,42 @@ describe("verifyClaimAgainstDestinationChain", () => {
       })),
     } as unknown as Connection;
 
-    const result = await verifyClaimAgainstDestinationChain(connection, claimLookup());
+    const result = await verifyClaimAgainstDestinationChain(
+      connection,
+      unusedStellarSource,
+      claimLookup(),
+    );
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.verified).toBe(false);
   });
 
-  it("returns ok=false (can't verify yet) for a non-Solana destination", async () => {
+  it("returns ok=false (can't verify yet) for a destination chain with no verifier", async () => {
     const connection = { getParsedTransaction: vi.fn() } as unknown as Connection;
 
+    // Arc is only ever a source chain in this system, never a real destination — stands in for
+    // "some chain nobody has wired verification for."
     const result = await verifyClaimAgainstDestinationChain(
       connection,
-      claimLookup({ destChain: ChainId.Stellar }),
+      unusedStellarSource,
+      claimLookup({ destChain: ChainId.ArcEvm }),
     );
     expect(result.ok).toBe(false);
+    expect(connection.getParsedTransaction).not.toHaveBeenCalled();
+  });
+
+  it("dispatches to the Stellar fulfillment source for a Stellar destination", async () => {
+    const connection = { getParsedTransaction: vi.fn() } as unknown as Connection;
+    const stellarSource: StellarFulfillmentSource = {
+      getTransaction: vi.fn(async () => ({ memo_type: "none" }) as never),
+      getPaymentsForTransaction: vi.fn(async () => []),
+    };
+
+    await verifyClaimAgainstDestinationChain(
+      connection,
+      stellarSource,
+      claimLookup({ destChain: ChainId.Stellar }),
+    );
+    expect(stellarSource.getTransaction).toHaveBeenCalled();
     expect(connection.getParsedTransaction).not.toHaveBeenCalled();
   });
 
@@ -118,7 +159,11 @@ describe("verifyClaimAgainstDestinationChain", () => {
       getParsedTransaction: vi.fn(async () => null),
     } as unknown as Connection;
 
-    const result = await verifyClaimAgainstDestinationChain(connection, claimLookup());
+    const result = await verifyClaimAgainstDestinationChain(
+      connection,
+      unusedStellarSource,
+      claimLookup(),
+    );
     expect(result).toEqual({ ok: true, verified: false, reason: "destination tx not found" });
   });
 });
