@@ -25,7 +25,7 @@ async function main() {
   for (const signal of ["SIGINT", "SIGTERM"] as const) {
     process.on(signal, () => {
       logger.info({ signal }, "api: shutting down");
-      server.server.close(() => process.exit(0));
+      server.close(() => process.exit(0));
     });
   }
 }

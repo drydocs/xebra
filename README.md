@@ -73,7 +73,8 @@ See `docs/architecture.md` for the phased delivery plan. Nothing here is deploye
 - `packages/intent-schema`, `router-core`, `chain-adapters`, `cctp-client`, `event-bus`, `db` — all with real logic and tests; `chain-adapters`' Arc log decoding is proven against a real anvil-deployed contract (`arc/decode.live.test.ts`); `db`'s schema has been migrated onto and queried against a live Postgres.
 - `apps/api` — tRPC + Postgres, run live end-to-end against a seeded database.
 - `apps/cctp-relay`, `apps/indexer-arc`, `apps/indexer-stellar`, `apps/indexer-solana`, `apps/solver` — real orchestration logic (each unit-tested with injected/mocked chain clients), thin live wiring around it. Not yet run against a live Soroban RPC, Solana validator, or Redpanda cluster (no local Stellar quickstart or solana-test-validator was available in this build's environment — see individual module doc comments, e.g. `packages/chain-adapters/src/stellar/decode-soroban-events.ts`, for exactly what is and isn't independently verified).
+- `apps/web` — Next.js frontend, **produces a real successful production build** (`pnpm build`), not just a typecheck; two build-breaking issues (a wagmi dependency-bundling failure, an SSR `window` crash) were found and fixed by actually running it rather than trusting the code by inspection. See `apps/web/README.md`.
 
 **Known gap**: nothing yet consumes the event backbone to populate `packages/db`'s tables (the "Kafka→DB projector" implied by docs/architecture.md §8's service table). `apps/api` currently only reads whatever a DB seed/migration puts in Postgres; `apps/solver` reads intents directly off live events instead of via the DB for this reason. This projector is the natural next piece of backend work.
 
-**Not yet built**: `apps/web` (frontend), `apps/arbiter-service`, Terraform/observability (hardening phase).
+**Not yet built**: `apps/arbiter-service`, Terraform/observability (hardening phase).

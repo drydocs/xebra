@@ -6,13 +6,14 @@ coverage/
 .turbo/
 *.tsbuildinfo
 
-# contracts
+# contracts (Foundry vendors deps into lib/, not scoped to just contracts/ would shadow every
+# app's own lib/ directory, e.g. apps/web/lib/)
 target/
 cache/
 artifacts/
 broadcast/
 out/
-lib/
+contracts/*/lib/
 
 # harness / editor
 .claude/

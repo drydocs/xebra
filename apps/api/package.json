@@ -3,6 +3,15 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js",
+    "./router": {
+      "types": "./dist/router.d.ts",
+      "default": "./dist/router.js"
+    }
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "dev": "tsx watch src/index.ts",
@@ -14,7 +23,7 @@
     "clean": "rm -rf dist .turbo"
   },
   "dependencies": {
-    "@trpc/server": "^10.45.2",
+    "@trpc/server": "^11.0.0",
     "@xebra/db": "workspace:*",
     "@xebra/intent-schema": "workspace:*",
     "@xebra/router-core": "workspace:*",
