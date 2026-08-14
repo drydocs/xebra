@@ -81,4 +81,6 @@ See `docs/architecture.md` for the phased delivery plan. Nothing here is deploye
 
 **Known gap, narrowed**: the projector above only populates `intents.status` and `escrow_events`, not the `claims` table (solver address, delivered amount, challenge bond/timestamps — a second per-chain payload mapping in the same shape as `project-intent-opened.ts`'s Arc/Soroban split, not yet written). This is what still blocks `apps/arbiter-service` from looking up a challenged claim's destination-chain proof, and what `apps/api`/`apps/solver` would need to fully switch over from their current manual-seed / raw-event workarounds to reading the DB.
 
-**Not yet built**: Terraform/observability (hardening phase).
+- `infra/terraform` — full staging/production IaC: `network` (VPC, public/private subnets, NAT), `database` (RDS Postgres 17), `cache` (ElastiCache Redis), `kms` (Ed25519 + secp256k1 arbiter keys), `ecs-service` (reusable Fargate module), ECR repos per service, ALBs for `apps/api` and `apps/web`, and root wiring for all nine services. `terraform validate` passes for real against the `hashicorp/aws` provider (a genuine bug — the pinned 5.x provider doesn't recognize `ECC_NIST_EDWARDS25519` as a valid KMS key spec — was caught this way and fixed by moving to provider `~> 6.60`, which does). No `plan`/`apply` was run (no real AWS credentials in this environment); `environments/*.tfvars.example` documents what a real deploy needs.
+
+**Not yet built**: observability (OpenTelemetry/Grafana), dispute walkthrough script, recorded e2e demo.

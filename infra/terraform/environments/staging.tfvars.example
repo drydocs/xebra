@@ -1,0 +1,40 @@
+# Copy to staging.tfvars (gitignored) and fill in real values before `terraform plan`.
+# Every value here is network/environment-specific — see the doc comment in
+# ../variables-services.tf for why none of these have defaults in the config itself.
+
+environment = "staging"
+aws_region  = "us-east-1"
+
+image_tag     = "latest"
+kafka_brokers = "seed-xxxxx.byoc.prd.cloud.redpanda.com:9092"
+
+# --- Arc (EVM testnet) ---
+arc_rpc_url         = "https://replace-with-arc-testnet-rpc"
+arc_escrow_address  = "0x0000000000000000000000000000000000dEaD"
+arc_chain_id        = 9001
+
+# --- Stellar (testnet) ---
+soroban_rpc_url             = "https://soroban-testnet.stellar.org"
+horizon_url                 = "https://horizon-testnet.stellar.org"
+soroban_escrow_contract_id  = "CXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+soroban_start_ledger        = 1
+fulfillment_watch_addresses = "GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+stellar_network_passphrase  = "Test SDF Network ; September 2015"
+
+# --- Solana (devnet) ---
+solana_rpc_url   = "https://api.devnet.solana.com"
+solver_addresses = "REPLACE_WITH_SOLVER_PUBKEY"
+
+# --- CCTP (verify current program IDs/domain ids before relying on these — see
+#     docs/architecture.md's "Open risks to verify during build") ---
+stellar_cctp_domain_id              = 99
+stellar_token_messenger_address     = "REPLACE"
+stellar_message_transmitter_address = "REPLACE"
+stellar_usdc_address                = "REPLACE"
+solana_cctp_domain_id               = 5
+solana_token_messenger_address      = "REPLACE"
+solana_message_transmitter_address  = "REPLACE"
+solana_usdc_address                 = "REPLACE"
+iris_base_url                       = "https://iris-api-sandbox.circle.com"
+
+public_api_url = "https://api-staging.xebra.xyz"

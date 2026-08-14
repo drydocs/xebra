@@ -1,0 +1,8 @@
+# Copy to staging.backend.hcl (gitignored) and fill in the real bucket/table, created out-of-band
+# (see versions.tf's backend block comment — a backend can't bootstrap the infra it depends on).
+# Usage: terraform init -backend-config=environments/staging.backend.hcl
+
+bucket         = "xebra-terraform-state"
+key            = "staging/terraform.tfstate"
+region         = "us-east-1"
+dynamodb_table = "xebra-terraform-locks"
