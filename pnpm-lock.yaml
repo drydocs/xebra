@@ -370,6 +370,9 @@ importers:
       '@xebra/intent-schema':
         specifier: workspace:*
         version: link:../../packages/intent-schema
+      '@xebra/observability':
+        specifier: workspace:*
+        version: link:../../packages/observability
       '@xebra/router-core':
         specifier: workspace:*
         version: link:../../packages/router-core

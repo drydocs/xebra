@@ -19,6 +19,7 @@
     "@trpc/client": "^11.0.0",
     "@trpc/react-query": "^11.0.0",
     "@xebra/intent-schema": "workspace:*",
+    "@xebra/observability": "workspace:*",
     "@xebra/router-core": "workspace:*",
     "next": "^15.1.0",
     "react": "^19.0.0",
