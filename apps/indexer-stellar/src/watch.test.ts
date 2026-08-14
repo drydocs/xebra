@@ -18,7 +18,10 @@ describe("pollSorobanEventsOnce", () => {
       pagingToken: "1",
       inSuccessfulContractCall: true,
       txHash: "tx1",
-      topic: [nativeToScVal("IntentOpened", { type: "symbol" })],
+      // Real event topics are snake_case ("intent_opened") — see decode-soroban-events.ts's
+      // module doc comment; this used to say "IntentOpened" and would have silently matched
+      // zero real events.
+      topic: [nativeToScVal("intent_opened", { type: "symbol" })],
       value: nativeToScVal({ intent_hash: "deadbeef" }, { type: "instance" }),
     } as unknown as rpc.Api.EventResponse;
 

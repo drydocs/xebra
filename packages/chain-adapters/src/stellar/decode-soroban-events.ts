@@ -8,23 +8,22 @@ import { ChainId } from "@xebra/intent-schema";
  *
  * Field shapes here (`EventResponse.topic`/`value` as `xdr.ScVal[]`/`xdr.ScVal`, `txHash`,
  * `ledger`, `ledgerClosedAt`, `id`) are verified against @stellar/stellar-sdk's real
- * `rpc.Api.EventResponse` type (compiled against, not guessed). What is **not** independently
- * verified here: the exact native shape `scValToNative` produces for this contract's
- * `#[contractevent]` structs (e.g. whether a `BytesN<32>` field comes back as a hex string vs.
- * a `Buffer`) — no live Soroban RPC was available to observe a real emitted event against (see
- * docs/architecture.md's "verify at build time" note on Soroban RPC event-polling). `payload`
- * is therefore serialized generically (bigint -> string, Buffer/Uint8Array -> hex) rather than
- * asserting a specific field-by-field shape, and `intentHash` extraction checks multiple
- * plausible key names defensively instead of committing to one unverified guess.
+ * `rpc.Api.EventResponse` type (compiled against, not guessed), and — as of
+ * scripts/e2e-demo — against real events emitted by a live testnet deployment. That live check
+ * caught a real bug: `#[contractevent]`'s topic is the struct name in **snake_case**
+ * (`intent_opened`, not `IntentOpened`) — the original `EVENT_TOPIC_TO_TYPE` keys were PascalCase
+ * and silently matched zero events. `scValToNative` returns a Node `Buffer` (a `Uint8Array`
+ * subclass) for `BytesN`/`Bytes` fields, confirmed against the same live events, which is what
+ * `serializeNative`'s `instanceof Uint8Array` check below was written to catch.
  */
 
 const EVENT_TOPIC_TO_TYPE: Record<string, ChainEventType> = {
-  IntentOpened: "IntentOpened",
-  IntentClaimed: "IntentClaimed",
-  IntentChallenged: "IntentChallenged",
-  IntentResolved: "IntentResolved",
-  IntentFinalized: "IntentFinalized",
-  IntentRefunded: "IntentRefunded",
+  intent_opened: "IntentOpened",
+  intent_claimed: "IntentClaimed",
+  intent_challenged: "IntentChallenged",
+  intent_resolved: "IntentResolved",
+  intent_finalized: "IntentFinalized",
+  intent_refunded: "IntentRefunded",
 };
 
 const INTENT_HASH_KEYS = ["intent_hash", "intentHash"];

@@ -27,10 +27,13 @@ function makeEvent(opts: {
 }
 
 describe("decodeSorobanEvents", () => {
+  // Topic names are snake_case ("intent_opened", not "IntentOpened") — confirmed against real
+  // events emitted by a live testnet deployment in scripts/e2e-demo (see this file's module doc
+  // comment); PascalCase here would silently match nothing, as it originally did.
   it("decodes a recognized event topic into a ChainEvent", () => {
     const events = decodeSorobanEvents([
       makeEvent({
-        topicName: "IntentOpened",
+        topicName: "intent_opened",
         data: { intent_hash: "deadbeef", source_amount: 100n },
       }),
     ]);
@@ -50,14 +53,14 @@ describe("decodeSorobanEvents", () => {
 
   it("returns a null intentHash when the event data has no recognizable key", () => {
     const events = decodeSorobanEvents([
-      makeEvent({ topicName: "IntentFinalized", data: { solver: "GABC" } }),
+      makeEvent({ topicName: "intent_finalized", data: { solver: "GABC" } }),
     ]);
     expect(events[0]?.intentHash).toBeNull();
   });
 
   it("builds a dedup id from chainId, txHash, and event id", () => {
     const events = decodeSorobanEvents([
-      makeEvent({ topicName: "IntentClaimed", data: {}, txHash: "tx1", id: "evt1" }),
+      makeEvent({ topicName: "intent_claimed", data: {}, txHash: "tx1", id: "evt1" }),
     ]);
     expect(events[0]?.id).toBe("2:tx1:evt1");
   });
