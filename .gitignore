@@ -31,6 +31,9 @@ contracts/stellar-soroban/test_snapshots/
 # solana
 test-ledger/
 
+# e2e demo secrets (generated locally by scripts/e2e-demo/01-solana-setup.ts, never committed)
+scripts/e2e-demo/solana-setup.json
+
 # misc
 .DS_Store
 *.log

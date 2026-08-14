@@ -1,0 +1,55 @@
+# End-to-end demo: Stellar->Solana corridor, happy path
+
+This is a **live run** against real Stellar testnet and Solana devnet infrastructure — not a
+local `anvil`/`soroban container`/`solana-test-validator` simulation. It's the first time the
+new `contracts/stellar-soroban` escrow has been exercised outside of Rust's `mock_all_auths()`
+unit-test harness, closing an open risk flagged since Phase 1 ("verify Soroban's
+`require_auth_for_args` wiring at build time").
+
+## What was verified live (2026-08-14, Stellar testnet)
+
+Three funded testnet identities (`e2e-user`, `e2e-solver`, `e2e-arbiter`, generated via
+`stellar keys generate` + `stellar keys fund`), one deployed contract instance, one full
+`open -> claim -> finalize` lifecycle, real challenge-window wait (60s, not mocked/fast-forwarded):
+
+| Step | Tx | What it proves |
+|---|---|---|
+| Upload wasm | [`933e641e…`](https://stellar.expert/explorer/testnet/tx/933e641ea418f82a7787e3a7a4d9772b8661117270f5fcb7b17f00553512bf85) | — |
+| Deploy contract | [`ffcb2765…`](https://stellar.expert/explorer/testnet/tx/ffcb276573a9fe48ed12ef56c5409a51acf1cbdc3fe89c398b86b15c93371d6c) | Constructor accepted `usdc` (native XLM's SAC), `arbiter`, `challenge_window_secs=60` |
+| `open` | [`939a3cf4…`](https://stellar.expert/explorer/testnet/tx/939a3cf47197153d2be2b182ad6ea10d4560bfa39d0d9211aa26b07b3fb2ffb8) | **The genuinely new thing**: `intent.user.require_auth_for_args(...)` verified a real Ed25519 signature over the exact `Intent` struct bytes, against a live host — not mocked. 50 XLM transferred user→escrow. |
+| `claim` | [`0f38da0c…`](https://stellar.expert/explorer/testnet/tx/0f38da0c32d3ad3cde1dfa9d2a75b927d64c0a8228e1ba99723c529514f16840) | Solver posted a real 25 XLM bond (`required_bond(500000000) == 250000000`, matching the 10%-floored-at-25-USDC-equivalent formula) |
+| `finalize` | [`f86d40b4…`](https://stellar.expert/explorer/testnet/tx/f86d40b440e791da25b9d37e15c482bc785f98404248c03d4ca0493534043376) | Called by the **arbiter identity**, not the solver — proving `finalize` really is permissionless. Paid 75 XLM (50 principal + 25 bond) to the solver. Final `status_of` == `Finalized`. |
+
+Contract: `CBMFZNZ4BUU2FLQW6ELGR6BGFO5T7C2LA5JA4TR5HY7UZN5FD3ZJP4OW` ([lab.stellar.org](https://lab.stellar.org/r/testnet/contract/CBMFZNZ4BUU2FLQW6ELGR6BGFO5T7C2LA5JA4TR5HY7UZN5FD3ZJP4OW))
+Intent hash: `66ab5c8488e95dc9e3e70902548089ca9855bab628fdfa63fd5beabd16e8f3e9`
+
+Reproduce with `stellar-open-claim-finalize.sh` (see its header comment for required env vars).
+
+## What's a documented placeholder, and why
+
+`dest_asset`/`dest_address`/`dest_tx_ref` in the run above are **not** a real Solana devnet
+delivery — they're fixed placeholder bytes (`0x1111…`, `0x2222…`, and the ASCII string
+`demo-dest-tx-ref` respectively). `01-solana-setup.ts` in this directory is real, runnable code
+(generates a solver keypair + a recipient keypair, creates a genuine SPL mint, mints inventory to
+the solver's ATA) that was **run but did not complete**: Solana devnet's public faucet
+(`api.devnet.solana.com`'s `requestAirdrop`) returned `429 — "You've either reached your airdrop
+limit today or the airdrop faucet has run dry"` on every attempt (5 retries with backoff, plus a
+retry after the Stellar leg finished), consistently, from this environment's outbound IP. This is
+a faucet rate-limit, not a code or contract issue — the same class of environment constraint
+already documented for local Soroban/Solana infra elsewhere in this README's history (see the
+root README's Status section).
+
+To complete the Solana leg from a machine with devnet SOL available:
+1. Run `01-solana-setup.ts` (via `pnpm --filter @xebra/solver exec tsx` or similar) — writes
+   `solana-setup.json` with the solver/recipient keys and mint address.
+2. Feed the mint's 32-byte pubkey and recipient's 32-byte pubkey (both already in the right raw
+   form — see `@xebra/intent-schema`'s `assetRefToSplMint`/`chainAddressToSolanaAddress`) into
+   the Stellar `open` call's `dest_asset`/`dest_address` instead of the `0x1111…`/`0x2222…`
+   placeholders.
+3. After `open` returns the real `intent_hash`, call `@xebra/chain-adapters`'
+   `buildDeliveryInstructions()` (already used by `apps/solver`'s real fill adapter) to build and
+   submit the actual ATA-create + transfer + memo(intentHash) Solana tx, and use its real
+   signature as `claim`'s `dest_tx_ref` instead of the placeholder.
+
+Everything downstream of that substitution (claim/challenge/resolve/finalize on the Soroban side)
+is exactly what this run already exercised live.
