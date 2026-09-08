@@ -1,0 +1,11 @@
+{
+  "name": "@xebra/stellar-cctp-wrapper",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Fee-taking Soroban wrapper in front of Circle CCTP V2 on Stellar",
+  "scripts": {
+    "build": "cargo build --release --target wasm32v1-none",
+    "test": "cargo test",
+    "check:interface": "../../scripts/check-cctp-interface.sh"
+  }
+}
