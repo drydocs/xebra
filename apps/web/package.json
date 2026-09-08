@@ -4,29 +4,30 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
+    "dev": "node ../../scripts/with-env.mjs .env.production next dev",
+    "build": "node ../../scripts/with-env.mjs .env.production pnpm run build:next",
+    "start": "NEXT_DIST_DIR=.next-build next start",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "clean": "rm -rf .next .turbo"
+    "clean": "rm -rf .next .next-build .turbo",
+    "build:next": "node scripts/check-build-network.mjs && NEXT_DIST_DIR=.next-build next build"
   },
   "dependencies": {
     "@creit.tech/stellar-wallets-kit": "^1.6.0",
+    "@solana/web3.js": "^1.98.4",
     "@stellar/stellar-sdk": "^13.0.0",
     "@tanstack/react-query": "^5.62.0",
     "@trpc/client": "^11.0.0",
     "@trpc/react-query": "^11.0.0",
     "@xebra/intent-schema": "workspace:*",
+    "@xebra/network-config": "workspace:*",
     "@xebra/observability": "workspace:*",
     "@xebra/router-core": "workspace:*",
     "next": "^15.1.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "superjson": "^2.2.1",
-    "viem": "^2.21.0",
-    "wagmi": "^2.14.0"
+    "superjson": "^2.2.1"
   },
   "devDependencies": {
     "@types/react": "^19.0.0",
