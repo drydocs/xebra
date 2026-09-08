@@ -1,4 +1,5 @@
 import {
+  uniqueIndex,
   bigint,
   boolean,
   integer,
@@ -180,18 +181,43 @@ export const cctpTransfers = pgTable("cctp_transfers", {
 /** Mirrors @xebra/cctp-client's `RelayJobState` (packages/cctp-client/src/relay-job.ts) — this
  *  is the `RelayJobStore` implementation apps/cctp-relay's `InMemoryRelayJobStore` placeholder
  *  is meant to be swapped out for. */
-export const relayJobs = pgTable("relay_jobs", {
-  id: text("id").primaryKey(),
-  cctpTransferId: text("cctp_transfer_id")
-    .notNull()
-    .references(() => cctpTransfers.id),
-  status: relayJobStatusEnum("status").notNull().default("queued"),
-  attempts: integer("attempts").notNull().default(0),
-  lastError: text("last_error"),
-  solGasSpentLamports: numeric("sol_gas_spent_lamports", { precision: 38, scale: 0 }),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-});
+export const relayJobs = pgTable(
+  "relay_jobs",
+  {
+    id: text("id").primaryKey(),
+    /** The burn that started this. `(source_domain_id, source_tx_hash)` is the natural key:
+     *  one burn transaction produces exactly one mint, so the unique index below is what makes
+     *  re-enqueueing after a crash or a duplicate watcher tick idempotent. `relay-job.ts`
+     *  claims idempotency "at the caller's job-store layer" — this is that layer. */
+    sourceDomainId: integer("source_domain_id").notNull(),
+    sourceTxHash: text("source_tx_hash").notNull(),
+    /** Optional: the richer projected record, written by apps/projector from the event bus.
+     *  Nullable because the relay must be able to work from a burn alone — requiring a
+     *  projected row first would make minting depend on the projector being healthy. */
+    cctpTransferId: text("cctp_transfer_id").references(() => cctpTransfers.id),
+    status: relayJobStatusEnum("status").notNull().default("queued"),
+    /** Circle's attested message and signature. Stored so a restarted relay can resume without
+     *  re-querying Iris, and so the pair stays available for the permissionless manual claim
+     *  path (docs/architecture.md §5) if the relay is ever unavailable. */
+    message: text("message"),
+    attestation: text("attestation"),
+    destTxSignature: text("dest_tx_signature"),
+    attempts: integer("attempts").notNull().default(0),
+    lastError: text("last_error"),
+    solGasSpentLamports: numeric("sol_gas_spent_lamports", { precision: 38, scale: 0 }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    /** Two watcher ticks, or a watcher restarting mid-batch, must not create two jobs for the
+     *  same burn — that would attempt the mint twice and waste a transaction fee on the second
+     *  (the on-chain `used_nonce` makes it harmless, but not free). */
+    bySourceTx: uniqueIndex("relay_jobs_source_tx_idx").on(
+      table.sourceDomainId,
+      table.sourceTxHash,
+    ),
+  }),
+);
 
 /** Feeds the low-inventory alerting in docs/architecture.md §11 (Grafana alert on a solver
  *  running low on a given chain/asset). Written periodically by apps/solver, not per-fill. */
