@@ -3,3 +3,4 @@ packages:
   - "packages/*"
   - "contracts/arc-evm"
   - "contracts/stellar-soroban"
+  - "contracts/stellar-cctp-wrapper"

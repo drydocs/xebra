@@ -1,33 +1,79 @@
 {
   "$schema": "https://turbo.build/schema.json",
   "ui": "tui",
-  "globalDependencies": ["tsconfig.base.json", ".env"],
+  "globalDependencies": [
+    "tsconfig.base.json",
+    ".env.production"
+  ],
   "tasks": {
     "build": {
-      "dependsOn": ["^build"],
-      "outputs": ["dist/**", ".next/**", "out/**", "target/**"]
+      "dependsOn": [
+        "^build"
+      ],
+      "outputs": [
+        "dist/**",
+        ".next/**",
+        "out/**",
+        "target/**"
+      ]
     },
     "dev": {
       "cache": false,
       "persistent": true
     },
     "test": {
-      "dependsOn": ["^build"],
-      "outputs": ["coverage/**"]
+      "dependsOn": [
+        "^build"
+      ],
+      "outputs": [
+        "coverage/**"
+      ]
     },
     "test:integration": {
-      "dependsOn": ["^build"],
+      "dependsOn": [
+        "^build"
+      ],
       "cache": false
     },
     "lint": {
       "outputs": []
     },
     "typecheck": {
-      "dependsOn": ["^build", "build"],
+      "dependsOn": [
+        "^build",
+        "build"
+      ],
       "outputs": []
     },
     "clean": {
       "cache": false
     }
-  }
+  },
+  "concurrency": "25",
+  "globalEnv": [
+    "NETWORK",
+    "EXPECTED_NETWORK",
+    "NEXT_PUBLIC_*"
+  ],
+  "globalPassThroughEnv": [
+    "STELLAR_*",
+    "SOROBAN_*",
+    "HORIZON_*",
+    "SOLANA_*",
+    "SOLVER_*",
+    "ARC_*",
+    "ARBITER_*",
+    "IRIS_*",
+    "RELAY_*",
+    "CCTP_*",
+    "KMS_*",
+    "DATABASE_URL",
+    "REDIS_URL",
+    "KAFKA_BROKERS",
+    "OTEL_*",
+    "ENVIRONMENT",
+    "PORT",
+    "POLL_INTERVAL_MS",
+    "FULFILLMENT_WATCH_ADDRESSES"
+  ]
 }
