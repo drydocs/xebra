@@ -1,0 +1,10 @@
+{
+  "name": "@xebra/stellar-soroban",
+  "version": "0.0.0",
+  "private": true,
+  "description": "XebraEscrow (Soroban) — Stellar-as-source escrow",
+  "scripts": {
+    "build": "cargo build --release --target wasm32v1-none",
+    "test": "cargo test"
+  }
+}
