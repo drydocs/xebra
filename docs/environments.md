@@ -1,15 +1,26 @@
 # Environment
 
-**Mainnet only.** There is one network, one env file, one code path. Testnet and local
-presets were removed — every extra network was a second set of addresses that could be mixed
+**Mainnet only.** One network, one code path. Testnet and local presets were removed — every extra network was a second set of addresses that could be mixed
 into the first.
 
-| File | Network | Corridor |
+| File | Tracked? | Purpose |
 |---|---|---|
-| `.env.production` | `mainnet` | Stellar mainnet → Solana mainnet-beta |
+| `.env.production.example` | yes | Template carrying the real (public) mainnet constants |
+| `.env.production` | **no** | Your local copy, git-ignored |
 
-It is **committed**. It holds only public chain constants — contract addresses, RPC URLs,
-CCTP domain ids. Secrets are never in it.
+First run:
+
+```bash
+cp .env.production.example .env.production
+```
+
+The env file is a convenience, not the source of truth. The authoritative constants live in
+`packages/network-config` as typed, validated presets; the env file only feeds `NEXT_PUBLIC_*`
+into the build.
+
+Neither file ever holds a secret, and `scripts/check-env-files.sh` scans both. `.env.production`
+stays out of git regardless: a `.env` in a repository reads as a mistake whatever its contents,
+and a committed one is an open invitation for a secret to be added later.
 
 ```bash
 pnpm dev      # mainnet
@@ -82,12 +93,12 @@ client/server bundling differences.
 ## Verification
 
 ```bash
-pnpm check:env     # no secrets, tracked, coherent, client-bundle hygiene
+pnpm check:env     # no secrets, correct tracking, coherent, client-bundle hygiene
 pnpm check:cctp    # our trait vs the live mainnet Circle contract
 ```
 
 `check-env-files.sh` blocks secret-shaped keys (`*SECRET*`, `*PRIVATE_KEY*`, `*KEYPAIR*`,
-`*_TOKEN`, Stellar `S...` seeds, `user:pass@host` URLs) from the committed file. Note that
+`*_TOKEN`, Stellar `S...` seeds, `user:pass@host` URLs) from both files. Note that
 `TOKEN` is matched as a *suffix* only — matching it anywhere would flag
 `STELLAR_TOKEN_MESSENGER_ADDRESS`, and a check that cries wolf is a check people learn to
 ignore.

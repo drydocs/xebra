@@ -44,6 +44,7 @@ try {
   contents = readFileSync(resolve(repoRoot, envFile), "utf8");
 } catch (err) {
   console.error(`FAIL: cannot read ${envFile}: ${err.message}`);
+  console.error("  Fresh checkout? Run: cp .env.production.example .env.production");
   process.exit(1);
 }
 
