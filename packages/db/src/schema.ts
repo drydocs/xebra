@@ -230,3 +230,22 @@ export const solverInventorySnapshots = pgTable("solver_inventory_snapshots", {
   balance: numeric("balance", { precision: 38, scale: 0 }).notNull(),
   observedAt: timestamp("observed_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+/**
+ * Pagination cursors for chain watchers, one row per (service, stream).
+ *
+ * Soroban RPC's `getEvents` is cursor-paginated and its cursors are opaque strings, not ledger
+ * numbers. Keeping the cursor in Postgres rather than in memory is what makes a relay restart
+ * resume where it stopped: an in-memory cursor restarts from `startLedger` on every deploy,
+ * which either re-scans days of history or — once the RPC's retention window has passed the
+ * start ledger — silently skips every burn in between.
+ *
+ * Duplicate scans are harmless (`relay_jobs_source_tx_idx` makes a repeat a no-op); gaps are
+ * not, so the cursor is only ever advanced after a batch is fully durable.
+ */
+export const watcherCursors = pgTable("watcher_cursors", {
+  /** `<service>:<stream>`, e.g. `cctp-relay:stellar-burns`. */
+  id: text("id").primaryKey(),
+  cursor: text("cursor").notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
