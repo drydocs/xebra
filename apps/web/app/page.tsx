@@ -32,6 +32,7 @@ import {
 } from "../lib/cctp-bridge";
 import { env, isCctpRailConfigured } from "../lib/env";
 import { formatError, reportError } from "../lib/format-error";
+import { handOffToRelay, type RelayHandoff } from "../lib/relay";
 import { checkSolanaAddress, resolveRecipient, type RecipientResolution } from "../lib/solana-address";
 import { createStellarWalletKit } from "../lib/stellar-wallet";
 
@@ -88,6 +89,9 @@ export default function HomePage() {
   const [step, setStep] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [txHash, setTxHash] = useState<string | null>(null);
+  // `null` while the handoff is still in flight, so the receipt can say "handing off" rather
+  // than implying either outcome before one is known.
+  const [handoff, setHandoff] = useState<RelayHandoff | null>(null);
   const [recipient, setRecipient] = useState<RecipientResolution | null>(null);
   const [resolving, setResolving] = useState(false);
 
@@ -259,6 +263,12 @@ export default function HomePage() {
         ({ txHash: hash } = await submitDirectBurn(kit, common));
       }
       setTxHash(hash);
+
+      // The burn is on chain and irreversible from here. Telling the relay is what gets the
+      // mint paid for; if it fails the transfer is still fine, it just needs claiming from
+      // /recover, so this runs after the receipt is already on screen and never throws.
+      setHandoff(null);
+      setHandoff(await handOffToRelay(hash));
     } catch (err) {
       setSubmitError(reportError("transfer failed", err));
     } finally {
@@ -410,7 +420,7 @@ export default function HomePage() {
               )}
 
               {txHash ? (
-                <SubmittedNotice txHash={txHash} />
+                <SubmittedNotice txHash={txHash} handoff={handoff} />
               ) : (
                 <Button
                   size="lg"
@@ -537,7 +547,13 @@ function QuotePanel({
   );
 }
 
-function SubmittedNotice({ txHash }: { txHash: string }) {
+function SubmittedNotice({
+  txHash,
+  handoff,
+}: {
+  txHash: string;
+  handoff: RelayHandoff | null;
+}) {
   return (
     <div className="mt-6">
       <Notice tone="signal" title="Burn submitted">
@@ -545,12 +561,68 @@ function SubmittedNotice({ txHash }: { txHash: string }) {
         Your funds are claimable by anyone with the attestation, including you, if our relay is
         unavailable.
       </Notice>
-      <InsetTray className="mt-2.5 flex items-center gap-3 py-3">
-        <span className="tabular min-w-0 flex-1 truncate font-mono text-xs text-bone/45">
-          {txHash}
-        </span>
-        <CopyButton value={txHash} label="transaction hash" />
+      <InsetTray className="mt-2.5 py-3">
+        <div className="flex items-center gap-3">
+          <span className="tabular min-w-0 flex-1 truncate font-mono text-xs text-bone/45">
+            {txHash}
+          </span>
+          <CopyButton value={txHash} label="transaction hash" />
+        </div>
+        <HandoffStatus handoff={handoff} />
       </InsetTray>
+    </div>
+  );
+}
+
+/**
+ * Whether anyone is paying for the mint yet.
+ *
+ * Worth its own line because the two outcomes ask different things of the reader. Queued means
+ * do nothing. Unavailable means the dollars are waiting and one more signature collects them —
+ * which the receipt above already promises, so the link has to actually be here rather than
+ * left as an idea.
+ *
+ * The reason string is shown rather than smoothed into "something went wrong": whoever reads it
+ * is about to either wait or click through to /recover, and "no relay is configured" and "relay
+ * returned 503" call for different amounts of patience.
+ */
+function HandoffStatus({ handoff }: { handoff: RelayHandoff | null }) {
+  if (!handoff) {
+    return (
+      <p className="mt-2.5 flex items-center gap-2 border-t border-bone/[0.06] pt-2.5 text-[0.75rem] text-bone/40">
+        <span className="h-1 w-1 shrink-0 rounded-full bg-bone/50 animate-breathe" />
+        Handing off to the relay…
+      </p>
+    );
+  }
+
+  if (handoff.status === "queued") {
+    return (
+      <p className="mt-2.5 flex items-center gap-2 border-t border-bone/[0.06] pt-2.5 text-[0.75rem] text-bone/45">
+        <span className="h-1 w-1 shrink-0 rounded-full bg-signal" />
+        The relay is paying for the mint. Nothing left to do.
+      </p>
+    );
+  }
+
+  return (
+    <div className="mt-2.5 border-t border-bone/[0.06] pt-2.5 text-[0.75rem] leading-relaxed text-bone/45">
+      <p className="flex items-center gap-2">
+        <span className="h-1 w-1 shrink-0 rounded-full bg-alarm" />
+        No relay picked this up — {handoff.reason}.
+      </p>
+      <p className="mt-1.5 pl-3">
+        Your USDC is burned and still claimable: Circle&rsquo;s attestation is public and never
+        expires, so anyone holding it can complete the mint. Save the hash above — it is the only
+        thing needed. Claiming from your own wallet in this browser is not built yet;{" "}
+        <a
+          href="https://github.com/drydocs/xebra/issues"
+          className="text-bone/70 underline decoration-bone/25 underline-offset-[3px] transition-colors duration-200 ease-haptic hover:text-bone hover:decoration-bone/50"
+        >
+          open an issue
+        </a>{" "}
+        with the hash and it will be relayed.
+      </p>
     </div>
   );
 }
