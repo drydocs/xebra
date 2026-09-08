@@ -3,8 +3,9 @@ import type { ChainEvent, ChainEventType } from "@xebra/event-bus";
 import { ChainId } from "@xebra/intent-schema";
 
 /**
- * Decodes Soroban RPC `getEvents()` results from the new (Stellar-as-source) XebraEscrow
- * contract into normalized `ChainEvent`s, consumed by apps/indexer-stellar.
+ * Decodes Soroban RPC `getEvents()` results from Xebra's Stellar-as-source contracts —
+ * XebraEscrow (intent/swap rail) and XebraCctpWrapper (CCTP-direct rail) — into normalized
+ * `ChainEvent`s, consumed by apps/indexer-stellar.
  *
  * Field shapes here (`EventResponse.topic`/`value` as `xdr.ScVal[]`/`xdr.ScVal`, `txHash`,
  * `ledger`, `ledgerClosedAt`, `id`) are verified against @stellar/stellar-sdk's real
@@ -24,6 +25,14 @@ const EVENT_TOPIC_TO_TYPE: Record<string, ChainEventType> = {
   intent_resolved: "IntentResolved",
   intent_finalized: "IntentFinalized",
   intent_refunded: "IntentRefunded",
+  // CCTP-direct rail, emitted by contracts/stellar-cctp-wrapper rather than the escrow.
+  // `extractIntentHash` correctly yields `null` for this one — it carries `transfer_id`, not
+  // `intent_hash`, and a plain CCTP transfer is not tied to an intent (see `ChainEvent`'s
+  // own note on the nullable `intentHash`). The wrapper's operational events
+  // (`params_proposed`, `fee_recipient_proposed`, ...) are deliberately NOT mapped here:
+  // they are alerting signals about our own contract, not corridor facts, and putting them
+  // on the chain-event bus would mean projecting them into `escrow_events`.
+  bridge_initiated: "CctpBurn",
 };
 
 const INTENT_HASH_KEYS = ["intent_hash", "intentHash"];

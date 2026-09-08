@@ -58,6 +58,42 @@ describe("decodeSorobanEvents", () => {
     expect(events[0]?.intentHash).toBeNull();
   });
 
+  it("decodes the CCTP wrapper's bridge_initiated into a CctpBurn", () => {
+    const events = decodeSorobanEvents([
+      makeEvent({
+        topicName: "bridge_initiated",
+        data: {
+          transfer_id: "cafebabe",
+          seq: 1n,
+          amount: 1_000_0000000n,
+          fee: 1_0000000n,
+          net_burned: 999_0000000n,
+          remainder: 0n,
+          destination_domain: 5,
+        },
+      }),
+    ]);
+
+    expect(events).toHaveLength(1);
+    expect(events[0]?.eventType).toBe("CctpBurn");
+    // A plain CCTP transfer is not tied to an intent — `ChainEvent.intentHash` is nullable
+    // precisely for this case, so `transfer_id` must NOT be coerced into it.
+    expect(events[0]?.intentHash).toBeNull();
+    expect(events[0]?.payload.transfer_id).toBe("cafebabe");
+    // 999 USDC in 7-decimal stroops, serialized from bigint to string.
+    expect(events[0]?.payload.net_burned).toBe("9990000000");
+  });
+
+  it("ignores the wrapper's operational events", () => {
+    // These are alerting signals about our own contract, not corridor facts; projecting them
+    // into escrow_events would be wrong.
+    const events = decodeSorobanEvents([
+      makeEvent({ topicName: "params_proposed", data: { eta: 1n } }),
+      makeEvent({ topicName: "fee_recipient_proposed", data: { eta: 1n } }),
+    ]);
+    expect(events).toHaveLength(0);
+  });
+
   it("builds a dedup id from chainId, txHash, and event id", () => {
     const events = decodeSorobanEvents([
       makeEvent({ topicName: "intent_claimed", data: {}, txHash: "tx1", id: "evt1" }),
