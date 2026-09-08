@@ -1,18 +1,26 @@
-const STATUS_STYLES: Record<string, string> = {
-  open: "bg-blue-500/20 text-blue-300",
-  claimed: "bg-amber-500/20 text-amber-300",
-  challenged: "bg-red-500/20 text-red-300",
-  finalized: "bg-emerald-500/20 text-emerald-300",
-  refunded: "bg-slate-500/20 text-slate-300",
-};
+import { Badge } from "./ui/badge";
+
+/**
+ * An intent's lifecycle state.
+ *
+ * The palette carries exactly two meanings — confirmed (`signal`) and failed (`alarm`) — so
+ * the in-flight states stay neutral and pulse instead. Giving `open` and `claimed` their own
+ * hues, as this used to (blue and amber), meant five colours on a page whose product is
+ * monochrome, and it made "claimed" look like a warning when it is simply progress.
+ */
+const TONES = {
+  open: { tone: "neutral", live: true },
+  claimed: { tone: "neutral", live: true },
+  challenged: { tone: "alarm", live: false },
+  finalized: { tone: "signal", live: false },
+  refunded: { tone: "neutral", live: false },
+} as const satisfies Record<string, { tone: "neutral" | "signal" | "alarm"; live: boolean }>;
 
 export function StatusBadge({ status }: { status: string }) {
-  const style = STATUS_STYLES[status] ?? "bg-slate-500/20 text-slate-300";
+  const { tone, live } = TONES[status as keyof typeof TONES] ?? { tone: "neutral", live: false };
   return (
-    <span
-      className={`inline-block rounded-full px-3 py-1 text-xs font-medium uppercase tracking-wide ${style}`}
-    >
+    <Badge tone={tone} dot pulse={live}>
       {status}
-    </span>
+    </Badge>
   );
 }
