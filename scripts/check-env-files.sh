@@ -1,9 +1,13 @@
 #!/usr/bin/env bash
 #
-# Guards `.env.production` — the single committed env file.
+# Guards the local `.env.production` and its committed example.
 #
-# It is tracked on purpose: it holds public chain constants (contract addresses, RPC URLs,
-# CCTP domain ids) and is the one place network configuration lives. That stays safe only if:
+# `.env.production` is deliberately NOT committed — a .env in a repository reads as a mistake
+# regardless of its contents, and the authoritative constants live in packages/network-config
+# as typed, validated presets. `.env.production.example` is tracked so a checkout can run
+# `cp .env.production.example .env.production` and go.
+#
+# Both files are checked, because:
 #
 #   1. No secret ever lands in it.
 #   2. Its contents stay coherent — checked by packages/network-config's own validator, so the
@@ -22,6 +26,7 @@ FAILED=0
 fail() { echo "FAIL: $*" >&2; FAILED=1; }
 
 ENV_FILE=".env.production"
+EXAMPLE_FILE=".env.production.example"
 
 # --- 1. No secrets ----------------------------------------------------------
 SECRET_ANYWHERE='(SECRET|PRIVATE_KEY|KEYPAIR|MNEMONIC|SEED_PHRASE|PASSWORD|PASSWD|API_KEY|ACCESS_KEY|CREDENTIAL)'
@@ -30,35 +35,44 @@ SECRET_ANYWHERE='(SECRET|PRIVATE_KEY|KEYPAIR|MNEMONIC|SEED_PHRASE|PASSWORD|PASSW
 # that would teach everyone to ignore this check.
 SECRET_SUFFIX='_TOKEN'
 
-if [ ! -f "$ENV_FILE" ]; then
-  fail "$ENV_FILE is missing"
+for f in "$ENV_FILE" "$EXAMPLE_FILE"; do
+if [ ! -f "$f" ]; then
+  [ "$f" = "$ENV_FILE" ] && fail "$ENV_FILE is missing — run: cp $EXAMPLE_FILE $ENV_FILE"
 else
   {
-    grep -nEi "^[[:space:]]*[A-Z0-9_]*${SECRET_ANYWHERE}[A-Z0-9_]*[[:space:]]*=[[:space:]]*[^[:space:]]" "$ENV_FILE" || true
-    grep -nEi "^[[:space:]]*[A-Z0-9_]*${SECRET_SUFFIX}[[:space:]]*=[[:space:]]*[^[:space:]]" "$ENV_FILE" || true
+    grep -nEi "^[[:space:]]*[A-Z0-9_]*${SECRET_ANYWHERE}[A-Z0-9_]*[[:space:]]*=[[:space:]]*[^[:space:]]" "$f" || true
+    grep -nEi "^[[:space:]]*[A-Z0-9_]*${SECRET_SUFFIX}[[:space:]]*=[[:space:]]*[^[:space:]]" "$f" || true
   } > /tmp/_secretcheck 2>/dev/null
   if [ -s /tmp/_secretcheck ]; then
-    fail "$ENV_FILE contains secret-shaped keys with values:"
+    fail "$f contains secret-shaped keys with values:"
     sed 's/^/    /' /tmp/_secretcheck >&2
   fi
   rm -f /tmp/_secretcheck
 
-  if grep -nE '\bS[A-Z2-7]{55}\b' "$ENV_FILE" >/dev/null 2>&1; then
-    fail "$ENV_FILE contains what looks like a Stellar secret seed (S...)"
+  if grep -nE '\bS[A-Z2-7]{55}\b' "$f" >/dev/null 2>&1; then
+    fail "$f contains what looks like a Stellar secret seed (S...)"
   fi
-  if grep -nEi '(BEGIN [A-Z ]*PRIVATE KEY|\bsk_live_|\bghp_[A-Za-z0-9]{36})' "$ENV_FILE" >/dev/null 2>&1; then
-    fail "$ENV_FILE contains what looks like a private key or API token"
+  if grep -nEi '(BEGIN [A-Z ]*PRIVATE KEY|\bsk_live_|\bghp_[A-Za-z0-9]{36})' "$f" >/dev/null 2>&1; then
+    fail "$f contains what looks like a private key or API token"
   fi
-  if grep -nE '://[^:/@[:space:]]+:[^@[:space:]]+@' "$ENV_FILE" >/dev/null 2>&1; then
-    fail "$ENV_FILE contains a URL with inline credentials (user:pass@host)"
+  if grep -nE '://[^:/@[:space:]]+:[^@[:space:]]+@' "$f" >/dev/null 2>&1; then
+    fail "$f contains a URL with inline credentials (user:pass@host)"
   fi
 fi
+done
 
-# --- 2. Must be tracked ------------------------------------------------------
-# The design assumes this is committed. A stray .gitignore rule silently un-tracks it and then
-# it never reaches the build machine. This regressed twice during development.
-if git check-ignore -q "$ENV_FILE" 2>/dev/null; then
-  fail "$ENV_FILE is git-ignored — it MUST be tracked. Check .gitignore for a rule shadowing it."
+# --- 2. Tracking is the right way round --------------------------------------
+# The live file must stay OUT of git; the example must stay IN it. Getting either backwards is
+# the failure: a committed .env invites secrets into it, and an ignored example means a fresh
+# checkout has nothing to copy.
+if ! git check-ignore -q "$ENV_FILE" 2>/dev/null; then
+  fail "$ENV_FILE is NOT git-ignored — it must never be committed."
+fi
+if git check-ignore -q "$EXAMPLE_FILE" 2>/dev/null; then
+  fail "$EXAMPLE_FILE is git-ignored — it must be tracked so a checkout has something to copy."
+fi
+if [ ! -f "$EXAMPLE_FILE" ]; then
+  fail "$EXAMPLE_FILE is missing."
 fi
 
 # --- 3. No leftover testnet configuration ------------------------------------
