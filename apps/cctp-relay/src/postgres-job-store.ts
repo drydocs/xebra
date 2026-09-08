@@ -1,6 +1,6 @@
 import { and, eq } from "drizzle-orm";
 import type { RelayJobState, RelayJobStatus } from "@xebra/cctp-client";
-import { relayJobs } from "@xebra/db";
+import { type Database, relayJobs } from "@xebra/db";
 import type { RelayJobStore } from "./job-store.js";
 
 /**
@@ -23,23 +23,6 @@ import type { RelayJobStore } from "./job-store.js";
  * The chain enforces this too — `used_nonce` makes a second mint impossible — but that costs a
  * transaction fee to discover. Catching it here costs nothing.
  */
-
-type DrizzleDb = {
-  insert: (table: typeof relayJobs) => {
-    values: (v: Record<string, unknown>) => {
-      onConflictDoUpdate: (c: {
-        target: unknown;
-        set: Record<string, unknown>;
-      }) => { returning: () => Promise<Array<Record<string, unknown>>> };
-      onConflictDoNothing: () => { returning: () => Promise<Array<Record<string, unknown>>> };
-    };
-  };
-  select: () => {
-    from: (table: typeof relayJobs) => {
-      where: (w: unknown) => { limit: (n: number) => Promise<Array<Record<string, unknown>>> };
-    };
-  };
-};
 
 function toRow(job: RelayJobState) {
   return {
@@ -79,7 +62,7 @@ function fromRow(row: Record<string, unknown>): RelayJobState {
 }
 
 export class PostgresRelayJobStore implements RelayJobStore {
-  constructor(private readonly db: DrizzleDb) {}
+  constructor(private readonly db: Database) {}
 
   /**
    * Writes the job, overwriting by primary key. The state machine calls this after every
