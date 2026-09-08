@@ -21,22 +21,19 @@ contracts/*/lib/
 
 # env
 #
-# .env.local (testnet) and .env.production (mainnet) ARE COMMITTED on purpose. They hold
-# only public chain constants — contract addresses, RPC URLs, CCTP domain ids — and they
-# are what makes promoting to mainnet a single file change instead of twenty edits.
-# scripts/check-env-files.sh fails the build if anything secret-shaped lands in them.
+# .env.production is NOT committed. It holds only public chain constants, but a .env in a
+# repository reads as a mistake regardless of its contents, and the authoritative values live
+# in packages/network-config as typed, validated presets anyway.
 #
-# Secrets (private keys, DATABASE_URL, API tokens) are injected at runtime from AWS
-# Secrets Manager and must never be written to a tracked file.
+# Copy the example and go:  cp .env.production.example .env.production
 .env
+.env.local
+.env.production
+.env.*.local
 .env.secrets
 .env.*.secret
 *.secret.env
-
-# Explicit negations: these two are the whole point of the env split and must stay
-# tracked. Kept as ! rules so that if a broader pattern is ever added above, these
-# still win (last match wins in gitignore) instead of silently vanishing again.
-!.env.production
+!.env.production.example
 
 # soroban
 .soroban/
