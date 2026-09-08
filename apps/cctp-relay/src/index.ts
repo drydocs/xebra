@@ -7,15 +7,14 @@
  * worker. The actual pipeline logic lives in process-job.ts/schedule.ts (unit-tested, no live
  * network needed); this file's only job is wiring real infrastructure to that logic.
  *
- * NOT YET WIRED: `buildReceiveMessageInstruction` (see solana-mint-submitter.ts) needs Circle's
- * actual solana-cctp-contracts SDK/IDL for the CCTP V2 `receiveMessage` account layout — verify
- * current program IDs and instruction shape before pointing this at a live network (see
- * docs/architecture.md's "verify at build time" note). `RelayJobStore` similarly needs a real
- * Postgres-backed implementation from packages/db once that package lands (task 5); this uses
- * `InMemoryRelayJobStore` as a placeholder so the service is runnable end-to-end today.
+ * The `receiveMessage` account layout is now implemented in `receive-message.ts`, built from
+ * CCTP V2's IDLs and program source and simulated against Circle's live mainnet programs.
+ *
+ * STILL A PLACEHOLDER: `RelayJobStore` needs a real Postgres-backed implementation from
+ * packages/db; this uses `InMemoryRelayJobStore`, so a restart loses in-flight jobs.
  */
 
-import { Connection, Keypair } from "@solana/web3.js";
+import { Connection, Keypair, PublicKey } from "@solana/web3.js";
 import { createIrisClient } from "@xebra/cctp-client";
 import { registerPolledGauge, startObservability } from "@xebra/observability";
 import pino from "pino";
@@ -43,12 +42,14 @@ async function main() {
     async () => connection.getBalance(payer.publicKey),
   );
 
-  const mint = createSolanaMintSubmitter(connection, payer, async () => {
-    throw new Error(
-      "buildReceiveMessageInstruction is not wired yet — see NOT YET WIRED note in " +
-        "apps/cctp-relay/src/index.ts",
-    );
-  });
+  // Real, not a stub. The instruction it builds was simulated against Circle's live mainnet
+  // programs; every PDA it derives was confirmed to exist on chain.
+  const mint = createSolanaMintSubmitter(
+    connection,
+    payer,
+    new PublicKey(config.SOLANA_USDC_ADDRESS),
+    config.STELLAR_CCTP_DOMAIN_ID,
+  );
 
   const { worker } = startWorker({
     connection: { url: config.REDIS_URL },
