@@ -1,3 +1,114 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer base {
+  :root {
+    /* # Obsidian and bone
+     *
+     * The product is named after an animal with exactly two colours, so the interface has
+     * exactly two: a near-black hide and a warm off-white stripe. Everything that reads as
+     * "grey" here is bone at reduced alpha, which is why the greys never drift apart —
+     * mixing a warm gray with a cool one is one of the fastest ways to make an interface
+     * look assembled from parts.
+     *
+     * Off-black, never #000: pure black flattens the shadows under the bridge card and makes
+     * the page feel like a terminal rather than a product. */
+    --obsidian: 228 16% 4%;
+    --obsidian-raised: 228 14% 7%;
+    --obsidian-sunken: 228 20% 3%;
+    --bone: 40 22% 96%;
+
+    /* Two functional hues, used only to say something the copy cannot say alone: a transfer
+       is confirmed, or a transfer failed. Both are desaturated well below the point where
+       they read as neon. Neither is ever used decoratively. */
+    --signal: 158 52% 60%;
+    --alarm: 10 68% 68%;
+  }
+
+  html {
+    scroll-behavior: smooth;
+    /* iOS Safari paints its overscroll gutter from this, not from `body`. */
+    background-color: hsl(var(--obsidian));
+  }
+
+  body {
+    background-color: hsl(var(--obsidian));
+    text-rendering: optimizeLegibility;
+  }
+
+  /* Figures must line up column-to-column in a fee breakdown; proportional digits make
+     amounts jitter as they change. */
+  .tabular {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum";
+  }
+
+  /* Visible focus for keyboard users on every interactive element. Accessibility
+     requirement, not a preference. Bone rather than the accent so it stays legible on the
+     accent-coloured surfaces too. */
+  :where(a, button, input, select, textarea, [tabindex]):focus-visible {
+    outline: 2px solid hsl(var(--bone) / 0.8);
+    outline-offset: 3px;
+    border-radius: 8px;
+  }
+
+  /* Respect users who have asked the OS for less motion. The ambient drift, the sheen and
+     every scroll reveal collapse to their finished state rather than being skipped. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+@layer components {
+  /* ## The hide
+   *
+   * The zebra stripe, at the density of a texture rather than a pattern. The angles and gaps
+   * are deliberately unequal — an evenly repeating rule reads as a CSS demo, while uneven
+   * spacing reads as an animal. Alpha is low single digits: it should be visible only when
+   * you go looking for it, on the shoulder of a card. */
+  .hide-stripes {
+    background-image: repeating-linear-gradient(
+      104deg,
+      transparent 0 13px,
+      hsl(var(--bone) / 0.045) 13px 15px,
+      transparent 15px 24px,
+      hsl(var(--bone) / 0.025) 24px 27px,
+      transparent 27px 38px,
+      hsl(var(--bone) / 0.035) 38px 41px
+    );
+  }
+
+  /* The same stripe run horizontally, for rails and dividers. */
+  .rail-stripes {
+    background-image: repeating-linear-gradient(
+      90deg,
+      hsl(var(--bone) / 0.28) 0 2px,
+      transparent 2px 7px,
+      hsl(var(--bone) / 0.16) 7px 8px,
+      transparent 8px 16px
+    );
+  }
+
+  /* ## Film grain
+   *
+   * A fixed, non-interactive overlay. Flat dark fills band badly on 8-bit panels and read as
+   * sterile; a little grain gives the obsidian a physical surface. Fixed and
+   * pointer-events-none so it never joins a scrolling repaint. */
+  .grain::after {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: 40;
+    pointer-events: none;
+    opacity: 0.035;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+}
