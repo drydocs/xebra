@@ -1,6 +1,7 @@
 node_modules/
 dist/
 .next/
+.next-build/
 out/
 coverage/
 .turbo/
@@ -19,14 +20,30 @@ contracts/*/lib/
 .claude/
 
 # env
+#
+# .env.local (testnet) and .env.production (mainnet) ARE COMMITTED on purpose. They hold
+# only public chain constants — contract addresses, RPC URLs, CCTP domain ids — and they
+# are what makes promoting to mainnet a single file change instead of twenty edits.
+# scripts/check-env-files.sh fails the build if anything secret-shaped lands in them.
+#
+# Secrets (private keys, DATABASE_URL, API tokens) are injected at runtime from AWS
+# Secrets Manager and must never be written to a tracked file.
 .env
-.env.local
-.env.*.local
+.env.secrets
+.env.*.secret
+*.secret.env
+
+# Explicit negations: these two are the whole point of the env split and must stay
+# tracked. Kept as ! rules so that if a broader pattern is ever added above, these
+# still win (last match wins in gitignore) instead of silently vanishing again.
+!.env.production
 
 # soroban
 .soroban/
 contracts/stellar-soroban/target/
 contracts/stellar-soroban/test_snapshots/
+contracts/stellar-cctp-wrapper/target/
+contracts/stellar-cctp-wrapper/test_snapshots/
 
 # solana
 test-ledger/
@@ -52,3 +69,7 @@ override.tf.json
 terraform.rc
 *.tfvars
 !*.tfvars.example
+
+# Throwaway local keys (e.g. the one-off Solana relayer used to finish a CCTP mint).
+# Never committed. Real operational keys belong in AWS Secrets Manager / KMS.
+.secrets/
