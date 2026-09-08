@@ -36,20 +36,25 @@ export const BRIDGE_INITIATED_TOPIC = "bridge_initiated";
 export interface BurnEvent {
   /** Stellar transaction hash of the burn — the natural key for the whole transfer. */
   txHash: string;
-  /** Ledger sequence, used to advance the watcher cursor. */
-  ledger: number;
 }
 
 export interface BurnWatcherDeps {
-  /** Reads `bridge_initiated` events from the wrapper contract in a ledger range. */
-  readBurnEvents(fromLedger: number): Promise<{ events: BurnEvent[]; latestLedger: number }>;
+  /**
+   * Reads `bridge_initiated` events from the wrapper contract. The cursor is Soroban RPC's
+   * own opaque pagination token, not a ledger number — `getEvents` returns it and expects it
+   * back verbatim.
+   */
+  readBurnEvents(cursor: string | undefined): Promise<{
+    events: BurnEvent[];
+    nextCursor: string | undefined;
+  }>;
   /** Persists a job, returning `created: false` if this burn was already queued. */
   upsertBySourceTx(job: RelayJobState): Promise<{ job: RelayJobState; created: boolean }>;
   /** Hands the job to the queue for attestation polling and minting. */
   enqueue(job: RelayJobState): Promise<void>;
   /** Cursor persistence, so a restart does not re-scan from genesis or skip a gap. */
-  loadCursor(): Promise<number | undefined>;
-  saveCursor(ledger: number): Promise<void>;
+  loadCursor(): Promise<string | undefined>;
+  saveCursor(cursor: string): Promise<void>;
   /** CCTP domain of the source chain — 27 for Stellar. */
   sourceDomainId: number;
   newJobId(): string;
@@ -58,7 +63,7 @@ export interface BurnWatcherDeps {
 }
 
 export interface WatchResult {
-  scannedTo: number;
+  cursor: string | undefined;
   queued: number;
   duplicates: number;
 }
@@ -68,8 +73,8 @@ export interface WatchResult {
  * and the process can be shut down cleanly between passes.
  */
 export async function scanForBurns(deps: BurnWatcherDeps): Promise<WatchResult> {
-  const cursor = (await deps.loadCursor()) ?? 0;
-  const { events, latestLedger } = await deps.readBurnEvents(cursor);
+  const cursor = await deps.loadCursor();
+  const { events, nextCursor } = await deps.readBurnEvents(cursor);
 
   let queued = 0;
   let duplicates = 0;
@@ -98,11 +103,15 @@ export async function scanForBurns(deps: BurnWatcherDeps): Promise<WatchResult> 
     deps.log?.("queued mint for burn", { txHash: event.txHash, jobId: stored.id });
   }
 
-  // Advance the cursor only after everything in the batch is durable. Re-scanning a ledger is
-  // free (duplicates are no-ops); skipping one strands a transfer.
-  await deps.saveCursor(latestLedger);
+  // Advance the cursor only after everything in the batch is durable. Re-scanning is free
+  // (duplicates are no-ops); skipping a range strands a transfer.
+  //
+  // `||`, not `??`: Soroban returns an empty-string cursor when there was no pagination
+  // progress, and treating that as a real value would reset the watcher to the beginning.
+  const advanced = nextCursor || cursor;
+  if (advanced) await deps.saveCursor(advanced);
 
-  return { scannedTo: latestLedger, queued, duplicates };
+  return { cursor: advanced, queued, duplicates };
 }
 
 /**

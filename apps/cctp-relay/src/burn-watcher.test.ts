@@ -26,11 +26,11 @@ function fakeStore() {
 function deps(overrides: Partial<BurnWatcherDeps> = {}) {
   const store = fakeStore();
   const enqueued: RelayJobState[] = [];
-  let cursor: number | undefined;
+  let cursor: string | undefined;
   let n = 0;
 
   const base: BurnWatcherDeps = {
-    readBurnEvents: async () => ({ events: [], latestLedger: 100 }),
+    readBurnEvents: async () => ({ events: [], nextCursor: undefined }),
     upsertBySourceTx: store.upsertBySourceTx,
     enqueue: async (job) => {
       enqueued.push(job);
@@ -51,24 +51,21 @@ describe("scanForBurns", () => {
   it("queues one job per burn and advances the cursor", async () => {
     const h = deps({
       readBurnEvents: async () => ({
-        events: [
-          { txHash: "aaa", ledger: 10 },
-          { txHash: "bbb", ledger: 11 },
-        ],
-        latestLedger: 11,
+        events: [{ txHash: "aaa" }, { txHash: "bbb" }],
+        nextCursor: "c-11",
       }),
     });
 
     const result = await scanForBurns(h.deps);
-    expect(result).toEqual({ scannedTo: 11, queued: 2, duplicates: 0 });
+    expect(result).toEqual({ cursor: "c-11", queued: 2, duplicates: 0 });
     expect(h.enqueued.map((j) => j.sourceTxHash)).toEqual(["aaa", "bbb"]);
-    expect(h.getCursor()).toBe(11);
+    expect(h.getCursor()).toBe("c-11");
   });
 
   it("does not re-queue a burn on a re-scan", async () => {
     // Soroban event cursors overlap on restart; a crash mid-batch re-reads the same ledgers.
-    const events = [{ txHash: "aaa", ledger: 10 }];
-    const h = deps({ readBurnEvents: async () => ({ events, latestLedger: 10 }) });
+    const events = [{ txHash: "aaa" }];
+    const h = deps({ readBurnEvents: async () => ({ events, nextCursor: "c-10" }) });
 
     const first = await scanForBurns(h.deps);
     const second = await scanForBurns(h.deps);
@@ -85,7 +82,7 @@ describe("scanForBurns", () => {
     // no state behind it — the exact failure the Postgres store exists to prevent.
     const order: string[] = [];
     const h = deps({
-      readBurnEvents: async () => ({ events: [{ txHash: "aaa", ledger: 5 }], latestLedger: 5 }),
+      readBurnEvents: async () => ({ events: [{ txHash: "aaa" }], nextCursor: "c-5" }),
       upsertBySourceTx: async (job) => {
         order.push("persist");
         return { job, created: true };
@@ -103,7 +100,7 @@ describe("scanForBurns", () => {
     // Re-scanning a ledger is free; skipping one strands a transfer.
     const order: string[] = [];
     const h = deps({
-      readBurnEvents: async () => ({ events: [{ txHash: "aaa", ledger: 7 }], latestLedger: 7 }),
+      readBurnEvents: async () => ({ events: [{ txHash: "aaa" }], nextCursor: "c-7" }),
       enqueue: async () => {
         order.push("enqueue");
       },
@@ -117,16 +114,16 @@ describe("scanForBurns", () => {
   });
 
   it("resumes from the saved cursor rather than rescanning from zero", async () => {
-    let requestedFrom = -1;
+    let requestedFrom: string | undefined;
     const h = deps({
-      loadCursor: async () => 500,
+      loadCursor: async () => "c-500",
       readBurnEvents: async (from) => {
         requestedFrom = from;
-        return { events: [], latestLedger: 500 };
+        return { events: [], nextCursor: "c-500" };
       },
     });
     await scanForBurns(h.deps);
-    expect(requestedFrom).toBe(500);
+    expect(requestedFrom).toBe("c-500");
   });
 
   it("handles an empty batch without side effects", async () => {
