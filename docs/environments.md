@@ -107,14 +107,18 @@ ignore.
 
 Never in these files. They come from AWS Secrets Manager at runtime:
 
-`RELAY_SOLANA_KEYPAIR`, `SOLVER_SOLANA_KEYPAIR`, `SOLVER_STELLAR_SECRET`, `DATABASE_URL`,
-and any credential-bearing `REDIS_URL` / `KAFKA_BROKERS`.
+`RELAY_SOLANA_KEYPAIR`, `RELAY_SUBMIT_TOKEN`, `SOLVER_SOLANA_KEYPAIR`,
+`SOLVER_STELLAR_SECRET`, `DATABASE_URL`, and any credential-bearing `REDIS_URL` /
+`KAFKA_BROKERS`.
 
-Two known issues, tracked, not yet fixed:
+`RELAY_SUBMIT_TOKEN` is shared between the relay and `apps/web`'s server-side
+`/api/relay/burns` route. It gates who can spend the relay's SOL, not who can receive funds —
+losing it cannot strand a transfer, because a burn stays claimable by anyone holding the
+attestation. It must never be a `NEXT_PUBLIC_*` variable; `check-env-files.sh` blocks the
+`*_TOKEN` suffix from both env files for exactly this reason.
 
-- `apps/cctp-relay/src/config.ts:23` documents `RELAY_SOLANA_KEYPAIR` as base58 but
-  `index.ts:34` decodes base64. Whoever populates that secret from the doc comment gets a
-  broken keypair.
+One known issue, tracked, not yet fixed:
+
 - ECS injects Secrets Manager values as **plaintext process env**, so anything that can read
   `/proc/<pid>/environ` or dump a task definition gets the relay and solver hot wallets. Only
   the arbiter uses KMS properly.
