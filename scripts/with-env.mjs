@@ -39,13 +39,30 @@ if (!envFile || command.length === 0) {
   process.exit(2);
 }
 
-let contents;
+let contents = "";
 try {
   contents = readFileSync(resolve(repoRoot, envFile), "utf8");
 } catch (err) {
-  console.error(`FAIL: cannot read ${envFile}: ${err.message}`);
-  console.error("  Fresh checkout? Run: cp .env.production.example .env.production");
-  process.exit(1);
+  // A missing env file is fatal locally and fine on a hosting platform.
+  //
+  // The file is git-ignored, so it does not exist in a CI checkout or on Vercel — where the
+  // values are project environment variables instead. Hard-failing there would make the build
+  // unrunnable for exactly the reason the file is deliberately absent. Locally, though, a
+  // missing file means the setup step was skipped, and continuing would build against whatever
+  // happens to be exported — worth refusing for a mainnet build.
+  //
+  // `NETWORK` is the discriminator because nothing here works without it: it is what
+  // `check-build-network.mjs` and `@xebra/network-config` key on.
+  const alreadyConfigured = process.env.NETWORK ?? process.env.NEXT_PUBLIC_NETWORK;
+  if (!alreadyConfigured) {
+    console.error(`FAIL: cannot read ${envFile}: ${err.message}`);
+    console.error("  Fresh checkout? Run: cp .env.production.example .env.production");
+    console.error("  Hosted build? Set NETWORK (or NEXT_PUBLIC_NETWORK) in the environment.");
+    process.exit(1);
+  }
+  console.error(
+    `with-env: ${envFile} not present; using the environment (NETWORK=${alreadyConfigured})`,
+  );
 }
 
 const loaded = {};

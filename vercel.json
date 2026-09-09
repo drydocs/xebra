@@ -1,0 +1,12 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "pnpm --filter @xebra/web^... build && pnpm --filter @xebra/web build:vercel",
+  "installCommand": "pnpm install --frozen-lockfile",
+  "outputDirectory": "apps/web/.next",
+  "crons": [
+    {
+      "path": "/api/cron/relay",
+      "schedule": "0 3 * * *"
+    }
+  ]
+}
