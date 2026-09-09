@@ -24,6 +24,7 @@ import {
   formatUsdc,
   getCircleMinFee,
   getUsdcAllowance,
+  getUsdcBalance,
   parseUsdc,
   quoteBridge,
   submitBridge,
@@ -97,6 +98,8 @@ export default function HomePage() {
   // than implying either outcome before one is known.
   const [handoff, setHandoff] = useState<RelayHandoff | null>(null);
   const [recipient, setRecipient] = useState<RecipientResolution | null>(null);
+  /** Null while unknown — an unread balance must not read as "you have nothing". */
+  const [balance, setBalance] = useState<bigint | null>(null);
   const [resolving, setResolving] = useState(false);
 
   // StellarWalletsKit touches `window` at construction time (wallet detection), so it must
@@ -190,6 +193,35 @@ export default function HomePage() {
     // rejects via `max_wrapper_fee`, so it would surface as an unexplained failure at signing.
   }, [config, address, amount, recipientNeedsAccount]);
 
+  // Read the wallet's USDC once it is connected.
+  //
+  // Without this the app would prepare a transfer against an empty wallet and let the user reach
+  // the signing prompt, where the failure arrives from inside the USDC contract as an opaque
+  // error code. Knowing the balance turns that into a disabled button and a plain sentence.
+  //
+  // `txHash` is a dependency without being read: it is the signal that a transfer completed,
+  // which is precisely when the balance on screen has gone stale.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: refetch after a completed transfer.
+  useEffect(() => {
+    if (!address) {
+      setBalance(null);
+      return;
+    }
+    let cancelled = false;
+    getUsdcBalance(config, address)
+      .then((b) => {
+        if (!cancelled) setBalance(b);
+      })
+      .catch(() => {
+        // A failed read must not look like a zero balance — that mistake has its own history in
+        // this codebase. Leave it unknown and let the contract be the judge.
+        if (!cancelled) setBalance(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [config, address, txHash]);
+
   // CCTP's mintRecipient on Solana is the TOKEN ACCOUNT, not the wallet. Resolve it as soon
   // as the typed address is valid, so the burn never carries a wallet address.
   useEffect(() => {
@@ -225,8 +257,13 @@ export default function HomePage() {
     });
   }, [kit]);
 
+  // Only a *known* shortfall blocks. An unread balance is not a zero balance.
+  const shortfall =
+    balance !== null && quote !== null && balance < quote.amount ? quote.amount - balance : null;
+
   const ready =
     Boolean(kit && address && quote && destinationCheck.ok && !blockedOnMissingAccount) &&
+    shortfall === null &&
     Boolean(recipient) &&
     !submitting &&
     !quoting &&
@@ -424,6 +461,15 @@ export default function HomePage() {
                 error={quoteError}
                 hasAddress={Boolean(address)}
               />
+
+              {shortfall !== null && (
+                <Notice tone="alarm" title="Not enough USDC" className="mt-5">
+                  This wallet holds <span className="tabular">{formatUsdc(balance ?? 0n)}</span>{" "}
+                  USDC, and this transfer needs{" "}
+                  <span className="tabular">{formatUsdc(quote?.amount ?? 0n)}</span> including the
+                  fee — <span className="tabular">{formatUsdc(shortfall)}</span> short.
+                </Notice>
+              )}
 
               {submitError && (
                 <Notice tone="alarm" title="The transfer did not go through" className="mt-5">

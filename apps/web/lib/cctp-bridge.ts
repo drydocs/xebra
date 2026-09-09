@@ -175,7 +175,7 @@ export async function quoteBridge(
 
   const sim = await server.simulateTransaction(tx);
   if (rpc.Api.isSimulationError(sim)) {
-    throw new Error(humanizeContractError(sim.error));
+    throw new Error(humanizeContractError(sim.error, config.wrapperContractId));
   }
   if (!sim.result) throw new Error("The bridge did not return a quote.");
 
@@ -390,7 +390,7 @@ export async function submitBridge(
   try {
     prepared = await server.prepareTransaction(tx);
   } catch (err) {
-    throw new Error(humanizeContractError(formatError(err)));
+    throw new Error(humanizeContractError(formatError(err), config.wrapperContractId));
   }
 
   const { signedTxXdr } = await kit.signTransaction(prepared.toXDR(), {
@@ -418,6 +418,28 @@ export async function getUsdcAllowance(config: BridgeChainConfig, owner: string)
     "allowance",
     nativeToScVal(new Address(owner), { type: "address" }),
     nativeToScVal(new Address(config.cctpTokenMessengerId), { type: "address" }),
+  );
+  return BigInt(scValToNative(retval) as string | bigint);
+}
+
+/**
+ * The user's USDC balance on Stellar, in stroops.
+ *
+ * Checked before the button is enabled, because the alternative is what actually happened on
+ * mainnet: the app happily prepared a transfer against an empty wallet, and the failure arrived
+ * from deep inside the USDC contract as `Error(Contract, #10)` — a number that means something
+ * else entirely in our own contract. A balance is one simulation away and answers the question
+ * before anyone is asked to sign.
+ */
+export async function getUsdcBalance(config: BridgeChainConfig, owner: string): Promise<bigint> {
+  const server = new rpc.Server(config.sorobanRpcUrl);
+  const retval = await simulateWithPassphrase(
+    server,
+    config.networkPassphrase,
+    config.usdcSacAddress,
+    owner,
+    "balance",
+    nativeToScVal(new Address(owner), { type: "address" }),
   );
   return BigInt(scValToNative(retval) as string | bigint);
 }
@@ -651,26 +673,83 @@ export function humanizeCircleError(raw: string): string {
  */
 const CONTRACT_ERRORS: Record<number, string> = {
   2: "The bridge is paused. No funds have moved — please try again later.",
+  6: "That request would stay valid for too long. Refresh and try again.",
   5: "This quote expired. Refresh and try again.",
   7: "That destination chain is not supported yet.",
   8: "The destination address cannot be all zeroes.",
   9: "That looks like an Ethereum address, not a Solana one.",
+  10: "The delivery speed setting was not accepted. Refresh and try again.",
+  11: "Enter an amount greater than zero.",
   12: "That amount is below the minimum for this bridge.",
   13: "That amount is above the current per-transfer limit.",
   14: "The amount is too small to cover the fee.",
+  15: "After fees there is too little left to send. Try a larger amount.",
+  16: "Circle's fee quote was negative, which should not happen. Refresh and try again.",
+  17: "Circle's fee would exceed the amount being sent. Try a larger transfer.",
   18: "The network fee quote was too high; refresh and try again.",
   19: "The fee changed since you were quoted. Refresh to see the new amount.",
   30: "Not enough accrued fees to withdraw.",
+  36: "This transfer sat too long before being submitted. Refresh and try again.",
+  37: "The approval window was set too far ahead. Refresh and try again.",
 };
 
-export function humanizeContractError(raw: string): string {
+/**
+ * Finds which contract actually threw.
+ *
+ * A Soroban error trace is a stack: the wrapper reports the failure of the call it made, and the
+ * contract it called reports the real cause. The log is printed newest-first, so the *last* error
+ * event names the origin. Without this, any `Error(Contract, #N)` anywhere in the trace was read
+ * as the wrapper's error #N — so USDC refusing a transfer for insufficient balance was shown to
+ * the user as "the bridge rejected this transfer (code 10)", blaming the wrong contract for a
+ * problem in their own wallet.
+ */
+function originatingContract(raw: string): string | null {
+  const ids = [...raw.matchAll(/contract:([A-Z0-9]{56})[^\n]*?Error\(Contract/g)].map((m) => m[1]);
+  return ids.length > 0 ? (ids[ids.length - 1] as string) : null;
+}
+
+/** The one Stellar Asset Contract failure a user can actually cause, and its exact wording. The
+ *  SAC does not say "insufficient balance" — it reports the resulting balance being out of range,
+ *  which no amount of guessing at the phrase "insufficient" would have matched. */
+const SAC_BALANCE_RANGE = /resulting balance is not within the allowed range/i;
+const SAC_ALLOWANCE = /not enough allowance|insufficient allowance/i;
+
+/**
+ * Turns a raw Soroban error into something the person about to move money can act on.
+ *
+ * `wrapperContractId` is what makes the code table trustworthy: error numbers are per-contract,
+ * so `#10` means `BadFinalityThreshold` only when our wrapper threw it. USDC's `#10` is something
+ * else entirely, and Circle's would be a third thing.
+ */
+export function humanizeContractError(raw: string, wrapperContractId?: string | null): string {
+  // Cause-based checks first: they identify the problem regardless of which contract reported it,
+  // and they are the failures users hit most.
+  if (SAC_BALANCE_RANGE.test(raw)) {
+    return "Your USDC balance is too low for this transfer, including the fee.";
+  }
+  if (SAC_ALLOWANCE.test(raw)) {
+    return "The USDC approval was not in place. Refresh and try again.";
+  }
+  if (/trustline|TrustLine/i.test(raw)) {
+    return "This wallet has no USDC trustline on Stellar. Add one, then try again.";
+  }
+
+  const origin = originatingContract(raw);
   const match = raw.match(/Error\(Contract,\s*#(\d+)\)/);
+
   if (match) {
     const code = Number(match[1]);
-    const known = CONTRACT_ERRORS[code];
-    if (known) return known;
-    return `The bridge rejected this transfer (code ${code}). No funds have moved.`;
+    // Only read the code table when our contract is the one that threw.
+    if (!origin || !wrapperContractId || origin === wrapperContractId) {
+      const known = CONTRACT_ERRORS[code];
+      if (known) return known;
+      return `The bridge rejected this transfer (code ${code}). No funds have moved.`;
+    }
+    // Somebody else's error. Say so rather than mistranslating it.
+    const who = origin === undefined ? "another contract" : `contract ${origin.slice(0, 8)}…`;
+    return `The transfer was rejected by ${who} (code ${code}). No funds have moved.`;
   }
+
   if (/insufficient balance|underflow/i.test(raw)) {
     return "Your USDC balance is too low for this transfer.";
   }
