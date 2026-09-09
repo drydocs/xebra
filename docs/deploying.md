@@ -164,8 +164,25 @@ Two server routes exist for it, both because the browser cannot do the work dire
 method-restricted pass-through, because Solana's public RPC answers the CORS preflight with 200
 and then **403s the actual POST** whenever an `Origin` header is present.
 
+## Alerting
+
+The hot wallet is the thing most likely to break this in production. It drains by design — every
+mint burns 867,621 lamports of rent nobody gets back — and when it empties, **every transfer stalls
+silently**: a job that cannot be paid for is indistinguishable from one waiting on Circle's
+attestation, so nothing errors and nobody notices until a user complains.
+
+Two things watch it, both free:
+
+- A Convex cron every 15 minutes that **throws** when the balance is critical, so it shows as a
+  failed function in the dashboard rather than a log line nobody reads.
+- `GET /api/health`, which returns **503** when the relay cannot do its job. Point any free uptime
+  monitor at it — 503 is the one signal they all understand without configuration.
+
+Thresholds come from the measured cost of a mint (`packages/relay-core/src/health.ts`): critical is
+two worst-case transfers left, warning is ten. The response says how many transfers remain, not
+just a lamport count, because that is the number that tells you whether to act now.
+
 ## What is still missing
 
-- **Alerting on the hot wallet.** It funds every mint, and when it runs dry every transfer stalls
-  at once — silently, because a stalled job looks identical to one waiting on attestation.
-- **The relay has never run against a live Convex deployment.** That needs your login.
+**The relay has never run against a live Convex deployment.** That needs your login. Everything
+here is unit-tested and none of it has talked to a real database.
