@@ -23,6 +23,7 @@ export * from "./admission.js";
 export * from "./auth.js";
 export * from "./burn-watcher.js";
 export * from "./drain.js";
+export * from "./health.js";
 export * from "./job-store.js";
 export * from "./process-job.js";
 export * from "./schedule.js";
