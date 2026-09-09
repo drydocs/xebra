@@ -1,8 +1,4 @@
-import {
-  FreighterModule,
-  StellarWalletsKit,
-  WalletNetwork,
-} from "@creit.tech/stellar-wallets-kit";
+import { FreighterModule, StellarWalletsKit, WalletNetwork } from "@creit.tech/stellar-wallets-kit";
 import { env } from "./env";
 
 /**
@@ -29,8 +25,7 @@ export function createStellarWalletKit(): StellarWalletsKit {
   const network = NETWORK_BY_PASSPHRASE[env.stellarNetworkPassphrase];
   if (!network) {
     throw new Error(
-      `No wallet network matches the configured passphrase "${env.stellarNetworkPassphrase}". ` +
-        "Refusing to guess — signing against the wrong network is unrecoverable.",
+      `No wallet network matches the configured passphrase "${env.stellarNetworkPassphrase}". Refusing to guess — signing against the wrong network is unrecoverable.`,
     );
   }
 

@@ -32,8 +32,12 @@ import {
 } from "../lib/cctp-bridge";
 import { env, isCctpRailConfigured } from "../lib/env";
 import { formatError, reportError } from "../lib/format-error";
-import { handOffToRelay, type RelayHandoff } from "../lib/relay";
-import { checkSolanaAddress, resolveRecipient, type RecipientResolution } from "../lib/solana-address";
+import { type RelayHandoff, handOffToRelay } from "../lib/relay";
+import {
+  type RecipientResolution,
+  checkSolanaAddress,
+  resolveRecipient,
+} from "../lib/solana-address";
 import { createStellarWalletKit } from "../lib/stellar-wallet";
 
 /**
@@ -741,9 +745,9 @@ function RecipientPanel({
   if (recipient.status === "missing") {
     return (
       <Notice tone="alarm" title="This wallet has no USDC account on Solana yet" className="mt-3">
-        USDC can only be delivered to a token account, and this wallet does not have one.
-        Receiving any USDC on Solana once will create it. Burning now would leave the transfer
-        unmintable until somebody creates the account.
+        USDC can only be delivered to a token account, and this wallet does not have one. Receiving
+        any USDC on Solana once will create it. Burning now would leave the transfer unmintable
+        until somebody creates the account.
         <p className="mt-2 break-all font-mono text-[0.75rem] text-bone/40">
           {recipient.tokenAccount}
         </p>
@@ -756,9 +760,9 @@ function RecipientPanel({
   if (recipient.status === "unknown") {
     return (
       <Notice tone="info" title="Could not verify the recipient account" className="mt-3">
-        The Solana lookup failed{recipient.reason ? `: ${recipient.reason}` : ""}. The account
-        below is where the USDC will be delivered — confirm it holds USDC already before
-        continuing, because CCTP will not create it.
+        The Solana lookup failed{recipient.reason ? `: ${recipient.reason}` : ""}. The account below
+        is where the USDC will be delivered — confirm it holds USDC already before continuing,
+        because CCTP will not create it.
         <p className="mt-2 break-all font-mono text-[0.75rem] text-bone/40">
           {recipient.tokenAccount}
         </p>
@@ -768,9 +772,7 @@ function RecipientPanel({
 
   return (
     <div className="mt-3 rounded-tray bg-bone/[0.03] px-4 py-3">
-      <p className="text-[0.8125rem] text-bone/50">
-        Delivered to this wallet&apos;s USDC account:
-      </p>
+      <p className="text-[0.8125rem] text-bone/50">Delivered to this wallet&apos;s USDC account:</p>
       <p className="mt-1 break-all font-mono text-[0.75rem] text-bone/60">
         {recipient.tokenAccount}
       </p>

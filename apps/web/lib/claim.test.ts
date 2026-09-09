@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest";
-import { Connection, Keypair, PublicKey } from "@solana/web3.js";
+import { type Connection, Keypair, PublicKey } from "@solana/web3.js";
 import { TOKEN_MESSENGER_MINTER_V2, associatedTokenAddress } from "@xebra/cctp-solana";
+import { describe, expect, it } from "vitest";
 import { prepareClaim } from "./claim";
 
 const USDC = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
@@ -9,7 +9,10 @@ const PAYER = "BswkfXXywbVo8tesK4sWkrpsaVYUy3zaJuQYTCChGpG2";
 /** A CCTP V2 message: 148-byte header, then a burn body carrying mintRecipient at +36. */
 function message(mintRecipient: PublicKey): string {
   const buf = Buffer.alloc(148 + 68);
-  Buffer.from("2f3c72ee96e3feb1be4b78587de0b00634394e94a4220ec205684be9b8447729", "hex").copy(buf, 12);
+  Buffer.from("2f3c72ee96e3feb1be4b78587de0b00634394e94a4220ec205684be9b8447729", "hex").copy(
+    buf,
+    12,
+  );
   mintRecipient.toBuffer().copy(buf, 148 + 36);
   return `0x${buf.toString("hex")}`;
 }

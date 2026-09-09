@@ -1,10 +1,8 @@
+// This module is imported by apps/web's claim page, where the bundler resolves bare "buffer" to
+// the npm shim and resolves the node: specifier to nothing.
+// biome-ignore lint/style/useNodejsImportProtocol: "node:buffer" would break the browser build.
 import { Buffer } from "buffer";
-import {
-  type Connection,
-  PublicKey,
-  SystemProgram,
-  TransactionInstruction,
-} from "@solana/web3.js";
+import { type Connection, PublicKey, SystemProgram, TransactionInstruction } from "@solana/web3.js";
 
 /**
  * Builds CCTP V2's `receiveMessage` instruction for Solana — the mint half of the corridor.
@@ -43,9 +41,7 @@ import {
  * before burning rather than passing through whatever the user typed.
  */
 
-export const MESSAGE_TRANSMITTER_V2 = new PublicKey(
-  "CCTPV2Sm4AdWt5296sk4P66VBZ7bEhcARwFaaS9YPbeC",
-);
+export const MESSAGE_TRANSMITTER_V2 = new PublicKey("CCTPV2Sm4AdWt5296sk4P66VBZ7bEhcARwFaaS9YPbeC");
 export const TOKEN_MESSENGER_MINTER_V2 = new PublicKey(
   "CCTPV2vPZJS2u2BBsUoscuikbYjnpFmbFsvVuJdgUMQe",
 );
@@ -99,7 +95,10 @@ function borshBytes(buf: Buffer): Buffer {
 }
 
 export function associatedTokenAddress(owner: PublicKey, mint: PublicKey): PublicKey {
-  return pda([owner.toBuffer(), TOKEN_PROGRAM.toBuffer(), mint.toBuffer()], ASSOCIATED_TOKEN_PROGRAM);
+  return pda(
+    [owner.toBuffer(), TOKEN_PROGRAM.toBuffer(), mint.toBuffer()],
+    ASSOCIATED_TOKEN_PROGRAM,
+  );
 }
 
 export function hexToBuffer(hex: string): Buffer {
@@ -137,7 +136,7 @@ export async function ensureRecipientTokenAccount(
   mint: PublicKey,
 ): Promise<{ tokenAccount: PublicKey; created: boolean; instruction?: TransactionInstruction }> {
   const existing = await connection.getAccountInfo(ownerOrTokenAccount);
-  if (existing && existing.owner.equals(TOKEN_PROGRAM)) {
+  if (existing?.owner.equals(TOKEN_PROGRAM)) {
     // Already a token account — this is the normal path, since apps/web burns to the ATA.
     return { tokenAccount: ownerOrTokenAccount, created: false };
   }
@@ -202,10 +201,7 @@ export async function buildReceiveMessageInstruction(
   );
   const tokenMinter = pda([utf8("token_minter")], TOKEN_MESSENGER_MINTER_V2);
   const localToken = pda([utf8("local_token"), mint.toBuffer()], TOKEN_MESSENGER_MINTER_V2);
-  const tokenPair = pda(
-    [utf8("token_pair"), utf8(domain), burnToken],
-    TOKEN_MESSENGER_MINTER_V2,
-  );
+  const tokenPair = pda([utf8("token_pair"), utf8(domain), burnToken], TOKEN_MESSENGER_MINTER_V2);
   const custodyTokenAccount = pda([utf8("custody"), mint.toBuffer()], TOKEN_MESSENGER_MINTER_V2);
   const tmmEventAuthority = pda([utf8("__event_authority")], TOKEN_MESSENGER_MINTER_V2);
 

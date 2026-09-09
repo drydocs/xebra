@@ -1,3 +1,4 @@
+import type { StellarWalletsKit } from "@creit.tech/stellar-wallets-kit";
 import {
   Address,
   BASE_FEE,
@@ -6,7 +7,6 @@ import {
   nativeToScVal,
   rpc,
 } from "@stellar/stellar-sdk";
-import type { StellarWalletsKit } from "@creit.tech/stellar-wallets-kit";
 
 /**
  * Builds, simulates, and submits `open()` on the Stellar-source XebraEscrow, signed via the
@@ -58,7 +58,10 @@ export async function getIntentHash(params: OpenIntentParams): Promise<`0x${stri
   const contract = new Contract(params.escrowContractId);
   const account = await server.getAccount(params.userAddress);
 
-  const tx = new TransactionBuilder(account, { fee: BASE_FEE, networkPassphrase: params.networkPassphrase })
+  const tx = new TransactionBuilder(account, {
+    fee: BASE_FEE,
+    networkPassphrase: params.networkPassphrase,
+  })
     .addOperation(contract.call("hash_intent", buildIntentScVal(params)))
     .setTimeout(30)
     .build();
@@ -83,7 +86,10 @@ export async function openStellarIntent(
   const contract = new Contract(params.escrowContractId);
   const account = await server.getAccount(params.userAddress);
 
-  const tx = new TransactionBuilder(account, { fee: BASE_FEE, networkPassphrase: params.networkPassphrase })
+  const tx = new TransactionBuilder(account, {
+    fee: BASE_FEE,
+    networkPassphrase: params.networkPassphrase,
+  })
     .addOperation(contract.call("open", buildIntentScVal(params)))
     .setTimeout(60)
     .build();

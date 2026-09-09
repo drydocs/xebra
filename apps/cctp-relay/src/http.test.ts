@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest";
-import { PassThrough } from "node:stream";
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { PassThrough } from "node:stream";
+import { describe, expect, it } from "vitest";
 import { createRelayHandler } from "./http.js";
 
 const TOKEN = "shared-secret";

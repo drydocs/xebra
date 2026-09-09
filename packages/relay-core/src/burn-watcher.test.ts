@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest";
 import type { RelayJobState } from "@xebra/cctp-client";
-import { scanForBurns, submitBurn, type BurnWatcherDeps } from "./burn-watcher.js";
+import { describe, expect, it } from "vitest";
+import { type BurnWatcherDeps, scanForBurns, submitBurn } from "./burn-watcher.js";
 
 /**
  * A store with the same idempotency contract as Postgres: the natural key is

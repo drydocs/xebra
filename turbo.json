@@ -1,48 +1,29 @@
 {
   "$schema": "https://turbo.build/schema.json",
   "ui": "tui",
-  "globalDependencies": [
-    "tsconfig.base.json",
-    ".env.production"
-  ],
+  "globalDependencies": ["tsconfig.base.json", ".env.production"],
   "tasks": {
     "build": {
-      "dependsOn": [
-        "^build"
-      ],
-      "outputs": [
-        "dist/**",
-        ".next/**",
-        "out/**",
-        "target/**"
-      ]
+      "dependsOn": ["^build"],
+      "outputs": ["dist/**", ".next/**", "out/**", "target/**"]
     },
     "dev": {
       "cache": false,
       "persistent": true
     },
     "test": {
-      "dependsOn": [
-        "^build"
-      ],
-      "outputs": [
-        "coverage/**"
-      ]
+      "dependsOn": ["^build"],
+      "outputs": ["coverage/**"]
     },
     "test:integration": {
-      "dependsOn": [
-        "^build"
-      ],
+      "dependsOn": ["^build"],
       "cache": false
     },
     "lint": {
       "outputs": []
     },
     "typecheck": {
-      "dependsOn": [
-        "^build",
-        "build"
-      ],
+      "dependsOn": ["^build", "build"],
       "outputs": []
     },
     "clean": {
@@ -50,11 +31,7 @@
     }
   },
   "concurrency": "25",
-  "globalEnv": [
-    "NETWORK",
-    "EXPECTED_NETWORK",
-    "NEXT_PUBLIC_*"
-  ],
+  "globalEnv": ["NETWORK", "EXPECTED_NETWORK", "NEXT_PUBLIC_*"],
   "globalPassThroughEnv": [
     "STELLAR_*",
     "SOROBAN_*",

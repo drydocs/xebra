@@ -1,7 +1,6 @@
 "use node";
 
-import { v } from "convex/values";
-import { createIrisClient, type RelayJobState } from "@xebra/cctp-client";
+import { type RelayJobState, createIrisClient } from "@xebra/cctp-client";
 import { createSolanaMintSubmitterFromConfig, getRelayBalanceLamports } from "@xebra/cctp-solana";
 import {
   type BurnWatcherDeps,
@@ -15,8 +14,9 @@ import {
   scanForBurns,
   submitBurn as submitBurnToStore,
 } from "@xebra/relay-core";
+import { v } from "convex/values";
 import { api, internal } from "./_generated/api";
-import { action, internalAction, type ActionCtx } from "./_generated/server";
+import { type ActionCtx, action, internalAction } from "./_generated/server";
 
 /**
  * The relay, as Convex actions.
@@ -197,7 +197,8 @@ export const submitBurn = action({
       const verdict = await checkBurnAdmission(
         {
           burnClosedAt: createHorizonBurnClock(d.cfg.horizonUrl),
-          countSponsoredSince: (since) => ctx.runQuery(internal.jobs.countSponsoredSince, { since }),
+          countSponsoredSince: (since) =>
+            ctx.runQuery(internal.jobs.countSponsoredSince, { since }),
         },
         txHash,
       );
@@ -310,7 +311,8 @@ export const checkBalance = internalAction({
       message: string;
     };
 
-    if (!result.ok) throw new Error(`RELAY BALANCE ${result.level.toUpperCase()}: ${result.message}`);
+    if (!result.ok)
+      throw new Error(`RELAY BALANCE ${result.level.toUpperCase()}: ${result.message}`);
     if (result.level === "warning") console.warn(`[relay] ${result.message}`);
   },
 });

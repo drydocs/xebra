@@ -1,4 +1,4 @@
-import { createQueuedJob, type RelayJobState } from "@xebra/cctp-client";
+import { type RelayJobState, createQueuedJob } from "@xebra/cctp-client";
 
 /**
  * Turns Stellar burns into relay jobs.
@@ -122,7 +122,10 @@ export async function scanForBurns(deps: BurnWatcherDeps): Promise<WatchResult> 
  * burn hash, this queues a mint for it.
  */
 export async function submitBurn(
-  deps: Pick<BurnWatcherDeps, "upsertBySourceTx" | "enqueue" | "sourceDomainId" | "newJobId" | "now" | "log">,
+  deps: Pick<
+    BurnWatcherDeps,
+    "upsertBySourceTx" | "enqueue" | "sourceDomainId" | "newJobId" | "now" | "log"
+  >,
   txHash: string,
 ): Promise<{ job: RelayJobState; created: boolean }> {
   const result = await deps.upsertBySourceTx(

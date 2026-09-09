@@ -1,6 +1,6 @@
-import { and, eq, gte, sql } from "drizzle-orm";
 import type { RelayJobState, RelayJobStatus } from "@xebra/cctp-client";
 import { type Database, relayJobs } from "@xebra/db";
+import { and, eq, gte, sql } from "drizzle-orm";
 import type { RelayJobStore } from "./job-store.js";
 import type { ScheduleDecision } from "./schedule.js";
 
@@ -109,7 +109,8 @@ export class PostgresRelayJobStore implements RelayJobStore {
       .onConflictDoNothing()
       .returning();
 
-    if (inserted.length > 0) return { job: fromRow(inserted[0] as Record<string, unknown>), created: true };
+    if (inserted.length > 0)
+      return { job: fromRow(inserted[0] as Record<string, unknown>), created: true };
 
     const existing = await this.db
       .select()
@@ -169,9 +170,7 @@ export class PostgresRelayJobStore implements RelayJobStore {
     `);
 
     // postgres-js returns the rows themselves; the driver wrapper may wrap them in `.rows`.
-    const list = Array.isArray(rows)
-      ? rows
-      : ((rows as { rows?: unknown[] }).rows ?? []);
+    const list = Array.isArray(rows) ? rows : ((rows as { rows?: unknown[] }).rows ?? []);
     return (list as Array<Record<string, unknown>>).map(fromSnakeRow);
   }
 

@@ -1,9 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  DEFAULT_ADMISSION_POLICY,
-  checkBurnAdmission,
-  type AdmissionDeps,
-} from "./admission.js";
+import { type AdmissionDeps, DEFAULT_ADMISSION_POLICY, checkBurnAdmission } from "./admission.js";
 
 const NOW = 1_700_000_000_000;
 const HASH = "92421fa248da1b1d4418784d5bd91adc4238dae72120e8f740920db7381905a7";
@@ -73,12 +69,18 @@ describe("checkBurnAdmission", () => {
 
   it("counts only the configured window", async () => {
     let requestedSince = 0;
-    await checkBurnAdmission(deps({ countSponsoredSince: async (since) => ((requestedSince = since), 0) }), HASH);
+    const recordWindow = async (since: number) => {
+      requestedSince = since;
+      return 0;
+    };
+    await checkBurnAdmission(deps({ countSponsoredSince: recordWindow }), HASH);
     expect(requestedSince).toBe(NOW - DEFAULT_ADMISSION_POLICY.windowMs);
   });
 
   it("treats a future close time as age zero rather than negative", async () => {
     // Clock skew between us and Horizon is not a reason to refuse a burn.
-    expect((await checkBurnAdmission(deps({ burnClosedAt: async () => NOW + 30_000 }), HASH)).admit).toBe(true);
+    expect(
+      (await checkBurnAdmission(deps({ burnClosedAt: async () => NOW + 30_000 }), HASH)).admit,
+    ).toBe(true);
   });
 });

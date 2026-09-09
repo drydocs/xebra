@@ -36,8 +36,8 @@
  *   node scripts/cctp-mint-solana.mjs --burn-tx <stellar_tx_hash> --send
  */
 
-import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import {
   Connection,
   Keypair,
@@ -129,7 +129,9 @@ async function main() {
   // the ATA *of a token account*, which is meaningless and fails that check.
   const recipientTokenAccount = new PublicKey(decodedBody.mintRecipient);
 
-  console.log(`  status ${msg.status}, amount ${decodedBody.amount}, fee ${decodedBody.feeExecuted}`);
+  console.log(
+    `  status ${msg.status}, amount ${decodedBody.amount}, fee ${decodedBody.feeExecuted}`,
+  );
   console.log(`  domain ${decoded.sourceDomain} -> ${decoded.destinationDomain}`);
   console.log(`  recipient token account ${recipientTokenAccount.toBase58()}`);
   if (!nonce.equals(Buffer.from(msg.eventNonce.replace(/^0x/, ""), "hex"))) {

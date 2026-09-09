@@ -78,10 +78,7 @@ export async function POST(request: Request): Promise<Response> {
     })) as RelayResult;
 
     if (result.status !== "queued") {
-      return Response.json(
-        { status: "unavailable", reason: result.reason },
-        { status: 503 },
-      );
+      return Response.json({ status: "unavailable", reason: result.reason }, { status: 503 });
     }
     return Response.json(result, { status: result.created ? 201 : 200 });
   } catch (err) {

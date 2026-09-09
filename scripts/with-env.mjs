@@ -26,9 +26,9 @@
  *   NETWORK=mainnet pnpm dev     # uses mainnet even though .env.local says testnet
  */
 
-import { readFileSync } from "node:fs";
 import { spawn } from "node:child_process";
-import { resolve, dirname } from "node:path";
+import { readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -96,9 +96,7 @@ for (const rawLine of contents.split("\n")) {
 const env = { ...loaded, ...process.env };
 
 const count = Object.keys(loaded).length;
-console.error(
-  `with-env: loaded ${count} vars from ${envFile} (NETWORK=${env.NETWORK ?? "unset"})`,
-);
+console.error(`with-env: loaded ${count} vars from ${envFile} (NETWORK=${env.NETWORK ?? "unset"})`);
 
 // Inherit the caller's cwd. Forcing repoRoot here would break per-app usage: `next dev`
 // invoked from apps/web must actually run in apps/web. The env FILE is still resolved

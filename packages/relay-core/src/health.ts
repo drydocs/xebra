@@ -45,9 +45,7 @@ export function assessRelayBalance(balanceLamports: number): RelayHealth {
       level: "critical",
       balanceLamports,
       mintsRemaining,
-      message:
-        `Relay hot wallet is at ${sol} SOL — about ${mintsRemaining} more transfer(s). ` +
-        "Transfers will start stalling silently. Top it up now.",
+      message: `Relay hot wallet is at ${sol} SOL — about ${mintsRemaining} more transfer(s). Transfers will start stalling silently. Top it up now.`,
     };
   }
 

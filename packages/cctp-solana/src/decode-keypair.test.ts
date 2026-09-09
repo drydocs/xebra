@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
 import { Keypair } from "@solana/web3.js";
+import { describe, expect, it } from "vitest";
 import { decodeRelayKeypair } from "./decode-keypair.js";
 
 /** A local base58 encoder, so the test does not depend on the same library the decoder would
@@ -37,9 +37,9 @@ describe("decodeRelayKeypair", () => {
   });
 
   it("accepts a solana-keygen JSON byte array", () => {
-    expect(
-      decodeRelayKeypair(JSON.stringify(Array.from(key.secretKey))).publicKey.toBase58(),
-    ).toBe(key.publicKey.toBase58());
+    expect(decodeRelayKeypair(JSON.stringify(Array.from(key.secretKey))).publicKey.toBase58()).toBe(
+      key.publicKey.toBase58(),
+    );
   });
 
   it("tolerates surrounding whitespace from a copied secret", () => {

@@ -62,7 +62,9 @@ export function toBurnEvents(events: rpc.Api.EventResponse[]): BurnEvent[] {
 
 export function createSorobanBurnSource(
   reader: SorobanEventReader,
-): (cursor: string | undefined) => Promise<{ events: BurnEvent[]; nextCursor: string | undefined }> {
+): (
+  cursor: string | undefined,
+) => Promise<{ events: BurnEvent[]; nextCursor: string | undefined }> {
   return async (cursor) => {
     const response = await reader.getEvents(cursor);
     return { events: toBurnEvents(response.events), nextCursor: response.cursor };
@@ -103,7 +105,9 @@ export function createBurnReaderFromUrl(
   events: BurnEvent[];
   nextCursor: string | undefined;
 }> {
-  return createSorobanBurnSource(createRpcEventReader(new rpc.Server(rpcUrl), contractId, startLedger));
+  return createSorobanBurnSource(
+    createRpcEventReader(new rpc.Server(rpcUrl), contractId, startLedger),
+  );
 }
 
 /**
@@ -118,7 +122,9 @@ export function createBurnReaderFromUrl(
  * Any other failure throws, because "Horizon is down" must not be reported as "no such burn" —
  * that distinction is exactly the bug that made a valid transfer look invalid once already.
  */
-export function createHorizonBurnClock(horizonUrl: string): (txHash: string) => Promise<number | undefined> {
+export function createHorizonBurnClock(
+  horizonUrl: string,
+): (txHash: string) => Promise<number | undefined> {
   return async (txHash) => {
     // No `cache` option: this package is compiled against Node's own `fetch` types, which do
     // not carry it. Horizon does not send cacheable headers for a transaction lookup anyway, and

@@ -11,7 +11,15 @@ describe("isStellarTxHash", () => {
   it("rejects the wrong shape", () => {
     // Upper case included: Horizon and the SDK both emit lower case, and accepting both would
     // let the same burn occupy two rows of a unique index that is byte-comparing text.
-    for (const bad of ["", "not-hex", HASH.toUpperCase(), `${HASH}00`, HASH.slice(0, 63), 42, null]) {
+    for (const bad of [
+      "",
+      "not-hex",
+      HASH.toUpperCase(),
+      `${HASH}00`,
+      HASH.slice(0, 63),
+      42,
+      null,
+    ]) {
       expect(isStellarTxHash(bad), String(bad)).toBe(false);
     }
   });

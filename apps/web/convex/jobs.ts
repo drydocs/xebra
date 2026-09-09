@@ -175,9 +175,7 @@ export const reschedule = internalMutation({
 
     const PARKED = 100 * 365 * 24 * 60 * 60 * 1000;
     const nextAttemptAt =
-      deadLetterReason !== undefined
-        ? Date.now() + PARKED
-        : Date.now() + (delayMs ?? 0);
+      deadLetterReason !== undefined ? Date.now() + PARKED : Date.now() + (delayMs ?? 0);
 
     await ctx.db.patch(doc._id, {
       nextAttemptAt,

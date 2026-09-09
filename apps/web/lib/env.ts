@@ -73,9 +73,7 @@ function required(name: RawKey): string {
   const value = RAW[name];
   if (!value || value.trim() === "") {
     throw new Error(
-      `${name} is not set. NEXT_PUBLIC_* values are inlined at BUILD time, so this must be ` +
-        `present when the bundle is compiled — as a Docker build arg in CI, or via ` +
-        `\`pnpm dev\` which loads .env.local. See docs/environments.md.`,
+      `${name} is not set. NEXT_PUBLIC_* values are inlined at BUILD time, so this must be present when the bundle is compiled — as a Docker build arg in CI, or via \`pnpm dev\` which loads .env.local. See docs/environments.md.`,
     );
   }
   return value.trim();

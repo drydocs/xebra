@@ -1,12 +1,12 @@
+import type { StellarWalletsKit } from "@creit.tech/stellar-wallets-kit";
 import {
   Address,
   Contract,
   TransactionBuilder,
   nativeToScVal,
-  scValToNative,
   rpc,
+  scValToNative,
 } from "@stellar/stellar-sdk";
-import type { StellarWalletsKit } from "@creit.tech/stellar-wallets-kit";
 import { formatError } from "./format-error";
 
 /**
@@ -98,7 +98,7 @@ export function parseUsdc(input: string): bigint {
   if (fraction.length > 7) {
     throw new Error("USDC on Stellar has at most 7 decimal places");
   }
-  return BigInt(whole || "0") * STROOPS_PER_USDC + BigInt((fraction + "0000000").slice(0, 7));
+  return BigInt(whole || "0") * STROOPS_PER_USDC + BigInt(`${fraction}0000000`.slice(0, 7));
 }
 
 /** Formats stroops for display. Trims trailing zeros but always keeps at least 2 decimals. */
@@ -302,10 +302,7 @@ export async function submitBridge(
  * allowance ledger entry — `require_auth` on the caller does NOT substitute for one. Without
  * it the burn reverts with the SAC's contract error #9, "not enough allowance to spend".
  */
-export async function getUsdcAllowance(
-  config: BridgeChainConfig,
-  owner: string,
-): Promise<bigint> {
+export async function getUsdcAllowance(config: BridgeChainConfig, owner: string): Promise<bigint> {
   const server = new rpc.Server(config.sorobanRpcUrl);
   const retval = await simulateWithPassphrase(
     server,
@@ -365,7 +362,6 @@ export async function approveUsdcForCctp(
   return submitSigned(server, signedTx, "approval");
 }
 
-
 /**
  * Submits a signed transaction and interprets the full status set.
  *
@@ -389,8 +385,7 @@ async function submitSigned(
       return { txHash: result.hash };
     case "TRY_AGAIN_LATER":
       throw new Error(
-        `The network declined to queue the ${what} right now (TRY_AGAIN_LATER). Nothing has ` +
-          "moved. Wait a few seconds and try again.",
+        `The network declined to queue the ${what} right now (TRY_AGAIN_LATER). Nothing has moved. Wait a few seconds and try again.`,
       );
     default:
       throw new Error(`The ${what} was rejected: ${formatError(result)}`);
@@ -453,9 +448,7 @@ export async function waitForTx(
   }
 
   throw new Error(
-    `Timed out after ${Math.round(timeoutMs / 1000)}s waiting for ${txHash} to be applied.\n\n` +
-      "Check the hash on stellar.expert. If it never lands, nothing has moved and it is safe " +
-      "to retry.",
+    `Timed out after ${Math.round(timeoutMs / 1000)}s waiting for ${txHash} to be applied.\n\nCheck the hash on stellar.expert. If it never lands, nothing has moved and it is safe to retry.`,
   );
 }
 

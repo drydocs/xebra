@@ -1,4 +1,10 @@
-import { MAINNET_PASSPHRASE, type Network, NETWORKS, type NetworkPreset, PRESETS } from "./networks.js";
+import {
+  MAINNET_PASSPHRASE,
+  NETWORKS,
+  type Network,
+  type NetworkPreset,
+  PRESETS,
+} from "./networks.js";
 
 /**
  * Resolves the mainnet configuration, applies any explicit overrides, and cross-validates the
@@ -31,14 +37,7 @@ export class NetworkConfigError extends Error {
 }
 
 /** Substrings that must never appear in any endpoint or address. */
-const NON_MAINNET_MARKERS = [
-  "testnet",
-  "devnet",
-  "sandbox",
-  "localhost",
-  "127.0.0.1",
-  "0.0.0.0",
-];
+const NON_MAINNET_MARKERS = ["testnet", "devnet", "sandbox", "localhost", "127.0.0.1", "0.0.0.0"];
 
 export function loadNetworkConfig(env: EnvLike = process.env): NetworkConfig {
   const raw = env.NETWORK?.trim();
@@ -50,8 +49,7 @@ export function loadNetworkConfig(env: EnvLike = process.env): NetworkConfig {
   }
   if (!(NETWORKS as readonly string[]).includes(raw)) {
     throw new NetworkConfigError([
-      `NETWORK="${raw}" is not supported. This is a mainnet-only build; testnet and local ` +
-        "configurations were removed.",
+      `NETWORK="${raw}" is not supported. This is a mainnet-only build; testnet and local configurations were removed.`,
     ]);
   }
 
@@ -120,8 +118,7 @@ export function validate(config: NetworkConfig): string[] {
   // 1. The passphrase is the authoritative network fingerprint.
   if (stellar.networkPassphrase !== MAINNET_PASSPHRASE) {
     problems.push(
-      `STELLAR_NETWORK_PASSPHRASE is not the mainnet passphrase. This exact mismatch signs ` +
-        `transactions against the wrong network. Got: "${stellar.networkPassphrase}"`,
+      `STELLAR_NETWORK_PASSPHRASE is not the mainnet passphrase. This exact mismatch signs transactions against the wrong network. Got: "${stellar.networkPassphrase}"`,
     );
   }
 
@@ -155,9 +152,7 @@ export function validate(config: NetworkConfig): string[] {
   for (const [name, actual, expected] of mustMatch) {
     if (actual !== expected) {
       problems.push(
-        `${name} is overridden to "${actual}" instead of the verified mainnet value ` +
-          `"${expected}". Circle contract addresses are pinned; if Circle genuinely ` +
-          `migrated, update packages/network-config and re-run scripts/check-cctp-interface.sh.`,
+        `${name} is overridden to "${actual}" instead of the verified mainnet value "${expected}". Circle contract addresses are pinned; if Circle genuinely migrated, update packages/network-config and re-run scripts/check-cctp-interface.sh.`,
       );
     }
   }

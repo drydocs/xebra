@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest";
 import { nativeToScVal, xdr } from "@stellar/stellar-sdk";
 import type { rpc } from "@stellar/stellar-sdk";
+import { describe, expect, it } from "vitest";
 import { createSorobanBurnSource, toBurnEvents } from "./soroban-burn-source.js";
 
 function event(topic: string, txHash: string): rpc.Api.EventResponse {

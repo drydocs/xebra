@@ -1,4 +1,4 @@
-import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import { type IncomingMessage, type Server, type ServerResponse, createServer } from "node:http";
 import { authorizeBearer, isStellarTxHash } from "@xebra/relay-core";
 
 /**
@@ -28,9 +28,7 @@ import { authorizeBearer, isStellarTxHash } from "@xebra/relay-core";
  * without this service (docs/architecture.md §5). Losing the token cannot strand anyone.
  */
 
-export interface SubmitHandler {
-  (txHash: string): Promise<{ jobId: string; created: boolean }>;
-}
+export type SubmitHandler = (txHash: string) => Promise<{ jobId: string; created: boolean }>;
 
 export interface RelayHttpOptions {
   submit: SubmitHandler;

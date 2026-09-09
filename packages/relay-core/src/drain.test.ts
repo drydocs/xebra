@@ -1,6 +1,6 @@
+import { type RelayJobState, createQueuedJob } from "@xebra/cctp-client";
 import { describe, expect, it, vi } from "vitest";
-import { createQueuedJob, type RelayJobState } from "@xebra/cctp-client";
-import { drainDueJobs, type DrainDeps } from "./drain.js";
+import { type DrainDeps, drainDueJobs } from "./drain.js";
 import type { ScheduleDecision } from "./schedule.js";
 
 function job(id: string, overrides: Partial<RelayJobState> = {}): RelayJobState {
@@ -64,7 +64,9 @@ describe("drainDueJobs", () => {
   });
 
   it("stops at maxJobs and says so", async () => {
-    const h = deps({ claimDueJobs: async (limit) => Array.from({ length: limit }, (_, i) => job(`j${i}`)) });
+    const h = deps({
+      claimDueJobs: async (limit) => Array.from({ length: limit }, (_, i) => job(`j${i}`)),
+    });
     const result = await drainDueJobs(h.deps, { maxJobs: 4, batchSize: 3 });
     expect(result.processed).toBe(4);
     // The caller needs to know more is waiting; otherwise a backlog drains one batch per minute.
@@ -151,6 +153,9 @@ describe("drainDueJobs", () => {
     const log = vi.fn();
     const h = deps({ claimDueJobs: batching([[job("a")]]), log });
     await drainDueJobs(h.deps);
-    expect(log).toHaveBeenCalledWith("processed relay job", expect.objectContaining({ jobId: "a" }));
+    expect(log).toHaveBeenCalledWith(
+      "processed relay job",
+      expect.objectContaining({ jobId: "a" }),
+    );
   });
 });

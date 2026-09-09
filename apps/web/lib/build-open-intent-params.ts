@@ -1,4 +1,4 @@
-import { ChainId, solanaAddressToChainAddress, type AssetRef } from "@xebra/intent-schema";
+import { type AssetRef, ChainId, solanaAddressToChainAddress } from "@xebra/intent-schema";
 import type { OpenIntentParams } from "./open-intent.js";
 
 /**

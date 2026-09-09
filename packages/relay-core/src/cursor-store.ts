@@ -1,5 +1,5 @@
-import { eq } from "drizzle-orm";
 import { type Database, watcherCursors } from "@xebra/db";
+import { eq } from "drizzle-orm";
 
 /**
  * Postgres-backed watcher cursor.

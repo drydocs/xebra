@@ -44,8 +44,8 @@
  *   node scripts/recover-stranded-mint.mjs --burn-tx <hash> --submit <signed_base64>
  */
 
-import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import {
   ComputeBudgetProgram,
   Connection,
@@ -245,7 +245,9 @@ function report(tx, label) {
   console.log(`\n${label}`);
   console.log(`  size ${bytes} / 1232 bytes${bytes > 1232 ? "  <-- TOO LARGE" : ""}`);
   console.log("\n  base64 (for the wallet to countersign):\n");
-  console.log(tx.serialize({ requireAllSignatures: false, verifySignatures: false }).toString("base64"));
+  console.log(
+    tx.serialize({ requireAllSignatures: false, verifySignatures: false }).toString("base64"),
+  );
 }
 
 // --- steps --------------------------------------------------------------------
@@ -297,7 +299,9 @@ async function step2(ctx, send) {
   const acct = await connection.getAccountInfo(stranded);
   if (!acct) throw new Error("Step 1 has not run — the token account does not exist yet.");
   if (!acct.owner.equals(TOKEN_PROGRAM)) {
-    throw new Error(`${stranded.toBase58()} is not a token account (owner ${acct.owner.toBase58()}).`);
+    throw new Error(
+      `${stranded.toBase58()} is not a token account (owner ${acct.owner.toBase58()}).`,
+    );
   }
 
   const built = receiveMessageIx(ctx);

@@ -1,12 +1,12 @@
-import { describe, expect, it } from "vitest";
 import { PublicKey } from "@solana/web3.js";
+import { describe, expect, it } from "vitest";
 import {
+  MESSAGE_TRANSMITTER_V2,
   RECEIVE_MESSAGE_DISCRIMINATOR,
+  TOKEN_MESSENGER_MINTER_V2,
   associatedTokenAddress,
   readMintRecipient,
   readNonce,
-  MESSAGE_TRANSMITTER_V2,
-  TOKEN_MESSENGER_MINTER_V2,
 } from "./receive-message.js";
 
 /**
@@ -63,7 +63,7 @@ describe("program ids", () => {
 });
 
 describe("the Anchor discriminator", () => {
-  it("matches sha256(\"global:receive_message\")", async () => {
+  it('matches sha256("global:receive_message")', async () => {
     // The constant exists so this module runs in a browser: hashing at call time needed
     // `node:crypto`, which is what kept the self-serve claim page from building the same
     // instruction the relay builds. A precomputed constant is only safe if something checks it,

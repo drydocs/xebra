@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { loadNetworkConfig, NetworkConfigError, assertNetwork } from "./load.js";
+import { NetworkConfigError, assertNetwork, loadNetworkConfig } from "./load.js";
 import { MAINNET_PASSPHRASE, PRESETS } from "./networks.js";
 
 const TESTNET_PASSPHRASE = "Test SDF Network ; September 2015";
@@ -22,7 +22,9 @@ describe("loadNetworkConfig", () => {
     expect(cfg.stellar.tokenMessengerAddress).toBe(
       "CAE2G5Z77UP7GYPYGFOWFGW7C7J6I4YP2AFGSADRKQY62SYUFLPNFTXL",
     );
-    expect(cfg.stellar.usdcAddress).toBe("CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75");
+    expect(cfg.stellar.usdcAddress).toBe(
+      "CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75",
+    );
     expect(cfg.solana.rpcUrl).toBe("https://api.mainnet-beta.solana.com");
     expect(cfg.solana.usdcAddress).toBe("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v");
     expect(cfg.irisBaseUrl).toBe("https://iris-api.circle.com");
@@ -55,8 +57,8 @@ describe("loadNetworkConfig", () => {
 
   it("rejects any devnet/testnet/localhost endpoint", () => {
     expect(
-      problemsOf({ NETWORK: "mainnet", SOLANA_RPC_URL: "https://api.devnet.solana.com" }).some((p) =>
-        p.includes('contains "devnet"'),
+      problemsOf({ NETWORK: "mainnet", SOLANA_RPC_URL: "https://api.devnet.solana.com" }).some(
+        (p) => p.includes('contains "devnet"'),
       ),
     ).toBe(true);
     expect(

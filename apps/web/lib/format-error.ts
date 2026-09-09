@@ -71,11 +71,7 @@ export function formatError(err: unknown, depth = 0): string {
 
 function safeJson(value: unknown): string {
   try {
-    const out = JSON.stringify(
-      value,
-      (_key, v) => (typeof v === "bigint" ? v.toString() : v),
-      2,
-    );
+    const out = JSON.stringify(value, (_key, v) => (typeof v === "bigint" ? v.toString() : v), 2);
     // JSON.stringify returns undefined for functions/symbols and "{}" for objects whose own
     // properties are all non-enumerable — which is exactly the case that produced
     // "[object Object]" before. Say so rather than showing an empty brace pair.
@@ -101,7 +97,8 @@ function safeJson(value: unknown): string {
  * to debug one.
  */
 export function reportError(context: string, err: unknown): string {
-  // biome-ignore lint/suspicious/noConsole: this is the diagnostic path for failed transfers.
+  // The diagnostic path for a failed transfer: the console gets the whole error, the UI gets a
+  // sentence. Deliberate, not a stray debug statement.
   console.error(`[xebra] ${context}`, err);
   return formatError(err);
 }

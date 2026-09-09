@@ -16,7 +16,10 @@
  */
 
 import { readFileSync } from "node:fs";
-import { PublicKey, Connection } from "../packages/chain-adapters/node_modules/@solana/web3.js/lib/index.cjs.js";
+import {
+  Connection,
+  PublicKey,
+} from "../packages/chain-adapters/node_modules/@solana/web3.js/lib/index.cjs.js";
 
 const SOLANA_RPC = "https://api.mainnet-beta.solana.com";
 const SOROBAN_RPC = "https://mainnet.sorobanrpc.com";
@@ -48,13 +51,20 @@ async function sorobanView(contractId, method, args = []) {
   const out = execFileSync(
     "stellar",
     [
-      "contract", "invoke",
-      "--id", contractId,
-      "--source-account", "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
-      "--rpc-url", SOROBAN_RPC,
-      "--network-passphrase", "Public Global Stellar Network ; September 2015",
+      "contract",
+      "invoke",
+      "--id",
+      contractId,
+      "--source-account",
+      "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
+      "--rpc-url",
+      SOROBAN_RPC,
+      "--network-passphrase",
+      "Public Global Stellar Network ; September 2015",
       "--send=no",
-      "--", method, ...args,
+      "--",
+      method,
+      ...args,
     ],
     { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 90_000 },
   );
@@ -123,12 +133,21 @@ async function main() {
   const paused = await sorobanView(CCTP, "paused");
   paused === "false" ? ok("not paused") : bad(`CCTP is paused (${paused})`);
 
-  const maxBurn = BigInt(await sorobanView(CCTP, "get_max_burn_amount_per_message", ["--local_token", USDC_SAC]));
+  const maxBurn = BigInt(
+    await sorobanView(CCTP, "get_max_burn_amount_per_message", ["--local_token", USDC_SAC]),
+  );
   stroops <= maxBurn
     ? ok(`amount within Circle's per-message cap (${maxBurn} stroops)`)
     : bad(`amount ${stroops} exceeds Circle's cap ${maxBurn}`);
 
-  const minFee = BigInt(await sorobanView(CCTP, "get_min_fee_amount", ["--burn_token", USDC_SAC, "--amount", String(stroops)]));
+  const minFee = BigInt(
+    await sorobanView(CCTP, "get_min_fee_amount", [
+      "--burn_token",
+      USDC_SAC,
+      "--amount",
+      String(stroops),
+    ]),
+  );
   ok(`Circle's min fee for this amount: ${minFee} stroops`);
 
   const remote = await sorobanView(CCTP, "get_remote_token_messenger", ["--domain", "5"]);

@@ -1,10 +1,10 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import { Suspense, useCallback, useEffect, useState } from "react";
 import { Notice } from "../../components/ui/notice";
-import { reportError } from "../../lib/format-error";
 import { browserConnection, prepareClaim } from "../../lib/claim";
+import { reportError } from "../../lib/format-error";
 
 /**
  * Completes a transfer from the user's own wallet, without the relay.
@@ -36,12 +36,21 @@ type PhantomProvider = {
 
 function getPhantom(): PhantomProvider | null {
   if (typeof window === "undefined") return null;
-  const w = window as unknown as { phantom?: { solana?: PhantomProvider }; solana?: PhantomProvider };
+  const w = window as unknown as {
+    phantom?: { solana?: PhantomProvider };
+    solana?: PhantomProvider;
+  };
   return w.phantom?.solana ?? (w.solana?.isPhantom ? w.solana : null) ?? null;
 }
 
 type Attestation =
-  | { status: "complete"; message: string; attestation: string; usdcMint: string; sourceDomainId: number }
+  | {
+      status: "complete";
+      message: string;
+      attestation: string;
+      usdcMint: string;
+      sourceDomainId: number;
+    }
   | { status: "pending" }
   | { status: "unknown"; reason?: string };
 
@@ -199,9 +208,8 @@ function Claim() {
       {attestation?.status === "complete" && !signature && (
         <>
           <Notice tone="signal" title="Attested and claimable">
-            The funds are waiting. Submitting the mint costs you the Solana fee and about 0.0009
-            SOL of account rent, which nobody can reclaim — this is the cost our relay normally
-            absorbs.
+            The funds are waiting. Submitting the mint costs you the Solana fee and about 0.0009 SOL
+            of account rent, which nobody can reclaim — this is the cost our relay normally absorbs.
           </Notice>
 
           <section className="rounded-tray bg-bone/[0.03] px-4 py-4">

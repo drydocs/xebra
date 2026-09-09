@@ -4,8 +4,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { httpBatchLink } from "@trpc/client";
 import { useState } from "react";
 import superjson from "superjson";
-import { trpc } from "../lib/trpc";
 import { env } from "../lib/env";
+import { trpc } from "../lib/trpc";
 
 /**
  * `WagmiProvider` used to wrap this tree. It has been removed.
@@ -29,9 +29,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
       // Soroban directly. When NEXT_PUBLIC_API_URL is unset the client is still constructed
       // (tRPC's provider requires one) but points at a path that fails loudly if anything
       // ever calls it, rather than silently succeeding against the wrong origin.
-      links: [
-        httpBatchLink({ url: env.apiUrl ?? "/api-not-configured", transformer: superjson }),
-      ],
+      links: [httpBatchLink({ url: env.apiUrl ?? "/api-not-configured", transformer: superjson })],
     }),
   );
 

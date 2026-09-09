@@ -1,9 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { Notice } from "../../components/ui/notice";
 import { env } from "../../lib/env";
 import { formatError, reportError } from "../../lib/format-error";
-import { Notice } from "../../components/ui/notice";
 
 /**
  * Countersigns a recovery transaction for a CCTP transfer that was burned to a wallet address
@@ -96,11 +96,14 @@ export default function RecoverPage() {
   return (
     <main className="mx-auto flex w-full max-w-lg flex-col gap-6">
       <header>
-        <h1 className="text-2xl font-semibold tracking-tight text-bone">Recover a stranded transfer</h1>
+        <h1 className="text-2xl font-semibold tracking-tight text-bone">
+          Recover a stranded transfer
+        </h1>
         <p className="mt-2 text-[0.8125rem] leading-relaxed text-bone/50">
           For a CCTP transfer burned to a wallet address instead of a token account. Paste a
-          transaction produced by <code className="font-mono text-xs">recover-stranded-mint.mjs</code>,
-          sign it with the wallet that owns the stranded address, and submit.
+          transaction produced by{" "}
+          <code className="font-mono text-xs">recover-stranded-mint.mjs</code>, sign it with the
+          wallet that owns the stranded address, and submit.
         </p>
       </header>
 
@@ -177,9 +180,9 @@ export default function RecoverPage() {
       )}
 
       <p className="text-xs leading-relaxed text-bone/35">
-        The relayer has already signed for the fee and rent. Your wallet only adds the signature
-        for the stranded address. If anything fails, no funds move — the rent is refunded when
-        the temporary account is closed in the final step.
+        The relayer has already signed for the fee and rent. Your wallet only adds the signature for
+        the stranded address. If anything fails, no funds move — the rent is refunded when the
+        temporary account is closed in the final step.
       </p>
     </main>
   );

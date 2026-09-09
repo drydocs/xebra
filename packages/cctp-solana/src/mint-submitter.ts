@@ -7,12 +7,12 @@ import {
   sendAndConfirmTransaction,
 } from "@solana/web3.js";
 import type { MintSubmitter } from "@xebra/cctp-client";
+import { decodeRelayKeypair } from "./decode-keypair.js";
 import {
   buildReceiveMessageInstruction,
   ensureRecipientTokenAccount,
   readMintRecipient,
 } from "./receive-message.js";
-import { decodeRelayKeypair } from "./decode-keypair.js";
 
 /**
  * Submits the destination-chain mint for a CCTP transfer.
@@ -76,10 +76,16 @@ export function createSolanaMintSubmitter(
         });
       }
 
-      const ix = await buildReceiveMessageInstruction(connection, payer.publicKey, message, attestation, {
-        usdcMint,
-        sourceDomain,
-      });
+      const ix = await buildReceiveMessageInstruction(
+        connection,
+        payer.publicKey,
+        message,
+        attestation,
+        {
+          usdcMint,
+          sourceDomain,
+        },
+      );
 
       const tx = new Transaction()
         // receiveMessage consumed ~166k units in mainnet simulation; the 200k default leaves
@@ -91,8 +97,7 @@ export function createSolanaMintSubmitter(
       const sim = await connection.simulateTransaction(prepared);
       if (sim.value.err) {
         throw new Error(
-          `Mint simulation failed (nothing submitted, no fee spent): ` +
-            `${JSON.stringify(sim.value.err)}\n${(sim.value.logs ?? []).slice(-12).join("\n")}`,
+          `Mint simulation failed (nothing submitted, no fee spent): ${JSON.stringify(sim.value.err)}\n${(sim.value.logs ?? []).slice(-12).join("\n")}`,
         );
       }
 
