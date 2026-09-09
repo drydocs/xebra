@@ -1,55 +1,52 @@
-import {
-  authorizeBearer,
-  checkBurnAdmission,
-  createHorizonBurnClock,
-  drainDueJobs,
-  isStellarTxHash,
-  submitBurn,
-} from "@xebra/relay-core";
-import { env } from "../../../../lib/env";
-import { MissingRelayConfig, isRelayConfigured, relayDeps } from "../../../../lib/relay-runtime";
+import { ConvexHttpClient } from "convex/browser";
+import { makeFunctionReference } from "convex/server";
 
 /**
- * Records a freshly signed burn and starts its mint.
+ * Hands a freshly signed burn to the relay.
  *
- * # Why the work happens here rather than in a relay service
+ * # Why this is a proxy and not the relay itself
  *
- * There is no relay service in this deployment. `apps/cctp-relay` is a container and this project
- * deploys to Vercel, so the same pipeline from `@xebra/relay-core` runs inside route handlers:
- * this one on the fast path, and `/api/cron/relay` as the safety net.
+ * The relay lives in Convex (`apps/web/convex/`), because it needs to keep working between
+ * requests: an attestation can take a minute, a Solana submission can fail and need retrying, and
+ * a Vercel function is killed the moment it returns. Convex's scheduler runs every minute on the
+ * free plan; Vercel Cron runs once per *day* on Hobby.
  *
- * Draining inline is what makes the product work on either Vercel plan. Cron is once per minute
- * on Pro and **once per day** on Hobby, and a transfer cannot wait a day for its mint — so the
- * mint is attempted in this request, right after the burn is recorded, and cron only picks up what
- * this could not finish.
+ * The browser could call Convex directly. It goes through here so the page keeps talking to its
+ * own origin — no second client, no `NEXT_PUBLIC_CONVEX_URL` baked into the bundle for a call the
+ * server can make — and so `RELAY_SUBMIT_TOKEN` has somewhere to live that is not the browser.
  *
- * # Why it does not simply mint whatever it is given
+ * # Why the function is named as a string
  *
- * Every mint costs us 867,621 lamports of permanent rent, and until the wrapper contract is
- * deployed there is nothing on chain distinguishing a burn made through this app from any other
- * CCTP user's burn on Stellar. An unbounded endpoint is therefore a funded drain pointed at
- * strangers' transfers. `checkBurnAdmission` bounds it by recency and a rolling spend cap; see its
- * module comment for what that does and does not achieve.
+ * `makeFunctionReference` instead of Convex's generated `api` object: `convex/_generated/` is
+ * written by `npx convex dev` against a developer's own deployment, and it is not in the repo.
+ * Importing it here would make the Next.js build fail for anyone who has not run codegen. The
+ * name is checked at runtime by Convex, and there is exactly one public function to get wrong.
  *
- * `RELAY_SUBMIT_TOKEN` bypasses those bounds, for operations — re-driving an old burn by hand is
- * exactly what the recency check would otherwise block.
- *
- * # Why a refusal is not a lost transfer
+ * # A failure here is not a lost transfer
  *
  * The burn is already on chain when this is called. Circle's attestation is public and never
- * expires, so anyone holding it can complete the mint, including the user. Refusing to sponsor
- * costs the caller gas, not funds.
+ * expires, so anyone holding it can complete the mint, including the user. Failing to reach the
+ * relay costs the caller gas, not funds.
  */
 
 export const dynamic = "force-dynamic";
-/** Long enough to record the burn and usually mint it in the same request, without approaching
- *  Hobby's 300s ceiling — a request that hangs that long looks broken to the person waiting. */
+/** Long enough for Convex to mint inline in most cases, short enough that a hung upstream does
+ *  not leave someone staring at a spinner. */
 export const maxDuration = 60;
 
+const submitBurn = makeFunctionReference<"action">("relay:submitBurn");
+
+const TX_HASH = /^[0-9a-f]{64}$/;
+
+type RelayResult =
+  | { status: "queued"; jobId: string; created: boolean }
+  | { status: "unavailable" | "rejected"; reason: string };
+
 export async function POST(request: Request): Promise<Response> {
-  if (!isRelayConfigured()) {
+  const convexUrl = process.env.CONVEX_URL ?? process.env.NEXT_PUBLIC_CONVEX_URL;
+  if (!convexUrl) {
     // Not a 500: a deployment without a relay is a valid state — the bridge works, users just pay
-    // their own mint gas — and a 500 would read to the UI as the transfer having broken.
+    // their own mint gas — and a 500 would read to the UI as the transfer itself having broken.
     return Response.json(
       { status: "unavailable", reason: "no relay is configured for this deployment" },
       { status: 503 },
@@ -68,48 +65,32 @@ export async function POST(request: Request): Promise<Response> {
       ? (body as Record<string, unknown>).txHash
       : undefined;
 
-  if (!isStellarTxHash(txHash)) {
+  if (typeof txHash !== "string" || !TX_HASH.test(txHash)) {
     return Response.json({ error: "txHash must be a 64-character hex string" }, { status: 400 });
   }
 
   try {
-    const deps = relayDeps();
-
+    const client = new ConvexHttpClient(convexUrl);
     const opsToken = process.env.RELAY_SUBMIT_TOKEN;
-    const privileged = Boolean(
-      opsToken && authorizeBearer(request.headers.get("authorization"), opsToken),
-    );
+    const result = (await client.action(submitBurn, {
+      txHash,
+      ...(opsToken ? { opsToken } : {}),
+    })) as RelayResult;
 
-    if (!privileged) {
-      const verdict = await checkBurnAdmission(
-        {
-          burnClosedAt: createHorizonBurnClock(env.horizonUrl),
-          countSponsoredSince: (since) => deps.store.countSponsoredSince(since),
-        },
-        txHash,
+    if (result.status !== "queued") {
+      return Response.json(
+        { status: "unavailable", reason: result.reason },
+        { status: 503 },
       );
-      if (!verdict.admit) {
-        return Response.json({ status: "unavailable", reason: verdict.reason }, { status: 503 });
-      }
     }
-
-    const { job, created } = await submitBurn(deps.watcher, txHash);
-
-    // Drive it as far as it will go now. A shorter budget than the cron tick's, because someone
-    // is waiting on this response — an attestation that is not ready yet is left to cron rather
-    // than held open.
-    const drained = await drainDueJobs(deps.drain, { maxJobs: 3, budgetMs: 25_000 });
-
-    return Response.json(
-      { status: "queued", jobId: job.id, created, drained },
-      { status: created ? 201 : 200 },
-    );
+    return Response.json(result, { status: result.created ? 201 : 200 });
   } catch (err) {
-    if (err instanceof MissingRelayConfig) {
-      return Response.json({ status: "unavailable", reason: err.message }, { status: 503 });
-    }
-    // Never echo the internal error: it can carry a connection string.
+    // Never echo the upstream error: it can carry a deployment URL or a stack from inside the
+    // action.
     console.error("[relay] burn submission failed", err);
-    return Response.json({ status: "unavailable", reason: "could not queue the burn" }, { status: 503 });
+    return Response.json(
+      { status: "unavailable", reason: "could not reach the relay" },
+      { status: 503 },
+    );
   }
 }
