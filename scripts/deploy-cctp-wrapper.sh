@@ -68,6 +68,19 @@ MIN_TRANSFER="${MIN_TRANSFER:-100000000}"      # 10 USDC
 MAX_TRANSFER="${MAX_TRANSFER:-100000000000000}"  # 10M USDC
 MAX_CCTP_FEE_BPS="${MAX_CCTP_FEE_BPS:-20}"
 
+# Inclusion-fee bid, in stroops. A BID CEILING, not a charge: Stellar charges the market clearing
+# rate up to this, so bidding high costs nothing when the network is quiet and buys inclusion when
+# it is not.
+#
+# The CLI defaults to 100, which is the network *minimum* and not a bid at all. That default is
+# why the first deploy attempt was signed, sent, and never included — the same failure that lost
+# the first mainnet burn in this project. Mainnet was at 67% capacity at the time with a p90
+# charged fee of 14,252 stroops.
+#
+# This is separate from, and dwarfed by, the Soroban resource fee — about 53.78 XLM to upload the
+# wasm — which is charged in full regardless.
+INCLUSION_FEE="${INCLUSION_FEE:-10000000}"  # 1 XLM ceiling
+
 die() { echo "FAIL: $*" >&2; exit 1; }
 
 [ -n "${SOURCE:-}" ]    || die "SOURCE (stellar CLI identity) is required"
@@ -144,6 +157,7 @@ fi
 echo "==> Deploying"
 CONTRACT_ID="$(stellar contract deploy \
   --wasm "$WASM" \
+  --inclusion-fee "$INCLUSION_FEE" \
   --source-account "$SOURCE" \
   --rpc-url "$RPC_URL" \
   --network-passphrase "$PASSPHRASE" \
