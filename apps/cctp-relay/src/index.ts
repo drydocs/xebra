@@ -30,12 +30,11 @@ import { createDb } from "@xebra/db";
 import { registerPolledGauge, startObservability } from "@xebra/observability";
 import {
   type BurnWatcherDeps,
-  PostgresCursorStore,
-  PostgresRelayJobStore,
   createBurnReaderFromUrl,
   scanForBurns,
   submitBurn,
 } from "@xebra/relay-core";
+import { PostgresCursorStore, PostgresRelayJobStore } from "@xebra/relay-core/postgres";
 import pino from "pino";
 import { loadConfig } from "./config.js";
 import { startRelayHttpServer } from "./http.js";

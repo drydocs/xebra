@@ -13,15 +13,17 @@
  * store, so there is one implementation of the part that moves money.
  *
  * Nothing here opens a listener, reads an env var or picks a schedule. Callers do that.
+ *
+ * The Postgres implementations live behind `@xebra/relay-core/postgres` rather than here, so a
+ * caller storing state elsewhere — Convex, in the deployed app — does not pull Drizzle and the
+ * Postgres driver into its bundle to get at the pipeline.
  */
 
 export * from "./admission.js";
 export * from "./auth.js";
 export * from "./burn-watcher.js";
-export * from "./cursor-store.js";
 export * from "./drain.js";
 export * from "./job-store.js";
-export * from "./postgres-job-store.js";
 export * from "./process-job.js";
 export * from "./schedule.js";
 export * from "./soroban-burn-source.js";
