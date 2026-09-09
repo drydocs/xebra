@@ -11,7 +11,8 @@
     "test:watch": "vitest",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "clean": "rm -rf .next .next-build .turbo",
-    "build:next": "node scripts/check-build-network.mjs && NEXT_DIST_DIR=.next-build next build"
+    "build:next": "node scripts/check-build-network.mjs && NEXT_DIST_DIR=.next-build next build",
+    "build:vercel": "node scripts/check-build-network.mjs && next build"
   },
   "dependencies": {
     "@creit.tech/stellar-wallets-kit": "^1.6.0",
@@ -20,9 +21,13 @@
     "@tanstack/react-query": "^5.62.0",
     "@trpc/client": "^11.0.0",
     "@trpc/react-query": "^11.0.0",
+    "@xebra/cctp-client": "workspace:*",
+    "@xebra/cctp-solana": "workspace:*",
+    "@xebra/db": "workspace:*",
     "@xebra/intent-schema": "workspace:*",
     "@xebra/network-config": "workspace:*",
     "@xebra/observability": "workspace:*",
+    "@xebra/relay-core": "workspace:*",
     "@xebra/router-core": "workspace:*",
     "next": "^15.1.0",
     "react": "^19.0.0",
