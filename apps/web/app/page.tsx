@@ -568,7 +568,7 @@ function SubmittedNotice({
           </span>
           <CopyButton value={txHash} label="transaction hash" />
         </div>
-        <HandoffStatus handoff={handoff} />
+        <HandoffStatus handoff={handoff} txHash={txHash} />
       </InsetTray>
     </div>
   );
@@ -586,7 +586,13 @@ function SubmittedNotice({
  * is about to either wait or click through to /recover, and "no relay is configured" and "relay
  * returned 503" call for different amounts of patience.
  */
-function HandoffStatus({ handoff }: { handoff: RelayHandoff | null }) {
+function HandoffStatus({
+  handoff,
+  txHash,
+}: {
+  handoff: RelayHandoff | null;
+  txHash: string;
+}) {
   if (!handoff) {
     return (
       <p className="mt-2.5 flex items-center gap-2 border-t border-bone/[0.06] pt-2.5 text-[0.75rem] text-bone/40">
@@ -613,15 +619,14 @@ function HandoffStatus({ handoff }: { handoff: RelayHandoff | null }) {
       </p>
       <p className="mt-1.5 pl-3">
         Your USDC is burned and still claimable: Circle&rsquo;s attestation is public and never
-        expires, so anyone holding it can complete the mint. Save the hash above — it is the only
-        thing needed. Claiming from your own wallet in this browser is not built yet;{" "}
+        expires, so anyone holding it can complete the mint.{" "}
         <a
-          href="https://github.com/drydocs/xebra/issues"
+          href={`/claim?tx=${encodeURIComponent(txHash)}`}
           className="text-bone/70 underline decoration-bone/25 underline-offset-[3px] transition-colors duration-200 ease-haptic hover:text-bone hover:decoration-bone/50"
         >
-          open an issue
+          Claim it yourself
         </a>{" "}
-        with the hash and it will be relayed.
+        — you pay the Solana gas, roughly 0.001 SOL, which is what we would have paid.
       </p>
     </div>
   );
