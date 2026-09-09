@@ -240,6 +240,72 @@ async function simulateWithPassphrase(
   return sim.result.retval;
 }
 
+
+/**
+ * Encodes `BridgeRequest` for the contract.
+ *
+ * # Why every type is spelled out
+ *
+ * `nativeToScVal` guesses when it is not told, and both of its defaults are wrong here.
+ *
+ * **Keys.** A JS object becomes an ScMap, and its string keys default to `scvString`. Soroban
+ * `#[contracttype]` structs are maps keyed by `scvSymbol`. A string-keyed map has the right field
+ * names and the wrong key type, so the contract cannot unpack it.
+ *
+ * **Integers.** The SDK picks "the smallest XDR integer type that will fit the value". So
+ * `amount` of 100000000 goes out as a small int rather than the `i128` the contract declares, and
+ * `destination_domain` of 5 does not become `u32` because 5 fits in something narrower. The
+ * encoding then depends on the *value*, which means a request can encode correctly at one amount
+ * and incorrectly at another.
+ *
+ * Both faults surface identically and unhelpfully: `Error(Value, UnexpectedType)` out of
+ * `map_unpack_to_linear_memory`, naming no field. This cost a live mainnet attempt to find.
+ *
+ * Each entry below is `[keyType, valueType]`; `null` means the SDK's default, used only for
+ * `user`, where an `Address` instance is already unambiguous.
+ */
+export function encodeBridgeRequest(req: {
+  user: string;
+  amount: bigint;
+  destinationDomain: number;
+  mintRecipient: Uint8Array;
+  maxFee: bigint;
+  minFinalityThreshold: number;
+  recipientNeedsAccount: boolean;
+  approvalExpirationLedger: number;
+  maxWrapperFee: bigint;
+  deadline: bigint;
+}) {
+  return nativeToScVal(
+    {
+      user: new Address(req.user),
+      amount: req.amount,
+      destination_domain: req.destinationDomain,
+      mint_recipient: Buffer.from(req.mintRecipient),
+      max_fee: req.maxFee,
+      min_finality_threshold: req.minFinalityThreshold,
+      recipient_needs_account: req.recipientNeedsAccount,
+      approval_expiration_ledger: req.approvalExpirationLedger,
+      max_wrapper_fee: req.maxWrapperFee,
+      deadline: req.deadline,
+    },
+    {
+      type: {
+        user: ["symbol", null],
+        amount: ["symbol", "i128"],
+        destination_domain: ["symbol", "u32"],
+        mint_recipient: ["symbol", "bytes"],
+        max_fee: ["symbol", "i128"],
+        min_finality_threshold: ["symbol", "u32"],
+        recipient_needs_account: ["symbol", "bool"],
+        approval_expiration_ledger: ["symbol", "u32"],
+        max_wrapper_fee: ["symbol", "i128"],
+        deadline: ["symbol", "u64"],
+      },
+    } as Parameters<typeof nativeToScVal>[1],
+  );
+}
+
 export interface SubmitBridgeParams {
   config: BridgeChainConfig;
   userAddress: string;
@@ -298,21 +364,18 @@ export async function submitBridge(
   const { sequence: latestLedger } = await server.getLatestLedger();
   const approvalExpirationLedger = latestLedger + APPROVAL_TTL_LEDGERS;
 
-  const request = nativeToScVal(
-    {
-      user: new Address(params.userAddress),
-      amount: params.amount,
-      destination_domain: config.destinationDomain,
-      mint_recipient: Buffer.from(params.mintRecipient),
-      max_fee: params.maxFee,
-      min_finality_threshold: params.minFinalityThreshold,
-      recipient_needs_account: params.recipientNeedsAccount,
-      approval_expiration_ledger: approvalExpirationLedger,
-      max_wrapper_fee: params.maxWrapperFee,
-      deadline,
-    },
-    { type: "instance" },
-  );
+  const request = encodeBridgeRequest({
+    user: params.userAddress,
+    amount: params.amount,
+    destinationDomain: config.destinationDomain,
+    mintRecipient: params.mintRecipient,
+    maxFee: params.maxFee,
+    minFinalityThreshold: params.minFinalityThreshold,
+    recipientNeedsAccount: params.recipientNeedsAccount,
+    approvalExpirationLedger,
+    maxWrapperFee: params.maxWrapperFee,
+    deadline,
+  });
 
   const tx = new TransactionBuilder(account, {
     fee: INCLUSION_FEE,
