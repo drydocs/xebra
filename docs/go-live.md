@@ -113,20 +113,24 @@ not prevent a griefer inside the bounds from having their own transfers sponsore
 The wrapper removes the vector, because then the watcher only ever sees burns we were paid a fee
 on. It is on this list for revenue; this is the second reason.
 
-## 4. Things I can still do, in order
+## 4. What is left on my side
 
-1. **Run the relay against a live Convex deployment.** Every part of it is unit-tested and none of
-   it has talked to a real database. This is the only item standing between the code and a working
-   deployment, and it needs your Convex login to do at all.
-2. **Alerting on the hot wallet.** It funds every mint, and when it runs dry every transfer stalls
-   at once — silently, because a stalled job looks identical to one waiting on attestation. This
-   is the alert that matters most and the cheapest to add.
-3. **CI.** No `.github/` exists. Lint, typecheck, `vitest`, `cargo test`, `forge test` — worth
-   having before the contract parameters are ever changed.
-4. **Seed `chains`, `assets` and `corridors`** if `apps/api` is ever deployed. They have readers
-   and no writer, so it throws on every quote against an empty table. The bridge UI does not
-   depend on this — it quotes from a Soroban simulation — and neither does the relay, so this is
-   not on the deployment path at all.
+**One item, and it needs your Convex login:** the relay has never run against a live deployment.
+Every part of it is unit-tested and none of it has talked to a real database. That is the only
+thing standing between the code and a working deployment.
+
+Done since this document was first written, so you do not have to ask for them:
+
+- The self-serve claim page (`/claim`), so a user can complete their own transfer when nobody
+  sponsors the mint. This is what makes the no-hang promise usable rather than merely true.
+- Hot-wallet alerting: a Convex cron that fails loudly, and `GET /api/health` returning 503 for any
+  free uptime monitor to page on.
+- CI, running lint, typecheck, `vitest`, `cargo test` and `forge test` on every push. `pnpm lint`
+  had never passed before this; it does now.
+
+Not on the deployment path: seeding `chains`, `assets` and `corridors`. They have readers and no
+writer, so `apps/api` throws on every quote against an empty table — but the bridge UI quotes from
+a Soroban simulation and the relay does not touch them, so nothing deployed here needs it.
 
 ## 5. Sequence, once the above exists
 
