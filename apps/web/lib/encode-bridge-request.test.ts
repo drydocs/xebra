@@ -1,5 +1,5 @@
+import type { xdr } from "@stellar/stellar-sdk";
 import { describe, expect, it } from "vitest";
-import { xdr } from "@stellar/stellar-sdk";
 import { encodeBridgeRequest } from "./cctp-bridge";
 
 /**
@@ -68,7 +68,9 @@ describe("encodeBridgeRequest", () => {
   });
 
   it("sends all ten fields and no others", () => {
-    const names = entries(encodeBridgeRequest(REQUEST)).map((e) => e.name).sort();
+    const names = entries(encodeBridgeRequest(REQUEST))
+      .map((e) => e.name)
+      .sort();
     expect(names).toEqual(Object.keys(EXPECTED).sort());
   });
 

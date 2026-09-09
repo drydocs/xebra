@@ -240,7 +240,6 @@ async function simulateWithPassphrase(
   return sim.result.retval;
 }
 
-
 /**
  * Encodes `BridgeRequest` for the contract.
  *
