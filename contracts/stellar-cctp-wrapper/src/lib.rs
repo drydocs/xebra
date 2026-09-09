@@ -32,6 +32,17 @@ pub struct Params {
     pub max_transfer: i128,
     /// Ceiling on the Circle fee allowance a caller may request, in bps of `net`.
     pub max_cctp_fee_bps: u32,
+    /// Charged on top of the percentage fee when the destination has no token account yet.
+    ///
+    /// Creating one on Solana costs about 2,039,280 lamports of rent that **nobody can ever
+    /// reclaim** — closing the account needs the owner's signature, which a sponsor does not
+    /// have. Folding that into `min_fee` would make every transfer pay for a cost only
+    /// first-time recipients incur, which is what forced the floor up to a level that made small
+    /// transfers unattractive. Charged separately, the floor can stay low.
+    ///
+    /// The price is set here, by the admin, rather than supplied by the caller. The caller only
+    /// says *whether* it applies.
+    pub account_fee: i128,
 }
 
 /// Per-destination-domain configuration. `evm_style` selects the `mint_recipient` shape
@@ -72,8 +83,17 @@ pub struct BridgeRequest {
     /// Bounded at execution instead: not already past (the SAC rejects that outright), and no
     /// further out than `APPROVAL_TTL_LEDGERS`, so nothing resembling a standing grant survives.
     pub approval_expiration_ledger: u32,
-    /// The user's own ceiling on *our* fee. Without it, a `commit_params` landing in the
-    /// same ledger could overcharge an already-signed request.
+    /// Whether the destination needs a token account created before it can receive the mint.
+    ///
+    /// Determined off-chain — it is a fact about Solana that a Stellar contract cannot see — and
+    /// it only selects whether `params.account_fee` applies. A caller who sets this to `false`
+    /// when the account is in fact missing pays less and gets a mint that cannot land until
+    /// somebody creates the account; the sponsor's rule is simply to not create an account it was
+    /// not paid for. So the lie costs the liar, not us.
+    pub recipient_needs_account: bool,
+    /// The user's own ceiling on *our* total fee, percentage and account fee together. Without
+    /// it, a `commit_params` landing in the same ledger could overcharge an already-signed
+    /// request.
     pub max_wrapper_fee: i128,
     pub deadline: u64,
 }
@@ -82,7 +102,11 @@ pub struct BridgeRequest {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Quote {
     pub amount: i128,
+    /// Everything we charge: the percentage-or-floor part plus the account fee if it applies.
     pub fee: i128,
+    /// The part of `fee` that is the destination account's rent, broken out so the UI can say
+    /// what it is for rather than showing one unexplained number.
+    pub account_fee: i128,
     pub net_burned: i128,
     /// The sub-10-stroop remainder that is never transferred out of the user's wallet.
     pub remainder: i128,
@@ -177,6 +201,7 @@ pub enum Error {
     ApprovalExpiryPast = 36,
     /// The requested approval would outlive the transaction that uses it.
     ApprovalExpiryTooFar = 37,
+    AccountFeeTooHigh = 38,
 }
 
 // ---------------------------------------------------------------------------
@@ -199,6 +224,10 @@ pub struct BridgeInitiated {
     pub user: Address,
     pub amount: i128,
     pub fee: i128,
+    /// The rent portion of `fee`. Zero unless the destination needed a token account — which is
+    /// also how the sponsor knows whether it was paid to create one.
+    pub account_fee: i128,
+    pub recipient_needs_account: bool,
     pub net_burned: i128,
     pub remainder: i128,
     pub destination_domain: u32,
@@ -325,11 +354,22 @@ const STROOPS_PER_CANONICAL: i128 = 10;
 const MAX_FEE_BPS_CEILING: u32 = 100; // 1.00%
 const MAX_MIN_FEE_CEILING: i128 = 5_0000000; // 5 USDC
 const MIN_TRANSFER_FLOOR: i128 = 10_0000000; // 10 USDC
-/// 250k USDC. Circle's live mainnet `get_max_burn_amount_per_message` for USDC is
-/// 100000000000000 stroops (10M USDC), so this sits two orders of magnitude inside it.
-const MAX_TRANSFER_CEILING: i128 = 250_000_0000000;
+/// Circle's own live mainnet `get_max_burn_amount_per_message` for USDC, read from the chain:
+/// 100000000000000 stroops = 10M USDC. Set to Circle's limit rather than a tighter one of our
+/// own, so the contract imposes no ceiling a user would ever notice — above this the burn would
+/// be rejected by Circle anyway, and failing here says why.
+///
+/// Note what this gives up. A lower ceiling is what bounds the damage from a bug nobody has
+/// found, and this contract has had no external audit. `params.max_transfer` can still be set
+/// below this and raised as clean transfers accumulate; that is the lever, and it is worth using
+/// early on.
+const MAX_TRANSFER_CEILING: i128 = 100_000_000_000_000;
 const MAX_CCTP_FEE_BPS_CEILING: u32 = 50; // 0.50%
 const MAX_CCTP_FLAT_FEE_CEILING: i128 = 1_0000000; // 1 USDC
+/// Ceiling on `params.account_fee`. Solana account rent is about 2,039,280 lamports; at any SOL
+/// price where 2 USDC fails to cover that, the fee schedule needs revisiting rather than
+/// stretching.
+pub const MAX_ACCOUNT_FEE_CEILING: i128 = 2_0000000; // 2 USDC
 const CCTP_MAX_FEE_FRACTION_DENOM: i128 = 10;
 /// Circle treats anything above 1000 as Standard; 2000 is the documented Standard value.
 const MAX_FINALITY_THRESHOLD: u32 = 2_000;
@@ -462,7 +502,12 @@ impl XebraCctpWrapper {
         if req.amount > params.max_transfer {
             return Err(Error::AmountAboveMax);
         }
-        let q = Self::compute_split(req.amount, params.fee_bps, params.min_fee)?;
+        let account_fee = if req.recipient_needs_account {
+            params.account_fee
+        } else {
+            0
+        };
+        let q = Self::compute_split(req.amount, params.fee_bps, params.min_fee, account_fee)?;
 
         if q.fee > req.max_wrapper_fee {
             return Err(Error::WrapperFeeAboveUserCap);
@@ -543,6 +588,8 @@ impl XebraCctpWrapper {
             user: req.user.clone(),
             amount: q.amount,
             fee: q.fee,
+            account_fee: q.account_fee,
+            recipient_needs_account: req.recipient_needs_account,
             net_burned: q.net_burned,
             remainder: q.remainder,
             destination_domain: req.destination_domain,
@@ -558,7 +605,14 @@ impl XebraCctpWrapper {
         Ok(q)
     }
 
-    pub fn compute_split(amount: i128, fee_bps: u32, min_fee: i128) -> Result<Quote, Error> {
+    /// The fee split. `account_fee` is added on top of the percentage-or-floor part, and is zero
+    /// unless the destination needs a token account created.
+    pub fn compute_split(
+        amount: i128,
+        fee_bps: u32,
+        min_fee: i128,
+        account_fee: i128,
+    ) -> Result<Quote, Error> {
         if amount <= 0 {
             return Err(Error::AmountNotPositive);
         }
@@ -568,12 +622,16 @@ impl XebraCctpWrapper {
         if min_fee < 0 || min_fee > MAX_MIN_FEE_CEILING {
             return Err(Error::MinFeeTooHigh);
         }
+        if account_fee < 0 || account_fee > MAX_ACCOUNT_FEE_CEILING {
+            return Err(Error::AccountFeeTooHigh);
+        }
 
         let pct = amount
             .checked_mul(fee_bps as i128)
             .ok_or(Error::MathOverflow)?
             / BPS_DENOM;
-        let fee = if pct > min_fee { pct } else { min_fee };
+        let base = if pct > min_fee { pct } else { min_fee };
+        let fee = base.checked_add(account_fee).ok_or(Error::MathOverflow)?;
 
         let after_fee = amount.checked_sub(fee).ok_or(Error::MathOverflow)?;
         if after_fee <= 0 {
@@ -596,6 +654,7 @@ impl XebraCctpWrapper {
         Ok(Quote {
             amount,
             fee,
+            account_fee,
             net_burned,
             remainder,
         })
@@ -754,6 +813,7 @@ impl XebraCctpWrapper {
             && params.min_fee <= cur.min_fee
             && params.max_transfer <= cur.max_transfer
             && params.max_cctp_fee_bps <= cur.max_cctp_fee_bps
+            && params.account_fee <= cur.account_fee
             && params.min_transfer >= cur.min_transfer;
         if !tighter {
             return Err(Error::NotTightening);
@@ -968,7 +1028,9 @@ impl XebraCctpWrapper {
         Self::domains(&env).values()
     }
 
-    pub fn quote(env: Env, amount: i128) -> Result<Quote, Error> {
+    /// What a transfer of `amount` costs. `recipient_needs_account` must match what will be
+    /// passed to `bridge`, or the quote shown and the amount charged will differ.
+    pub fn quote(env: Env, amount: i128, recipient_needs_account: bool) -> Result<Quote, Error> {
         let p = Self::get_params(env.clone());
         if amount < p.min_transfer {
             return Err(Error::AmountBelowMin);
@@ -976,7 +1038,12 @@ impl XebraCctpWrapper {
         if amount > p.max_transfer {
             return Err(Error::AmountAboveMax);
         }
-        Self::compute_split(amount, p.fee_bps, p.min_fee)
+        let account_fee = if recipient_needs_account {
+            p.account_fee
+        } else {
+            0
+        };
+        Self::compute_split(amount, p.fee_bps, p.min_fee, account_fee)
     }
 
     fn validate_params(p: &Params) -> Result<(), Error> {
@@ -997,6 +1064,9 @@ impl XebraCctpWrapper {
         }
         if p.max_cctp_fee_bps > MAX_CCTP_FEE_BPS_CEILING {
             return Err(Error::CctpFeeBpsTooHigh);
+        }
+        if p.account_fee < 0 || p.account_fee > MAX_ACCOUNT_FEE_CEILING {
+            return Err(Error::AccountFeeTooHigh);
         }
         Ok(())
     }

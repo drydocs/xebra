@@ -19,7 +19,7 @@ use soroban_sdk::{
 };
 
 use crate::{
-    BridgeRequest, DomainCfg, Error, Params, Quote, XebraCctpWrapper, XebraCctpWrapperClient,
+    BridgeRequest, MAX_ACCOUNT_FEE_CEILING, DomainCfg, Error, Params, Quote, XebraCctpWrapper, XebraCctpWrapperClient,
     DOMAIN_SOLANA, DOMAIN_STELLAR,
 };
 
@@ -120,6 +120,7 @@ const MIN_FEE: i128 = 5000000; // 0.5 USDC
 const MIN_TRANSFER: i128 = 10_0000000; // 10 USDC
 const MAX_TRANSFER: i128 = 100_000_0000000; // 100k USDC
 const MAX_CCTP_FEE_BPS: u32 = 20;
+const ACCOUNT_FEE: i128 = 5000000; // 0.5 USDC, roughly Solana token-account rent
 
 #[allow(dead_code)]
 struct Setup<'a> {
@@ -142,6 +143,7 @@ fn default_params() -> Params {
         min_transfer: MIN_TRANSFER,
         max_transfer: MAX_TRANSFER,
         max_cctp_fee_bps: MAX_CCTP_FEE_BPS,
+        account_fee: ACCOUNT_FEE,
     }
 }
 
@@ -229,6 +231,7 @@ fn req(s: &Setup, amount: i128) -> BridgeRequest {
         max_fee: 1000000, // 0.1 USDC
         min_finality_threshold: 1000,
         max_wrapper_fee: 100_0000000,
+        recipient_needs_account: false,
         // What a frontend supplies from `getLatestLedger` at simulation time.
         approval_expiration_ledger: s.env.ledger().sequence() + 30,
         deadline: s.env.ledger().timestamp() + 600,
@@ -242,7 +245,7 @@ fn req(s: &Setup, amount: i128) -> BridgeRequest {
 #[test]
 fn compute_split_uses_bps_when_above_floor() {
     // 1,000 USDC at 10bps = 1 USDC, which is above the 0.5 USDC floor.
-    let q = XebraCctpWrapper::compute_split(1_000_0000000, FEE_BPS, MIN_FEE).unwrap();
+    let q = XebraCctpWrapper::compute_split(1_000_0000000, FEE_BPS, MIN_FEE, 0).unwrap();
     assert_eq!(q.fee, 1_0000000);
     assert_eq!(q.net_burned, 999_0000000);
     assert_eq!(q.remainder, 0);
@@ -251,7 +254,7 @@ fn compute_split_uses_bps_when_above_floor() {
 #[test]
 fn compute_split_uses_floor_when_bps_below_it() {
     // 100 USDC at 10bps = 0.1 USDC, below the 0.5 USDC floor, so the floor wins.
-    let q = XebraCctpWrapper::compute_split(100_0000000, FEE_BPS, MIN_FEE).unwrap();
+    let q = XebraCctpWrapper::compute_split(100_0000000, FEE_BPS, MIN_FEE, 0).unwrap();
     assert_eq!(q.fee, MIN_FEE);
     assert_eq!(q.net_burned, 100_0000000 - MIN_FEE);
     assert_eq!(q.remainder, 0);
@@ -261,7 +264,7 @@ fn compute_split_uses_floor_when_bps_below_it() {
 fn compute_split_normalizes_net_to_ten_stroop_boundary() {
     // Chosen so `amount - fee` is not a multiple of 10.
     let amount = 100_0000007i128;
-    let q = XebraCctpWrapper::compute_split(amount, 0, 0).unwrap();
+    let q = XebraCctpWrapper::compute_split(amount, 0, 0, 0).unwrap();
     assert_eq!(q.fee, 0);
     assert_eq!(q.remainder, 7);
     assert_eq!(q.net_burned, 100_0000000);
@@ -276,7 +279,7 @@ fn compute_split_conserves_value_across_a_wide_range() {
     // `net_burned` must always be canonically representable.
     let mut amount = MIN_TRANSFER;
     while amount < 50_000_0000000 {
-        let q = XebraCctpWrapper::compute_split(amount, FEE_BPS, MIN_FEE).unwrap();
+        let q = XebraCctpWrapper::compute_split(amount, FEE_BPS, MIN_FEE, 0).unwrap();
         assert_eq!(q.fee + q.net_burned + q.remainder, amount);
         assert_eq!(q.net_burned % 10, 0);
         assert!(q.remainder >= 0 && q.remainder < 10);
@@ -290,7 +293,7 @@ fn compute_split_conserves_value_across_a_wide_range() {
 fn compute_split_rejects_amount_at_or_below_fee() {
     // min_fee is 0.5 USDC; an amount equal to it leaves nothing to burn.
     assert_eq!(
-        XebraCctpWrapper::compute_split(MIN_FEE, 0, MIN_FEE),
+        XebraCctpWrapper::compute_split(MIN_FEE, 0, MIN_FEE, 0),
         Err(Error::AmountBelowFee)
     );
 }
@@ -298,11 +301,11 @@ fn compute_split_rejects_amount_at_or_below_fee() {
 #[test]
 fn compute_split_rejects_parameters_above_hard_ceilings() {
     assert_eq!(
-        XebraCctpWrapper::compute_split(100_0000000, 101, 0),
+        XebraCctpWrapper::compute_split(100_0000000, 101, 0, 0),
         Err(Error::FeeBpsTooHigh)
     );
     assert_eq!(
-        XebraCctpWrapper::compute_split(100_0000000, 10, 6_0000000),
+        XebraCctpWrapper::compute_split(100_0000000, 10, 6_0000000, 0),
         Err(Error::MinFeeTooHigh)
     );
 }
@@ -310,11 +313,11 @@ fn compute_split_rejects_parameters_above_hard_ceilings() {
 #[test]
 fn compute_split_rejects_non_positive_amount() {
     assert_eq!(
-        XebraCctpWrapper::compute_split(0, 10, 0),
+        XebraCctpWrapper::compute_split(0, 10, 0, 0),
         Err(Error::AmountNotPositive)
     );
     assert_eq!(
-        XebraCctpWrapper::compute_split(-1, 10, 0),
+        XebraCctpWrapper::compute_split(-1, 10, 0, 0),
         Err(Error::AmountNotPositive)
     );
 }
@@ -674,11 +677,20 @@ fn params_can_never_exceed_the_hard_coded_ceilings() {
         Err(Ok(Error::MinFeeTooHigh.into()))
     );
 
+    // The ceiling is Circle's own live per-message cap for USDC, read from mainnet: 10M USDC.
+    // Above it the burn would be rejected by Circle anyway; failing here says why.
     let mut p = default_params();
-    p.max_transfer = 250_000_0000001;
+    p.max_transfer = 100_000_000_000_001;
     assert_eq!(
         s.wrapper.try_propose_params(&p),
         Err(Ok(Error::MaxTransferTooHigh.into()))
+    );
+
+    let mut p = default_params();
+    p.account_fee = MAX_ACCOUNT_FEE_CEILING + 1;
+    assert_eq!(
+        s.wrapper.try_propose_params(&p),
+        Err(Ok(Error::AccountFeeTooHigh.into()))
     );
 
     let mut p = default_params();
@@ -703,7 +715,7 @@ fn removing_a_domain_takes_effect_immediately() {
 fn quote_matches_what_bridge_actually_charges() {
     let s = setup();
     let amount = 1_234_5678901i128;
-    let quoted: Quote = s.wrapper.quote(&amount);
+    let quoted: Quote = s.wrapper.quote(&amount, &false);
     let actual = s.wrapper.bridge(&req(&s, amount));
     assert_eq!(quoted, actual);
 }
@@ -786,4 +798,100 @@ fn rejects_an_approval_that_would_outlive_the_transfer() {
         s.wrapper.try_bridge(&r),
         Err(Ok(Error::ApprovalExpiryTooFar))
     );
+}
+
+
+// ---------------------------------------------------------------------------
+// The account fee
+//
+// Solana token-account rent is about 2,039,280 lamports and nobody can ever reclaim it —
+// closing the account needs the owner's signature, which a sponsor does not have. Folding that
+// into `min_fee` would charge every transfer for a cost only first-time recipients incur, which
+// is what forced the floor up high enough to make small transfers unattractive.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn charges_the_account_fee_only_when_the_destination_needs_one() {
+    let s = setup();
+    let amount = 10_0000000; // the 10 USDC minimum
+
+    let without = s.wrapper.quote(&amount, &false);
+    let with = s.wrapper.quote(&amount, &true);
+
+    // At the floor, a first-time recipient pays the rent and a repeat one does not.
+    assert_eq!(without.fee, MIN_FEE);
+    assert_eq!(without.account_fee, 0);
+    assert_eq!(with.fee, MIN_FEE + ACCOUNT_FEE);
+    assert_eq!(with.account_fee, ACCOUNT_FEE);
+}
+
+#[test]
+fn the_account_fee_stacks_on_the_percentage_not_the_floor() {
+    // On a large transfer the percentage dominates the floor, and the rent still has to be
+    // covered — so it adds rather than being absorbed.
+    let s = setup();
+    let amount = 10_000_0000000; // 10,000 USDC; 0.10% = 10 USDC, far above the floor
+    let q = s.wrapper.quote(&amount, &true);
+    assert_eq!(q.fee, 10_0000000 + ACCOUNT_FEE);
+    assert_eq!(q.account_fee, ACCOUNT_FEE);
+}
+
+#[test]
+fn the_user_is_debited_exactly_what_the_quote_said() {
+    // The quote is what the UI shows before signing. If the debit differed, the fee would be
+    // whatever the contract felt like at execution.
+    let s = setup();
+    let amount = 100_0000000;
+    let mut r = req(&s, amount);
+    r.recipient_needs_account = true;
+
+    let before = s.token.balance(&s.user);
+    let q = s.wrapper.bridge(&r);
+    let after = s.token.balance(&s.user);
+
+    assert_eq!(q.account_fee, ACCOUNT_FEE);
+    assert_eq!(before - after, q.fee + q.net_burned);
+    // The sub-10-stroop remainder never leaves the wallet.
+    assert_eq!(before - after, amount - q.remainder);
+}
+
+#[test]
+fn the_account_fee_counts_against_the_user_s_own_fee_ceiling() {
+    // `max_wrapper_fee` is the user's protection against a parameter change between signing and
+    // execution. It has to cover the total, or the rent would slip past it.
+    let s = setup();
+    let mut r = req(&s, 100_0000000);
+    r.recipient_needs_account = true;
+    r.max_wrapper_fee = MIN_FEE; // enough for the percentage part alone, not the rent
+
+    assert_eq!(
+        s.wrapper.try_bridge(&r),
+        Err(Ok(Error::WrapperFeeAboveUserCap))
+    );
+}
+
+#[test]
+fn the_account_fee_is_capped_in_code_not_just_by_the_admin() {
+    // A compromised admin must not be able to price the account fee arbitrarily.
+    let s = setup();
+    let mut p = default_params();
+    p.account_fee = MAX_ACCOUNT_FEE_CEILING + 1;
+    assert_eq!(
+        s.wrapper.try_propose_params(&p),
+        Err(Ok(Error::AccountFeeTooHigh))
+    );
+}
+
+#[test]
+fn the_burn_carries_the_full_amount_less_the_whole_fee() {
+    // The sponsor is paid through `account_fee`, so what Circle burns must be reduced by it —
+    // otherwise the rent would come out of our margin rather than the transfer.
+    let s = setup();
+    let mut r = req(&s, 100_0000000);
+    r.recipient_needs_account = true;
+    let q = s.wrapper.bridge(&r);
+
+    let call = s.messenger.last_call().expect("Circle must have been called");
+    assert_eq!(call.amount, q.net_burned);
+    assert_eq!(q.fee, MIN_FEE + ACCOUNT_FEE);
 }
