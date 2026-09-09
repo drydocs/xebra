@@ -67,14 +67,14 @@ nothing else; it must never be in an env file or a container image.
 
 ### Accounts
 
-The deployment is Vercel plus a Postgres database. See `docs/deploying-on-vercel.md` for the
+The deployment is Vercel for the UI and Convex for the relay. See `docs/deploying.md` for the
 mechanics; this is only the list of things that need an account and a card.
 
+- **Convex, free.** Holds relay state and runs the minute-by-minute heartbeat. 1M function calls
+  a month; the relay uses a fraction of it.
 - **Vercel, Pro.** $20/month. Not for the features — for the terms: Hobby is restricted to
-  non-commercial use, and taking a bridge fee is commercial. Pro also lifts cron from once per
-  day to once per minute, which tightens the worst-case delay on a stalled transfer.
-- **Postgres.** Neon's free tier is enough to start, and it provisions from the Vercel dashboard.
-  Use the **pooled** connection string — serverless functions open a connection per invocation.
+  non-commercial use, and taking a bridge fee is commercial. Because the schedule lives in Convex,
+  Hobby is functionally complete while you are still testing with your own money.
 - **A domain**, if you want one that is not `*.vercel.app`. Vercel handles the certificate.
 
 That is the whole list. There is no AWS, no container registry, no Redis and no Kafka in this
@@ -83,19 +83,18 @@ to self-host, and are not on this path.
 
 ### Secrets to generate and store
 
-As Vercel environment variables, Production scope, never `NEXT_PUBLIC_*` and never in
-`.env.production`:
+On the **Convex** deployment (`npx convex env set`), which is where the relay runs:
 
-- `CRON_SECRET` — `openssl rand -base64 32`. Vercel sends it as a bearer token on cron requests;
-  without it the cron route refuses to run rather than defaulting to open.
 - `RELAY_SOLANA_KEYPAIR` — the hot wallet secret. Base58, base64 or a keygen byte array; all
   three are accepted.
-- `DATABASE_URL` — the pooled connection string.
 - `RELAY_SUBMIT_TOKEN` — optional, and only for operations: it bypasses the relay's admission
   bounds so an old burn can be re-driven by hand.
 
-Vercel encrypts these at rest and decrypts them into the function at invocation. That is better
-than the ECS arrangement the Terraform describes, where secrets land as plaintext process env.
+On **Vercel**: `CONVEX_URL`, and `RELAY_SUBMIT_TOKEN` if you set one.
+
+Both platforms encrypt these at rest and decrypt them into the function at invocation. That is
+better than the ECS arrangement the Terraform describes, where secrets land as plaintext process
+env.
 
 ### Legal
 
@@ -116,9 +115,9 @@ on. It is on this list for revenue; this is the second reason.
 
 ## 4. Things I can still do, in order
 
-1. **Run the relay against a live database.** Every part of it is unit-tested and none of it has
-   talked to Postgres. This is the only item that stands between the code and a working
-   deployment.
+1. **Run the relay against a live Convex deployment.** Every part of it is unit-tested and none of
+   it has talked to a real database. This is the only item standing between the code and a working
+   deployment, and it needs your Convex login to do at all.
 2. **Alerting on the hot wallet.** It funds every mint, and when it runs dry every transfer stalls
    at once — silently, because a stalled job looks identical to one waiting on attestation. This
    is the alert that matters most and the cheapest to add.
@@ -130,7 +129,8 @@ on. It is on this list for revenue; this is the second reason.
    difference between our uptime being your convenience and your risk.
 5. **Seed `chains`, `assets` and `corridors`** if `apps/api` is ever deployed. They have readers
    and no writer, so it throws on every quote against an empty table. The bridge UI does not
-   depend on this — it quotes from a Soroban simulation — so this is not on the Vercel path.
+   depend on this — it quotes from a Soroban simulation — and neither does the relay, so this is
+   not on the deployment path at all.
 
 ## 5. Sequence, once the above exists
 
@@ -138,8 +138,8 @@ on. It is on this list for revenue; this is the second reason.
 2. Deploy the wrapper with parameters from §1. Record `deployments/mainnet.json`.
 3. Fill `STELLAR_CCTP_WRAPPER_CONTRACT_ID` and `NEXT_PUBLIC_STELLAR_CCTP_WRAPPER_CONTRACT_ID`
    in `.env.production`, plus `SOROBAN_START_LEDGER` at the deploy ledger.
-4. Run the migrations, then deploy. `NEXT_PUBLIC_*` are inlined at build time, so they must be
-   set in Vercel before the build, not after.
+4. `npx convex deploy`, then deploy the frontend. `NEXT_PUBLIC_*` are inlined at build time, so
+   they must be set in Vercel before the build, not after.
 5. Transfer your own money through the deployed stack. Then do it with the relay stopped, and
    complete the mint by hand, and write down that you did — the same standard
    `scripts/e2e-demo/` set for the escrow.

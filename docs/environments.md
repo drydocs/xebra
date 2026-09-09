@@ -105,16 +105,17 @@ ignore.
 
 ## Secrets
 
-Never in these files. On the Vercel deployment they are project environment variables, Production
-scope — see `docs/deploying-on-vercel.md`. The list below also covers the self-hosted container
-path, where they come from AWS Secrets Manager at runtime:
+Never in these files. In the deployed app the relay's secrets are Convex environment variables and
+`CONVEX_URL` is a Vercel one — see `docs/deploying.md`. The list below also covers the self-hosted
+container path, where they come from AWS Secrets Manager at runtime:
 
 `RELAY_SOLANA_KEYPAIR`, `RELAY_SUBMIT_TOKEN`, `SOLVER_SOLANA_KEYPAIR`,
 `SOLVER_STELLAR_SECRET`, `DATABASE_URL`, and any credential-bearing `REDIS_URL` /
 `KAFKA_BROKERS`.
 
 `RELAY_SUBMIT_TOKEN` is shared between the relay and `apps/web`'s server-side
-`/api/relay/burns` route. It gates who can spend the relay's SOL, not who can receive funds —
+`/api/relay/burns` route, and only bypasses the relay's admission bounds for operations. It gates
+who can spend the relay's SOL, not who can receive funds —
 losing it cannot strand a transfer, because a burn stays claimable by anyone holding the
 attestation. It must never be a `NEXT_PUBLIC_*` variable; `check-env-files.sh` blocks the
 `*_TOKEN` suffix from both env files for exactly this reason.

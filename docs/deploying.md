@@ -1,68 +1,81 @@
-# Deploying on Vercel
+# Deploying
 
-There is no AWS, no Docker, no Redis and no Kafka in this deployment. The product is one Next.js
-app plus a Postgres database, and the relay runs as two route handlers.
+Two services, both with free tiers: **Vercel** serves the UI, **Convex** runs the relay and holds
+its state. There is no AWS, no Docker, no Redis, no Kafka and no Postgres in this deployment.
 
-## How the relay works without a server
+## How the relay runs without a server
 
 `apps/cctp-relay` is a long-running process — a BullMQ worker on Redis, a watcher loop, a
-container. Vercel has no long-lived process and no Redis, so the pipeline in
-`@xebra/relay-core` is driven from route handlers instead:
+container. Nothing here runs containers, so the pipeline in `@xebra/relay-core` is driven by
+Convex instead:
 
 | | |
 |---|---|
-| `POST /api/relay/burns` | Records a burn and mints it in the same request. The fast path. |
-| `GET /api/cron/relay` | Scans for new burns, then drains anything still due. The safety net. |
+| `relay.submitBurn` (action, public) | Records a burn and mints it in the same call. The fast path. |
+| `relay.tick` (action, internal) | Scans for new burns, drains anything due. Every minute, from `crons.ts`. |
+| `jobs.*`, `cursors.*` (internal) | State. Serializable mutations, so a read-then-write is atomic. |
 
-The queue is two columns on `relay_jobs`: `next_attempt_at` (what used to be a BullMQ delay) and
-`leased_until` (what makes two overlapping invocations safe). `claimDueJobs` takes rows with
-`FOR UPDATE SKIP LOCKED`, so a cron tick racing an inline drain skips the other's rows instead of
-minting the same message twice.
+`apps/web/app/api/relay/burns` is a thin proxy so the page talks to its own origin and
+`RELAY_SUBMIT_TOKEN` has somewhere to live that is not a browser.
 
-Both handlers call the same `processJob` as the container does. There is one implementation of the
-part that moves money.
+Everything that moves money — `processJob`, `advanceRelayJob`, `scanForBurns`,
+`checkBurnAdmission`, the `receiveMessage` instruction — is shared with the container relay,
+unmodified. Convex supplies storage adapters and config; that is all.
 
-### Why the fast path is inline and not cron
+### Why Convex and not Postgres
 
-Cron granularity is a plan feature. On **Pro** the minimum interval is once per minute; on
-**Hobby** it is **once per day**, and a more frequent cron expression fails at deploy time. A
-transfer cannot wait a day for its mint, so the mint is attempted inside the request that reports
-the burn, and cron exists to catch what that could not finish — a function killed at its duration
-limit, an attestation that was not ready yet, a Solana submission backing off after a failure.
+The relay is a retrying job pipeline that must survive between invocations. Postgres can do that,
+but on serverless every part of making it safe is work spent on the storage engine rather than the
+corridor: a connection per invocation, `FOR UPDATE SKIP LOCKED` to keep overlapping workers apart,
+a polling column standing in for a scheduler.
 
-That is why this works on either plan, and why Pro tightens the worst case rather than enabling
-the feature.
+Convex gives serializable mutations, so `upsertBySourceTx` — the whole idempotency guarantee, the
+thing that stops a burn being minted twice — is just a read and a write in one transaction. And
+its cron runs **every minute on the free plan**, where Vercel Cron on Hobby runs **once per day**.
+A daily retry cadence is not a product.
 
-`vercel.json` ships the Hobby-safe daily schedule. **On Pro, change it to `* * * * *`** — a
-one-line edit, and the worst-case delay for a stalled transfer drops from a day to a minute.
+One thing Convex does not remove: actions are *not* transactional, because they call Iris and
+Solana and a retry would submit a mint twice. That is why `jobs.claimDue` hands out a lease before
+any action touches a job.
 
-## You will need Pro anyway
-
-Not for the crons — for the terms. Vercel's fair-use guidelines restrict Hobby to
-non-commercial, personal use. Charging a bridge fee is commercial, so a fee-taking deployment
-belongs on Pro ($20/month). Hobby is fine while you are moving your own money to test.
+`@xebra/relay-core/postgres` still exists for anyone self-hosting the container. Both satisfy the
+same interfaces.
 
 ## Setup
 
-### 1. Database
+### 1. Convex
 
-Any Postgres works. Neon is the path of least resistance from the Vercel dashboard
-(**Storage → Create → Neon**), and its free tier is enough to start.
+```bash
+pnpm --filter @xebra/web^... build   # convex bundles the workspace packages from dist/
+cd apps/web
+npx convex dev                       # logs in, creates the project, writes convex/_generated/
+```
 
-Two things matter more than the provider:
+`_generated/` is not in the repo — it is written against your own deployment. `apps/web`'s
+tsconfig excludes `convex/`, and the route handler reaches Convex by name through
+`makeFunctionReference`, so the Next.js build does not depend on having run this.
 
-- **Use the pooled connection string.** Serverless functions open a connection per invocation, and
-  an unpooled Postgres will refuse connections under any real traffic. Neon and Supabase both give
-  you a pooler endpoint; use that one.
-- **Run the migrations.** `pnpm --filter @xebra/db migrate` with `DATABASE_URL` set. There are
-  four, and the relay reads `relay_jobs` and `watcher_cursors` from the last two.
+Then set the relay's environment on the Convex deployment — **not** in Vercel:
 
-### 2. Environment variables
+```bash
+npx convex env set RELAY_SOLANA_KEYPAIR "<base58 | base64 | keygen JSON array>"
+npx convex env set SOLANA_RPC_URL       "https://api.mainnet-beta.solana.com"
+npx convex env set SOLANA_USDC_MINT     "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+```
 
-In the Vercel project, for the Production environment.
+Optional, each defaulting to the pinned mainnet constant: `IRIS_BASE_URL`, `HORIZON_URL`,
+`SOROBAN_RPC_URL`, `STELLAR_CCTP_DOMAIN_ID`, `RELAY_SUBMIT_TOKEN`. Two more are needed only once
+the wrapper contract is deployed, and the burn watcher stays off until both are set:
+`STELLAR_CCTP_WRAPPER_CONTRACT_ID` and `SOROBAN_START_LEDGER`.
 
-Public — these are inlined into the browser bundle at build time, so they must be set **before**
-the build, not at runtime. Copy them from `.env.production`:
+`npx convex deploy` pushes to production and starts the cron.
+
+### 2. Vercel
+
+Import the repo. `vercel.json` handles the build.
+
+Public variables, inlined into the browser bundle at build time — so they must be set **before**
+the first build, not after. Copy them from `.env.production`:
 
 ```
 NEXT_PUBLIC_NETWORK
@@ -77,77 +90,66 @@ NEXT_PUBLIC_SOLANA_USDC_MINT
 NEXT_PUBLIC_STELLAR_CCTP_WRAPPER_CONTRACT_ID   # empty until the wrapper is deployed
 ```
 
-Secret — server-side only, never `NEXT_PUBLIC_*`:
+Server-side only:
 
-| Variable | What it is |
+| | |
 |---|---|
-| `DATABASE_URL` | Pooled Postgres connection string |
-| `RELAY_SOLANA_KEYPAIR` | The hot wallet that pays for mints. Base58, base64 or a `solana-keygen` JSON array |
-| `CRON_SECRET` | `openssl rand -base64 32`. Vercel sends it as a bearer token on cron requests; without it the cron route refuses to run |
-| `RELAY_SUBMIT_TOKEN` | Optional. Bypasses the admission bounds, for re-driving an old burn by hand |
-| `SOROBAN_START_LEDGER` | Required only once the wrapper is deployed — the ledger to start watching from |
+| `CONVEX_URL` | The deployment URL from `npx convex deploy` |
+| `RELAY_SUBMIT_TOKEN` | Optional, and only if you set one in Convex too |
 
-Note what is *not* here: no `REDIS_URL`, no `KAFKA_BROKERS`. Nothing in the Vercel deployment uses
-them.
-
-### 3. Deploy
-
-`vercel.json` builds only `apps/web` and the packages it depends on, so the monorepo's other
-services are not built or deployed. They stay in the repo for anyone who wants to self-host the
-container version.
-
-### 4. Check it
+### 3. Check it
 
 ```bash
-curl -H "Authorization: Bearer $CRON_SECRET" https://<your-domain>/api/cron/relay
+npx convex run relay:tick          # from apps/web
 ```
 
-`{"status":"ok",...}` means the database is reachable and the relay is configured. `unconfigured`
-means `DATABASE_URL` or `RELAY_SOLANA_KEYPAIR` is missing.
+`{"status":"ok",...}` means the relay is configured and reachable. `unconfigured` names the
+missing variable. `npx convex logs` follows the cron.
+
+## What each plan costs
+
+**Convex free:** 1M function calls and 20 GB-hours of action compute per month, 0.5 GB storage. A
+minute-cron is about 43,000 calls a month, so the relay lives well inside it.
+
+**Vercel Pro, $20/month — for the terms, not the features.** Vercel's fair-use guidelines restrict
+Hobby to non-commercial, personal use, and charging a bridge fee is commercial. Hobby is fine while
+you are moving your own money to test; because the schedule lives in Convex, a Hobby deployment is
+functionally complete rather than crippled.
 
 ## The relay's exposure, stated plainly
 
 Every mint costs the hot wallet 867,621 lamports of permanent rent plus fees, and up to 2,039,280
 more if the recipient has no USDC account yet. None of it is recoverable.
 
-Until the wrapper contract is deployed there is nothing on chain that distinguishes a burn made
-through this app from any other CCTP user's burn on Stellar — Circle's contract serves everyone.
-So `/api/relay/burns` cannot tell whose burn it is being asked to pay for. It is bounded rather
-than authenticated:
-
-- a burn older than an hour is refused, so nobody can dump a backlog into the queue;
-- sponsorship stops after 200 mints in 24 hours, which caps the loss.
+Until the wrapper contract is deployed, nothing on chain distinguishes a burn made through this app
+from any other CCTP user's burn on Stellar — Circle's contract serves everyone. So `submitBurn`
+cannot tell whose mint it is being asked to pay for. It is bounded rather than authenticated: a
+burn older than an hour is refused, and sponsorship stops after 200 mints in 24 hours.
 
 A determined griefer inside those bounds can still get a bounded number of their own transfers
-sponsored. **Deploying the wrapper is what actually removes this**, because then the watcher only
-ever sees burns we were paid a fee on. It is on the launch path in `docs/go-live.md` for revenue
-reasons; this is the second reason.
+sponsored. **Deploying the wrapper is what removes this**, because the watcher then only ever sees
+burns we were paid a fee on. It is on the launch path in `docs/go-live.md` for revenue reasons;
+this is the second reason.
 
 Refusing to sponsor never strands anyone. The burn stays claimable by whoever holds Circle's
 attestation, which is public and never expires.
+
+## Two build details
+
+**`build:vercel` exists because of the dist directory.** Locally, `pnpm build` writes to
+`.next-build`, so a production build cannot wipe the directory a running `next dev` is serving
+from — when it does, every request fails with `ENOENT: routes-manifest.json`, the build looks
+fine, the dev server looks broken, and nothing in either message points at the other process. On
+Vercel there is no dev server to protect and Vercel expects `.next`.
+
+**`.env.production` is not in the repo**, deliberately — a `.env` in git reads as a mistake
+whatever it contains. `scripts/with-env.mjs` treats a missing file as "use the environment" when
+`NETWORK` or `NEXT_PUBLIC_NETWORK` is already set, and still fails loudly on a local checkout where
+neither is.
 
 ## What is still missing
 
 - **The in-browser claim page.** If the relay is unavailable the receipt tells the user to keep
   their hash. The funds are safe, but "someone else runs a script for you" is not self-serve.
-- **Alerting.** The metrics exist; nothing pages anyone. The one that matters most is the hot
-  wallet running low, because that stalls every transfer at once.
-
-## Three build details worth knowing
-
-**`build:vercel` exists because of the dist directory.** Locally, `pnpm build` writes to
-`.next-build` rather than `.next`, so a production build cannot wipe the directory a running
-`next dev` is serving from — when it does, every request fails with `ENOENT:
-routes-manifest.json`, the build looks fine, the dev server looks broken, and nothing in either
-message points at the other process. On Vercel there is no dev server to protect and Vercel
-expects `.next`, so the hosted script omits the override.
-
-**`.env.production` is not in the repo**, deliberately — a `.env` in git reads as a mistake
-whatever it contains. `scripts/with-env.mjs` therefore treats a missing file as "use the
-environment" when `NETWORK` or `NEXT_PUBLIC_NETWORK` is already set, and still fails loudly on a
-local checkout where neither is. That is why the Vercel variables must include
-`NEXT_PUBLIC_NETWORK`.
-
-**`--filter @xebra/web^...`** builds only the workspace packages `apps/web` depends on —
-including `@xebra/relay-core` and `@xebra/cctp-solana`, which the route handlers import. The
-other services are not built.
+- **Alerting on the hot wallet.** It funds every mint, and when it runs dry every transfer stalls
+  at once — silently, because a stalled job looks identical to one waiting on attestation.
