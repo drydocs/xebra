@@ -256,6 +256,22 @@ export async function submitBridge(
 
   const deadline = BigInt(Math.floor(Date.now() / 1000) + params.ttlSeconds);
 
+  // The ledger at which the one-shot allowance to Circle's TokenMessenger expires, sent as
+  // signed data rather than computed on chain.
+  //
+  // Soroban matches every sub-invocation against the signed authorization tree argument by
+  // argument. The contract's `approve(user, messenger, net, expiration_ledger)` is one of those
+  // sub-invocations, and the tree is built during simulation but checked during execution — two
+  // different ledgers, always. When the contract derived the expiry from
+  // `env.ledger().sequence()` the two values could never agree, and every transfer failed with
+  // an authorization error rather than anything that named the real cause.
+  //
+  // `+ APPROVAL_TTL_LEDGERS` rather than something smaller because it maximises the window: the
+  // contract requires the expiry to be at or beyond the executing ledger, so this is what decides
+  // how long the signed transaction stays submittable — about five minutes at 5s ledgers.
+  const { sequence: latestLedger } = await server.getLatestLedger();
+  const approvalExpirationLedger = latestLedger + APPROVAL_TTL_LEDGERS;
+
   const request = nativeToScVal(
     {
       user: new Address(params.userAddress),
@@ -264,6 +280,7 @@ export async function submitBridge(
       mint_recipient: Buffer.from(params.mintRecipient),
       max_fee: params.maxFee,
       min_finality_threshold: params.minFinalityThreshold,
+      approval_expiration_ledger: approvalExpirationLedger,
       max_wrapper_fee: params.maxWrapperFee,
       deadline,
     },
