@@ -19,13 +19,17 @@ generated API. The route handler reaches these functions by name through
 
 ## What is public
 
-Exactly one function: `relay.submitBurn`. Everything else is `internal*` and unreachable from a
+Two functions: `relay.submitBurn` and `relay.health`. Everything else is `internal*` and unreachable from a
 browser — they would otherwise let a caller create or complete jobs directly, which is to say
 spend the relay's SOL.
 
-`submitBurn` is public because the browser calls it after signing a burn, and it is bounded
-rather than authenticated. See `packages/relay-core/src/admission.ts` for why, and for what those
-bounds do not achieve.
+`submitBurn` is public because the browser calls it after signing a burn, and it is bounded rather
+than authenticated. See `packages/relay-core/src/admission.ts` for why, and for what those bounds
+do not achieve.
+
+`health` is public because it reports a balance and a threshold that are already visible on chain,
+and because requiring a secret would rule out every free uptime monitor. An alert nobody receives
+is not an alert.
 
 ## Bundling
 

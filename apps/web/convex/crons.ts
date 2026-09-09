@@ -16,4 +16,12 @@ const crons = cronJobs();
 
 crons.interval("relay tick", { minutes: 1 }, internal.relay.tick, {});
 
+/**
+ * The hot wallet drains by design — every mint burns 867,621 lamports of rent that nobody ever
+ * gets back — and when it empties, every transfer stalls silently. Fifteen minutes is frequent
+ * enough to catch it long before that, and the thresholds leave days of notice at any plausible
+ * early volume.
+ */
+crons.interval("relay balance check", { minutes: 15 }, internal.relay.checkBalance, {});
+
 export default crons;

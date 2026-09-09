@@ -2,10 +2,11 @@
 
 import { v } from "convex/values";
 import { createIrisClient, type RelayJobState } from "@xebra/cctp-client";
-import { createSolanaMintSubmitterFromConfig } from "@xebra/cctp-solana";
+import { createSolanaMintSubmitterFromConfig, getRelayBalanceLamports } from "@xebra/cctp-solana";
 import {
   type BurnWatcherDeps,
   type DrainDeps,
+  assessRelayBalance,
   checkBurnAdmission,
   createBurnReaderFromUrl,
   createHorizonBurnClock,
@@ -14,7 +15,7 @@ import {
   scanForBurns,
   submitBurn as submitBurnToStore,
 } from "@xebra/relay-core";
-import { internal } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import { action, internalAction, type ActionCtx } from "./_generated/server";
 
 /**
@@ -250,5 +251,66 @@ export const tick = internalAction({
 
     const drained = await drainDueJobs(d.drain, { budgetMs: 120_000 });
     return { status: "ok" as const, scan, drained };
+  },
+});
+
+/**
+ * The relay's own health, for a monitor to watch.
+ *
+ * Public, and deliberately so: it reports a balance and a threshold, both of which are already
+ * visible on chain to anyone who looks up the hot wallet. Making it authenticated would mean the
+ * only things that could check it are things that hold a secret, which rules out every free uptime
+ * monitor — and an alert nobody receives is not an alert.
+ */
+export const health = action({
+  args: {},
+  handler: async () => {
+    let cfg: ReturnType<typeof config>;
+    try {
+      cfg = config();
+    } catch (err) {
+      if (err instanceof MissingConfig) {
+        return { ok: false, level: "critical" as const, message: err.message };
+      }
+      throw err;
+    }
+
+    try {
+      const balance = await getRelayBalanceLamports({
+        rpcUrl: cfg.solanaRpcUrl,
+        secretKey: cfg.relayKeypair,
+      });
+      return assessRelayBalance(balance);
+    } catch (err) {
+      // Not reaching Solana is itself worth paging about: the relay cannot mint either.
+      return {
+        ok: false,
+        level: "critical" as const,
+        message: `could not read the relay balance: ${err instanceof Error ? err.message : String(err)}`,
+      };
+    }
+  },
+});
+
+/**
+ * Scheduled balance check.
+ *
+ * Throws when the balance is critical, rather than logging. A thrown error shows as a failed
+ * function in the Convex dashboard and in whatever exception reporting is configured, where a
+ * `console.error` is one line in a log nobody reads. The whole point is that this failure is
+ * otherwise invisible — a transfer that cannot be paid for looks exactly like one waiting on
+ * attestation.
+ */
+export const checkBalance = internalAction({
+  args: {},
+  handler: async (ctx): Promise<void> => {
+    const result = (await ctx.runAction(api.relay.health, {})) as {
+      ok: boolean;
+      level: string;
+      message: string;
+    };
+
+    if (!result.ok) throw new Error(`RELAY BALANCE ${result.level.toUpperCase()}: ${result.message}`);
+    if (result.level === "warning") console.warn(`[relay] ${result.message}`);
   },
 });
