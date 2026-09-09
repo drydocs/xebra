@@ -12,9 +12,10 @@
 //! highest-value pre-launch check and it can only be done on testnet against a real signer —
 //! it is tracked as a Phase 6 deliverable, not as something these tests cover.
 
-use soroban_sdk::testutils::{Address as _, Ledger as _};
+use soroban_sdk::testutils::{Address as _, AuthorizedFunction, Ledger as _};
 use soroban_sdk::{
-    contract, contractimpl, contracttype, token, vec, Address, BytesN, Env, Vec,
+    contract, contractimpl, contracttype, symbol_short, token, vec, Address, BytesN, Env,
+    TryFromVal, Vec,
 };
 
 use crate::{
@@ -228,6 +229,8 @@ fn req(s: &Setup, amount: i128) -> BridgeRequest {
         max_fee: 1000000, // 0.1 USDC
         min_finality_threshold: 1000,
         max_wrapper_fee: 100_0000000,
+        // What a frontend supplies from `getLatestLedger` at simulation time.
+        approval_expiration_ledger: s.env.ledger().sequence() + 30,
         deadline: s.env.ledger().timestamp() + 600,
     }
 }
@@ -703,4 +706,84 @@ fn quote_matches_what_bridge_actually_charges() {
     let quoted: Quote = s.wrapper.quote(&amount);
     let actual = s.wrapper.bridge(&req(&s, amount));
     assert_eq!(quoted, actual);
+}
+
+
+// ---------------------------------------------------------------------------
+// Authorization tree stability
+//
+// Soroban matches every sub-invocation against the signed authorization tree argument by
+// argument. The tree is built during simulation and checked during execution, and those always
+// happen at different ledgers — so any argument derived from `env.ledger().sequence()` cannot
+// match, and the transfer fails with an authorization error rather than a contract error.
+//
+// This is invisible to every other test in this file, because they all run under
+// `mock_all_auths()`, which bypasses matching entirely. These read the *recorded* tree instead.
+// ---------------------------------------------------------------------------
+
+/// Pulls the `approve` sub-invocation's expiration-ledger argument out of the recorded auth tree.
+fn recorded_approve_expiration(env: &Env, usdc: &Address) -> Option<u32> {
+    for (_addr, invocation) in env.auths() {
+        for sub in invocation.sub_invocations.iter() {
+            let AuthorizedFunction::Contract((contract, name, args)) = &sub.function else {
+                continue;
+            };
+            if contract == usdc && *name == symbol_short!("approve") {
+                // approve(from, spender, amount, expiration_ledger)
+                let arg = args.get(3)?;
+                return u32::try_from_val(env, &arg).ok();
+            }
+        }
+    }
+    None
+}
+
+#[test]
+fn approval_expiry_comes_from_the_request_not_the_ledger() {
+    // The whole point: the same signed request must produce the same authorization tree no
+    // matter which ledger it is executed in. Before this was signed data, the expiry was
+    // `sequence() + 60`, so simulating at ledger N and executing at N+1 produced two different
+    // trees and the host rejected every transfer.
+    let s = setup();
+    s.env.ledger().set_sequence_number(500);
+    // Built once, as a wallet would sign it once.
+    let r = req(&s, 1_000_0000000);
+
+    s.wrapper.bridge(&r);
+    let first = recorded_approve_expiration(&s.env, &s.usdc);
+
+    s.env.ledger().set_sequence_number(507);
+    s.wrapper.bridge(&r);
+    let second = recorded_approve_expiration(&s.env, &s.usdc);
+
+    assert_eq!(first, Some(r.approval_expiration_ledger));
+    assert_eq!(second, Some(r.approval_expiration_ledger));
+    assert_eq!(first, second, "the auth tree must not move with the ledger");
+}
+
+#[test]
+fn rejects_an_approval_expiry_that_has_already_passed() {
+    // A transaction that sat unincluded past its allowance window. The SAC would panic with an
+    // opaque host error; this fails cleanly so the UI can say "retry".
+    let s = setup();
+    let mut r = req(&s, 1_000_0000000);
+    r.approval_expiration_ledger = s.env.ledger().sequence();
+    s.env.ledger().set_sequence_number(s.env.ledger().sequence() + 10);
+
+    assert_eq!(s.wrapper.try_bridge(&r), Err(Ok(Error::ApprovalExpiryPast)));
+}
+
+#[test]
+fn rejects_an_approval_that_would_outlive_the_transfer() {
+    // A long-lived allowance to Circle's TokenMessenger is the one thing this design is careful
+    // never to leave behind, so the ceiling is enforced on chain rather than trusted to the
+    // caller.
+    let s = setup();
+    let mut r = req(&s, 1_000_0000000);
+    r.approval_expiration_ledger = s.env.ledger().sequence() + 100_000;
+
+    assert_eq!(
+        s.wrapper.try_bridge(&r),
+        Err(Ok(Error::ApprovalExpiryTooFar))
+    );
 }

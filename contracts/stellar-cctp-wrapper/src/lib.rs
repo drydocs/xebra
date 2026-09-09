@@ -59,6 +59,19 @@ pub struct BridgeRequest {
     pub max_fee: i128,
     /// `<= 1000` requests Fast Transfer; `> 1000` is Standard.
     pub min_finality_threshold: u32,
+    /// Ledger at which the one-shot USDC allowance to Circle's TokenMessenger expires.
+    ///
+    /// Supplied by the caller rather than computed as `sequence() + N`, and that is not a
+    /// stylistic choice — it is what makes the transaction signable at all. Soroban matches every
+    /// sub-invocation against the signed authorization tree **argument by argument**, and the
+    /// SAC's `approve(from, spender, amount, expiration_ledger)` requires the user's auth. A
+    /// value derived from `env.ledger().sequence()` is computed at *simulation* time when the
+    /// tree is built and again at *execution* time when it is checked — and those are different
+    /// ledgers, always. The two never match and every `bridge` fails with an authorization error.
+    ///
+    /// Bounded at execution instead: not already past (the SAC rejects that outright), and no
+    /// further out than `APPROVAL_TTL_LEDGERS`, so nothing resembling a standing grant survives.
+    pub approval_expiration_ledger: u32,
     /// The user's own ceiling on *our* fee. Without it, a `commit_params` landing in the
     /// same ledger could overcharge an already-signed request.
     pub max_wrapper_fee: i128,
@@ -159,6 +172,11 @@ pub enum Error {
     DomainAlreadyAllowed = 32,
     SelfDomain = 34,
     AlreadyInitialized = 35,
+    /// The signed approval expiry is already behind us — the transaction sat unincluded too
+    /// long. Retrying re-simulates and produces a fresh one.
+    ApprovalExpiryPast = 36,
+    /// The requested approval would outlive the transaction that uses it.
+    ApprovalExpiryTooFar = 37,
 }
 
 // ---------------------------------------------------------------------------
@@ -317,9 +335,10 @@ const CCTP_MAX_FEE_FRACTION_DENOM: i128 = 10;
 const MAX_FINALITY_THRESHOLD: u32 = 2_000;
 const MAX_DEADLINE_HORIZON: u64 = 3_600;
 const TIMELOCK_SECS: u64 = 172_800; // 48h
-/// How long the per-transfer USDC allowance to Circle's TokenMessenger stays live. Only needs
-/// to survive this one transaction; kept minimal so nothing resembling a standing grant is
-/// ever left behind. Soroban rejects an expiration ledger in the past, so it cannot be zero.
+/// Ceiling on how far ahead a caller may set the one-shot allowance to Circle's TokenMessenger.
+/// It only needs to survive this one transaction, so this is kept short enough that nothing
+/// resembling a standing grant is ever left behind — about five minutes at 5s ledgers, which is
+/// also comfortably longer than a transaction's own submission window.
 const APPROVAL_TTL_LEDGERS: u32 = 60;
 
 pub const DOMAIN_SOLANA: u32 = 5;
@@ -424,6 +443,17 @@ impl XebraCctpWrapper {
             return Err(Error::BadFinalityThreshold);
         }
 
+        // The allowance window, bounded here because it arrives signed rather than computed.
+        // Below `sequence()` the SAC would panic with an opaque host error; above the ceiling the
+        // grant would outlive the transaction that consumes it.
+        let seq_now = env.ledger().sequence();
+        if req.approval_expiration_ledger < seq_now {
+            return Err(Error::ApprovalExpiryPast);
+        }
+        if req.approval_expiration_ledger > seq_now.saturating_add(APPROVAL_TTL_LEDGERS) {
+            return Err(Error::ApprovalExpiryTooFar);
+        }
+
         // --- amount bounds and the split ---
         let params = Self::get_params(env.clone());
         if req.amount < params.min_transfer {
@@ -479,11 +509,14 @@ impl XebraCctpWrapper {
         // the same user auth tree that roots `bridge`, which is why the whole flow is still a
         // single signature — the reason for routing through this contract rather than making
         // users approve and burn in two separate transactions.
+        // Every argument here comes from the signed request. See `approval_expiration_ledger`:
+        // deriving the expiry from the current ledger made the authorization tree unmatchable
+        // between simulation and execution, which failed every single transfer.
         usdc_client.approve(
             &req.user,
             &messenger,
             &q.net_burned,
-            &(env.ledger().sequence() + APPROVAL_TTL_LEDGERS),
+            &req.approval_expiration_ledger,
         );
 
         TokenMessengerClient::new(env, &messenger).deposit_for_burn(
