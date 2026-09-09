@@ -62,8 +62,11 @@ const INCLUSION_FEE = "1000000";
 export interface BridgeQuote {
   /** What the user asked to send, in stroops. */
   amount: bigint;
-  /** Xebra's fee, in stroops. */
+  /** Xebra's fee, in stroops. Includes `accountFee`. */
   fee: bigint;
+  /** The part of `fee` that pays to create the recipient's USDC account, in stroops. Zero when
+   *  the recipient already has one. Broken out so the UI can say what the charge is for. */
+  accountFee: bigint;
   /** What is actually burned and minted on the destination, in stroops. */
   netBurned: bigint;
   /** Sub-10-stroop remainder that never leaves the user's wallet. */
@@ -122,7 +125,9 @@ export function formatUsdc(stroops: bigint): string {
  */
 export function directQuote(amount: bigint): BridgeQuote {
   const remainder = amount % STROOPS_PER_CANONICAL_UNIT;
-  return { amount, fee: 0n, netBurned: amount - remainder, remainder };
+  // Direct mode takes no fee at all, so there is nothing to break out — the user pays their own
+  // destination gas either way.
+  return { amount, fee: 0n, accountFee: 0n, netBurned: amount - remainder, remainder };
 }
 
 /** Stellar 7-decimal stroops per CCTP 6-decimal canonical unit. */
@@ -137,6 +142,16 @@ export async function quoteBridge(
   config: BridgeChainConfig,
   sourceAddress: string,
   amount: bigint,
+  /**
+   * Whether the destination has no USDC account yet, from `/api/recipient`.
+   *
+   * It changes the price: creating one costs about 2,039,280 lamports of rent that nobody can
+   * ever reclaim, and the sponsor pays it. Charged separately from the floor so a repeat
+   * recipient is not billed for a cost only a first-time one causes.
+   *
+   * Must match what `submitBridge` is given, or the quote shown and the amount charged differ.
+   */
+  recipientNeedsAccount: boolean,
 ): Promise<BridgeQuote> {
   if (!config.wrapperContractId) return directQuote(amount);
 
@@ -148,7 +163,13 @@ export async function quoteBridge(
     fee: INCLUSION_FEE,
     networkPassphrase: config.networkPassphrase,
   })
-    .addOperation(contract.call("quote", nativeToScVal(amount, { type: "i128" })))
+    .addOperation(
+      contract.call(
+        "quote",
+        nativeToScVal(amount, { type: "i128" }),
+        nativeToScVal(recipientNeedsAccount, { type: "bool" }),
+      ),
+    )
     .setTimeout(30)
     .build();
 
@@ -161,6 +182,7 @@ export async function quoteBridge(
   const raw = scValToNative(sim.result.retval) as {
     amount: bigint;
     fee: bigint;
+    account_fee: bigint;
     net_burned: bigint;
     remainder: bigint;
   };
@@ -168,6 +190,7 @@ export async function quoteBridge(
   return {
     amount: BigInt(raw.amount),
     fee: BigInt(raw.fee),
+    accountFee: BigInt(raw.account_fee),
     netBurned: BigInt(raw.net_burned),
     remainder: BigInt(raw.remainder),
   };
@@ -228,6 +251,9 @@ export interface SubmitBridgeParams {
   maxWrapperFee: bigint;
   /** <= 1000 requests Fast Transfer. */
   minFinalityThreshold: number;
+  /** Must match the value the quote was taken with, or the price shown and the price charged
+   *  differ. */
+  recipientNeedsAccount: boolean;
   /** Seconds from now. The contract rejects anything beyond one hour. */
   ttlSeconds: number;
 }
@@ -280,6 +306,7 @@ export async function submitBridge(
       mint_recipient: Buffer.from(params.mintRecipient),
       max_fee: params.maxFee,
       min_finality_threshold: params.minFinalityThreshold,
+      recipient_needs_account: params.recipientNeedsAccount,
       approval_expiration_ledger: approvalExpirationLedger,
       max_wrapper_fee: params.maxWrapperFee,
       deadline,

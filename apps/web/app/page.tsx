@@ -142,6 +142,19 @@ export default function HomePage() {
   const destinationCheck = useMemo(() => checkSolanaAddress(destination), [destination]);
 
   // Quote is debounced: every keystroke would otherwise be a Soroban simulation.
+  /**
+   * Whether the destination has no USDC account yet.
+   *
+   * With the wrapper deployed this is a *price*, not a blocker: the quote adds the account fee,
+   * the burn records that it was paid, and the sponsor creates the account when it mints. One
+   * transaction, no second step for the user.
+   *
+   * Direct mode has no fee and no sponsor, so there is nobody to pay that rent — a missing
+   * account still blocks there, because burning would produce a mint nobody can land.
+   */
+  const recipientNeedsAccount = recipient?.status === "missing";
+  const blockedOnMissingAccount = recipientNeedsAccount && !isCctpRailConfigured;
+
   useEffect(() => {
     if (!address || !amount || amount <= 0n) {
       setQuote(null);
@@ -151,7 +164,7 @@ export default function HomePage() {
     let cancelled = false;
     setQuoting(true);
     const timer = setTimeout(() => {
-      quoteBridge(config, address, amount)
+      quoteBridge(config, address, amount, recipientNeedsAccount)
         .then((result) => {
           if (cancelled) return;
           setQuote(result);
@@ -171,7 +184,11 @@ export default function HomePage() {
       clearTimeout(timer);
       setQuoting(false);
     };
-  }, [config, address, amount]);
+    // `recipientNeedsAccount` is a dependency, not just an argument: it flips once the recipient
+    // lookup resolves, and it changes the price. Without it here the user would be shown a quote
+    // taken before the answer was known and then charged a different amount — which the contract
+    // rejects via `max_wrapper_fee`, so it would surface as an unexplained failure at signing.
+  }, [config, address, amount, recipientNeedsAccount]);
 
   // CCTP's mintRecipient on Solana is the TOKEN ACCOUNT, not the wallet. Resolve it as soon
   // as the typed address is valid, so the burn never carries a wallet address.
@@ -208,11 +225,8 @@ export default function HomePage() {
     });
   }, [kit]);
 
-  // Requires a RESOLVED, EXISTING token account — not merely a well-formed wallet address.
-  // CCTP will not create the token account, and minting to one that does not exist strands
-  // the transfer.
   const ready =
-    Boolean(kit && address && quote && destinationCheck.ok && recipient?.status !== "missing") &&
+    Boolean(kit && address && quote && destinationCheck.ok && !blockedOnMissingAccount) &&
     Boolean(recipient) &&
     !submitting &&
     !quoting &&
@@ -237,6 +251,7 @@ export default function HomePage() {
         // recipient_token_account.key() == mint_recipient; a wallet address here strands
         // the transfer permanently.
         mintRecipient: recipient.tokenAccountBytes,
+        recipientNeedsAccount,
         maxFee,
         minFinalityThreshold: FAST_FINALITY_THRESHOLD,
         ttlSeconds: REQUEST_TTL_SECONDS,
@@ -398,6 +413,8 @@ export default function HomePage() {
               <RecipientPanel
                 resolving={resolving}
                 recipient={recipient}
+                accountFee={quote?.accountFee ?? null}
+                sponsored={isCctpRailConfigured}
                 addressValid={destinationCheck.ok}
               />
 
@@ -728,10 +745,16 @@ function DirectModeNotice() {
 function RecipientPanel({
   resolving,
   recipient,
+  accountFee,
+  sponsored,
   addressValid,
 }: {
   resolving: boolean;
   recipient: RecipientResolution | null;
+  /** The surcharge the quote added for creating the account, or null before a quote exists. */
+  accountFee: bigint | null;
+  /** Whether anyone is paying that rent. Without the wrapper, nobody is. */
+  sponsored: boolean;
   addressValid: boolean;
 }) {
   if (!addressValid) return null;
@@ -740,14 +763,34 @@ function RecipientPanel({
     return <p className="mt-3 text-[0.8125rem] text-bone/40">Checking the recipient account…</p>;
   }
 
-  // Only a definitive "missing" blocks. CCTP does not create the token account, so burning to
-  // one that is genuinely absent leaves the transfer unmintable.
+  // A missing account is a surcharge, not a wall — we create it during delivery and the quote
+  // already includes what that costs. It only blocks in direct mode, where there is no fee and so
+  // nobody to pay the rent.
   if (recipient.status === "missing") {
+    if (!sponsored) {
+      return (
+        <Notice tone="alarm" title="This wallet has no USDC account on Solana yet" className="mt-3">
+          USDC can only be delivered to a token account, and this wallet does not have one.
+          Receiving any USDC on Solana once will create it. Burning now would leave the transfer
+          unmintable until somebody creates the account.
+          <p className="mt-2 break-all font-mono text-[0.75rem] text-bone/40">
+            {recipient.tokenAccount}
+          </p>
+        </Notice>
+      );
+    }
     return (
-      <Notice tone="alarm" title="This wallet has no USDC account on Solana yet" className="mt-3">
-        USDC can only be delivered to a token account, and this wallet does not have one. Receiving
-        any USDC on Solana once will create it. Burning now would leave the transfer unmintable
-        until somebody creates the account.
+      <Notice tone="info" title="We will open this wallet's USDC account" className="mt-3">
+        First transfer to this wallet, so its USDC account does not exist yet. We create it as part
+        of delivery
+        {accountFee !== null && accountFee > 0n ? (
+          <>
+            {" "}
+            for <span className="tabular">{formatUsdc(accountFee)}</span> USDC, already included in
+            the fee above
+          </>
+        ) : null}
+        . Nothing extra for you to do, and it is a one-off — later transfers to this wallet skip it.
         <p className="mt-2 break-all font-mono text-[0.75rem] text-bone/40">
           {recipient.tokenAccount}
         </p>
