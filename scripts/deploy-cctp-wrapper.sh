@@ -124,8 +124,21 @@ if true; then
   echo "  usdc and token_messenger cannot be changed after deployment. There is no upgrade"
   echo "  entrypoint. Getting either wrong means redeploying."
   echo
-  read -r -p "  Type 'deploy to mainnet' to continue: " confirm
-  [ "$confirm" = "deploy to mainnet" ] || die "aborted"
+  # Two ways to confirm, because there are two ways to run this.
+  #
+  # Interactively, `read` prompts. Non-interactively — piped, in CI, or through a tool that does
+  # not attach a terminal — `read` hits EOF and returns non-zero, and under `set -e` that killed
+  # the script *silently*: no prompt, no "aborted", no deploy, and nothing saying why. Anyone
+  # watching would reasonably wonder whether it had broadcast.
+  if [ -n "${CONFIRM:-}" ]; then
+    [ "$CONFIRM" = "deploy to mainnet" ] || die "CONFIRM must be exactly 'deploy to mainnet'"
+    echo "  Confirmed via CONFIRM."
+  elif [ -t 0 ]; then
+    read -r -p "  Type 'deploy to mainnet' to continue: " confirm || die "aborted"
+    [ "$confirm" = "deploy to mainnet" ] || die "aborted"
+  else
+    die "no terminal to confirm on — re-run with CONFIRM='deploy to mainnet'"
+  fi
 fi
 
 echo "==> Deploying"
