@@ -1,7 +1,7 @@
 import {
-  uniqueIndex,
   bigint,
   boolean,
+  index,
   integer,
   jsonb,
   numeric,
@@ -10,6 +10,7 @@ import {
   primaryKey,
   text,
   timestamp,
+  uniqueIndex,
 } from "drizzle-orm/pg-core";
 
 /**
@@ -205,6 +206,20 @@ export const relayJobs = pgTable(
     attempts: integer("attempts").notNull().default(0),
     lastError: text("last_error"),
     solGasSpentLamports: numeric("sol_gas_spent_lamports", { precision: 38, scale: 0 }),
+    /** When this job may next be attempted, and by whom.
+     *
+     *  These two columns are the queue. The relay originally used BullMQ, whose delayed-job
+     *  support needs Redis and a process that stays alive to consume it — neither exists in a
+     *  serverless deployment. A cron-invoked function instead claims rows whose
+     *  `next_attempt_at` has passed, so the backoff policy that used to be a BullMQ delay is a
+     *  timestamp.
+     *
+     *  `leased_until` is what makes a claim safe when two invocations overlap: a claimed row is
+     *  invisible to other workers until its lease expires, so the same burn is not minted twice
+     *  by a cron tick racing an inline drain. A crashed invocation's rows simply become
+     *  claimable again when the lease lapses, with no cleanup step. */
+    nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }).notNull().defaultNow(),
+    leasedUntil: timestamp("leased_until", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -216,6 +231,9 @@ export const relayJobs = pgTable(
       table.sourceDomainId,
       table.sourceTxHash,
     ),
+    /** The claim query's access path: due, unfinished jobs in `next_attempt_at` order. Without
+     *  it every cron tick sequentially scans a table that only ever grows. */
+    byDue: index("relay_jobs_due_idx").on(table.status, table.nextAttemptAt),
   }),
 );
 
