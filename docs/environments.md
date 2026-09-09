@@ -105,7 +105,9 @@ ignore.
 
 ## Secrets
 
-Never in these files. They come from AWS Secrets Manager at runtime:
+Never in these files. On the Vercel deployment they are project environment variables, Production
+scope — see `docs/deploying-on-vercel.md`. The list below also covers the self-hosted container
+path, where they come from AWS Secrets Manager at runtime:
 
 `RELAY_SOLANA_KEYPAIR`, `RELAY_SUBMIT_TOKEN`, `SOLVER_SOLANA_KEYPAIR`,
 `SOLVER_STELLAR_SECRET`, `DATABASE_URL`, and any credential-bearing `REDIS_URL` /
@@ -117,11 +119,12 @@ losing it cannot strand a transfer, because a burn stays claimable by anyone hol
 attestation. It must never be a `NEXT_PUBLIC_*` variable; `check-env-files.sh` blocks the
 `*_TOKEN` suffix from both env files for exactly this reason.
 
-One known issue, tracked, not yet fixed:
+One known issue, tracked, not yet fixed — and it applies only to the self-hosted container path:
 
 - ECS injects Secrets Manager values as **plaintext process env**, so anything that can read
   `/proc/<pid>/environ` or dump a task definition gets the relay and solver hot wallets. Only
-  the arbiter uses KMS properly.
+  the arbiter uses KMS properly. Vercel is not affected: it decrypts into the function at
+  invocation.
 
 ## Promotion checklist
 
@@ -130,8 +133,9 @@ One known issue, tracked, not yet fixed:
    (gated on the interface check, the test suite, a release build, and a typed confirmation).
 3. Fill `STELLAR_CCTP_WRAPPER_CONTRACT_ID` and `NEXT_PUBLIC_STELLAR_CCTP_WRAPPER_CONTRACT_ID`
    in `.env.production` from `deployments/mainnet.json`.
-4. Build `apps/web` with `.env.production` values as **Docker build args** — runtime env is a
-   no-op for `NEXT_PUBLIC_*`.
+4. Set the `NEXT_PUBLIC_*` values in Vercel **before** the build — they are inlined at build
+   time, so setting them afterwards is a no-op. (On the container path they are Docker build
+   args, for the same reason.)
 5. `scripts/check-env-files.sh`.
 6. Confirm the bug-bounty period agreed as the launch gate has actually elapsed.
 

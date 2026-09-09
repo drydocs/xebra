@@ -67,29 +67,35 @@ nothing else; it must never be in an env file or a container image.
 
 ### Accounts
 
-- **AWS.** `infra/terraform` has never been applied — there is no state file anywhere.
-- **A domain and a Route53 hosted zone.** The ACM certificates cannot validate without it; they
-  stay `PENDING_VALIDATION` forever and the load balancer never comes up.
-- **Redpanda Cloud** (or any managed Kafka). Terraform does not provision it; it is a required
-  external input carrying the event bus.
-- **Grafana Cloud** or CloudWatch, for the metrics the services already emit.
-- **A GitHub repository with Actions secrets**, once there is CI to hold them.
+The deployment is Vercel plus a Postgres database. See `docs/deploying-on-vercel.md` for the
+mechanics; this is only the list of things that need an account and a card.
+
+- **Vercel, Pro.** $20/month. Not for the features — for the terms: Hobby is restricted to
+  non-commercial use, and taking a bridge fee is commercial. Pro also lifts cron from once per
+  day to once per minute, which tightens the worst-case delay on a stalled transfer.
+- **Postgres.** Neon's free tier is enough to start, and it provisions from the Vercel dashboard.
+  Use the **pooled** connection string — serverless functions open a connection per invocation.
+- **A domain**, if you want one that is not `*.vercel.app`. Vercel handles the certificate.
+
+That is the whole list. There is no AWS, no container registry, no Redis and no Kafka in this
+deployment: `infra/terraform` and the other eight services stay in the repo for anyone who wants
+to self-host, and are not on this path.
 
 ### Secrets to generate and store
 
-Into AWS Secrets Manager, never into `.env.production`:
+As Vercel environment variables, Production scope, never `NEXT_PUBLIC_*` and never in
+`.env.production`:
 
-- `RELAY_SUBMIT_TOKEN` — 32 bytes minimum. Shared between the relay and `apps/web`'s server-side
-  route. `openssl rand -base64 32`.
+- `CRON_SECRET` — `openssl rand -base64 32`. Vercel sends it as a bearer token on cron requests;
+  without it the cron route refuses to run rather than defaulting to open.
 - `RELAY_SOLANA_KEYPAIR` — the hot wallet secret. Base58, base64 or a keygen byte array; all
   three are accepted.
-- `DATABASE_URL`, and `REDIS_URL` / `KAFKA_BROKERS` if they carry credentials.
+- `DATABASE_URL` — the pooled connection string.
+- `RELAY_SUBMIT_TOKEN` — optional, and only for operations: it bypasses the relay's admission
+  bounds so an old burn can be re-driven by hand.
 
-Note the caveat in `docs/environments.md`: ECS injects Secrets Manager values as plaintext
-process env, so anything that can read `/proc/<pid>/environ` or dump a task definition gets the
-relay hot wallet. Only the arbiter uses KMS properly. Acceptable for a hot wallet holding a few
-dollars of SOL; not acceptable for anything holding user funds, which is why the wrapper never
-custodies principal.
+Vercel encrypts these at rest and decrypts them into the function at invocation. That is better
+than the ECS arrangement the Terraform describes, where secrets land as plaintext process env.
 
 ### Legal
 
@@ -97,39 +103,43 @@ Taking a fee for moving other people's money is a regulated activity in most jur
 "anyone can connect their wallet" is the version that attracts attention. That question is
 outside what this repo can answer and worth settling before launch rather than after.
 
-## 3. Things I can still do, in order
+## 3. One more reason to deploy the wrapper early
 
-1. **Dockerfiles.** There are none, for any of the nine services, while ECS pulls
-   `<ecr_url>:<tag>` from an `IMMUTABLE` repository. Nothing is deployable today. `apps/web`
-   needs its `NEXT_PUBLIC_*` values as **build args** — runtime env is a no-op for them, because
-   Next.js inlines at build time.
-2. **CI.** No `.github/` exists. Lint, typecheck, `vitest`, `cargo test`, `forge test`, then
-   build and push images tagged with the release SHA.
-3. **A migration runner** as a one-off ECS task, gated before service rollout. A fresh RDS comes
-   up empty and `apps/api` and `apps/projector` fail against it.
-4. **Terraform gaps**: `production.tfvars`, the Route53 zone and ACM validation records, an
-   `iris_base_url` with no sandbox default (attesting against the sandbox leaves burns "pending"
-   forever), ECS circuit breaker and autoscaling.
-5. **Seed `chains`, `assets` and `corridors`.** They have readers and no writer, so `apps/api`
-   throws on every quote against an empty table. The bridge UI does not depend on this — it
-   quotes from a Soroban simulation — but the API does.
-6. **Alerts.** Five metrics are emitted and zero alerts are defined, so nothing pages anyone.
-   At minimum: relay SOL low, attestation pending past threshold, dead-lettered jobs, wrapper
-   paused, fee balance drift.
-7. **The in-browser claim page.** Today, if the relay is down, the receipt tells the user to keep
-   their hash and open an issue. The funds are genuinely safe — the attestation is public and
+Until it exists, nothing on chain distinguishes a burn made through this app from any other CCTP
+user's burn on Stellar — Circle's contract serves everyone. So `/api/relay/burns` cannot tell whose
+mint it is being asked to pay for, and it is bounded rather than authenticated: burns older than an
+hour are refused, and sponsorship stops after 200 mints in 24 hours. That caps the loss; it does
+not prevent a griefer inside the bounds from having their own transfers sponsored.
+
+The wrapper removes the vector, because then the watcher only ever sees burns we were paid a fee
+on. It is on this list for revenue; this is the second reason.
+
+## 4. Things I can still do, in order
+
+1. **Run the relay against a live database.** Every part of it is unit-tested and none of it has
+   talked to Postgres. This is the only item that stands between the code and a working
+   deployment.
+2. **Alerting on the hot wallet.** It funds every mint, and when it runs dry every transfer stalls
+   at once — silently, because a stalled job looks identical to one waiting on attestation. This
+   is the alert that matters most and the cheapest to add.
+3. **CI.** No `.github/` exists. Lint, typecheck, `vitest`, `cargo test`, `forge test` — worth
+   having before the contract parameters are ever changed.
+4. **The in-browser claim page.** Today, if the relay is unavailable, the receipt tells the user to
+   keep their hash and open an issue. The funds are genuinely safe — the attestation is public and
    never expires — but "someone else runs a script for you" is not a self-serve path. This is the
    difference between our uptime being your convenience and your risk.
-8. **Run the relay against a live database.** Every part of it is unit-tested and none of it has
-   talked to Postgres.
+5. **Seed `chains`, `assets` and `corridors`** if `apps/api` is ever deployed. They have readers
+   and no writer, so it throws on every quote against an empty table. The bridge UI does not
+   depend on this — it quotes from a Soroban simulation — so this is not on the Vercel path.
 
-## 4. Sequence, once the above exists
+## 5. Sequence, once the above exists
 
 1. `scripts/check-cctp-interface.sh` — Circle can redeploy their contracts.
 2. Deploy the wrapper with parameters from §1. Record `deployments/mainnet.json`.
 3. Fill `STELLAR_CCTP_WRAPPER_CONTRACT_ID` and `NEXT_PUBLIC_STELLAR_CCTP_WRAPPER_CONTRACT_ID`
    in `.env.production`, plus `SOROBAN_START_LEDGER` at the deploy ledger.
-4. Build and deploy. Migrations first, then services.
+4. Run the migrations, then deploy. `NEXT_PUBLIC_*` are inlined at build time, so they must be
+   set in Vercel before the build, not after.
 5. Transfer your own money through the deployed stack. Then do it with the relay stopped, and
    complete the mint by hand, and write down that you did — the same standard
    `scripts/e2e-demo/` set for the escrow.
