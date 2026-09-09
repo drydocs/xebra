@@ -1,0 +1,95 @@
+name: CI
+
+# Runs on every push and pull request. The point is not ceremony: this repo holds a Soroban
+# contract that will hold mainnet approval rights and a relay that spends a hot wallet, and the
+# tests that guard both — the fee arithmetic, the CCTP message offsets, the idempotency that stops
+# a double mint — are worth nothing if nobody runs them before a change lands.
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+concurrency:
+  # A superseded run tells you about code nobody is going to merge.
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Every service refuses to boot without a coherent network, and .env.production is git-ignored,
+  # so CI supplies the values the way a hosting platform does. These are the pinned mainnet
+  # constants from .env.production.example — all public, none of them secret, and
+  # packages/network-config validates that they agree with each other.
+  NETWORK: mainnet
+  NEXT_PUBLIC_NETWORK: mainnet
+  NEXT_PUBLIC_SOROBAN_RPC_URL: https://mainnet.sorobanrpc.com
+  NEXT_PUBLIC_HORIZON_URL: https://horizon.stellar.org
+  NEXT_PUBLIC_STELLAR_NETWORK_PASSPHRASE: "Public Global Stellar Network ; September 2015"
+  NEXT_PUBLIC_STELLAR_USDC_SAC_ADDRESS: CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75
+  NEXT_PUBLIC_STELLAR_TOKEN_MESSENGER_ADDRESS: CAE2G5Z77UP7GYPYGFOWFGW7C7J6I4YP2AFGSADRKQY62SYUFLPNFTXL
+  NEXT_PUBLIC_SOLANA_CCTP_DOMAIN_ID: "5"
+  NEXT_PUBLIC_SOLANA_RPC_URL: https://api.mainnet-beta.solana.com
+  NEXT_PUBLIC_SOLANA_USDC_MINT: EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v
+
+jobs:
+  javascript:
+    name: lint, typecheck, test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Guard the env files
+        # Blocks secret-shaped keys from anything tracked, and catches a dynamic `process.env[...]`
+        # in client-bundled code — which is invisible in Node and undefined in the browser.
+        run: pnpm check:env
+
+      - run: pnpm lint
+
+      # Typecheck depends on the workspace packages' .d.ts, so they have to be built first.
+      - run: pnpm build --filter='./packages/*'
+
+      - run: pnpm typecheck
+
+      - run: pnpm test
+
+  soroban:
+    name: soroban contracts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: contracts/stellar-cctp-wrapper -> target
+
+      # The wrapper is the contract that will hold mainnet approval rights. Its tests cover the
+      # fee arithmetic, the parameter ceilings a compromised admin cannot exceed, and the
+      # no-hang paths where a failure must revert the whole transaction.
+      - run: cargo test --manifest-path contracts/stellar-cctp-wrapper/Cargo.toml
+      - run: cargo test --manifest-path contracts/stellar-soroban/Cargo.toml
+
+  evm:
+    name: arc contracts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: foundry-rs/foundry-toolchain@v1
+
+      - run: forge test
+        working-directory: contracts/arc-evm
