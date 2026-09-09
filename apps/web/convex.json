@@ -1,0 +1,5 @@
+{
+  "node": {
+    "externalPackages": ["@solana/web3.js", "@stellar/stellar-sdk"]
+  }
+}
