@@ -127,15 +127,12 @@ importers:
       '@opentelemetry/api':
         specifier: ^1.9.1
         version: 1.9.1
-      '@solana/web3.js':
-        specifier: ^1.95.0
-        version: 1.98.4(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@5.0.10)
-      '@stellar/stellar-sdk':
-        specifier: ^13.0.0
-        version: 13.3.0
       '@xebra/cctp-client':
         specifier: workspace:*
         version: link:../../packages/cctp-client
+      '@xebra/cctp-solana':
+        specifier: workspace:*
+        version: link:../../packages/cctp-solana
       '@xebra/db':
         specifier: workspace:*
         version: link:../../packages/db
@@ -145,12 +142,12 @@ importers:
       '@xebra/observability':
         specifier: workspace:*
         version: link:../../packages/observability
+      '@xebra/relay-core':
+        specifier: workspace:*
+        version: link:../../packages/relay-core
       bullmq:
         specifier: ^5.34.0
         version: 5.81.3
-      drizzle-orm:
-        specifier: ^0.36.4
-        version: 0.36.4(@opentelemetry/api@1.9.1)(@types/react@19.2.18)(postgres@3.4.9)(react@19.2.8)
       ioredis:
         specifier: ^5.4.1
         version: 5.11.1
@@ -388,6 +385,15 @@ importers:
       '@trpc/react-query':
         specifier: ^11.0.0
         version: 11.18.0(@tanstack/react-query@5.101.4(react@19.2.8))(@trpc/client@11.18.0(@trpc/server@11.18.0(typescript@5.9.3))(typescript@5.9.3))(@trpc/server@11.18.0(typescript@5.9.3))(react@19.2.8)(typescript@5.9.3)
+      '@xebra/cctp-client':
+        specifier: workspace:*
+        version: link:../../packages/cctp-client
+      '@xebra/cctp-solana':
+        specifier: workspace:*
+        version: link:../../packages/cctp-solana
+      '@xebra/db':
+        specifier: workspace:*
+        version: link:../../packages/db
       '@xebra/intent-schema':
         specifier: workspace:*
         version: link:../../packages/intent-schema
@@ -397,6 +403,9 @@ importers:
       '@xebra/observability':
         specifier: workspace:*
         version: link:../../packages/observability
+      '@xebra/relay-core':
+        specifier: workspace:*
+        version: link:../../packages/relay-core
       '@xebra/router-core':
         specifier: workspace:*
         version: link:../../packages/router-core
@@ -467,6 +476,22 @@ importers:
         version: 2.1.9(@types/node@26.2.0)
 
   packages/cctp-client:
+    devDependencies:
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.0
+        version: 2.1.9(@types/node@26.2.0)
+
+  packages/cctp-solana:
+    dependencies:
+      '@solana/web3.js':
+        specifier: ^1.95.0
+        version: 1.98.4(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@5.0.10)
+      '@xebra/cctp-client':
+        specifier: workspace:*
+        version: link:../cctp-client
     devDependencies:
       typescript:
         specifier: ^5.7.0
@@ -602,6 +627,31 @@ importers:
       zod:
         specifier: ^3.24.0
         version: 3.25.76
+    devDependencies:
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.0
+        version: 2.1.9(@types/node@26.2.0)
+
+  packages/relay-core:
+    dependencies:
+      '@solana/web3.js':
+        specifier: ^1.95.0
+        version: 1.98.4(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@5.0.10)
+      '@stellar/stellar-sdk':
+        specifier: ^13.0.0
+        version: 13.3.0
+      '@xebra/cctp-client':
+        specifier: workspace:*
+        version: link:../cctp-client
+      '@xebra/db':
+        specifier: workspace:*
+        version: link:../db
+      drizzle-orm:
+        specifier: ^0.36.4
+        version: 0.36.4(@opentelemetry/api@1.9.1)(@types/react@19.2.18)(postgres@3.4.9)(react@19.2.8)
     devDependencies:
       typescript:
         specifier: ^5.7.0
