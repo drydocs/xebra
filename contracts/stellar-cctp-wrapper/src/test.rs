@@ -19,7 +19,7 @@ use soroban_sdk::{
 };
 
 use crate::{
-    BridgeRequest, MAX_ACCOUNT_FEE_CEILING, DomainCfg, Error, Params, Quote, XebraCctpWrapper, XebraCctpWrapperClient,
+    BridgeRequest, MAX_ACCOUNT_FEE_CEILING, MAX_MIN_FEE_CEILING, TIMELOCK_SECS, DomainCfg, Error, Params, Quote, XebraCctpWrapper, XebraCctpWrapperClient,
     DOMAIN_SOLANA, DOMAIN_STELLAR,
 };
 
@@ -894,4 +894,65 @@ fn the_burn_carries_the_full_amount_less_the_whole_fee() {
     let call = s.messenger.last_call().expect("Circle must have been called");
     assert_eq!(call.amount, q.net_burned);
     assert_eq!(q.fee, MIN_FEE + ACCOUNT_FEE);
+}
+
+// ---------------------------------------------------------------------------
+// The pauser cannot be removed instantly
+//
+// The pauser's veto over pending proposals is the only defence against a stolen admin key
+// during the 48h window. While replacing the pauser was instant that defence did not exist:
+// one transaction removed it, and then nothing could be cancelled.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn replacing_the_pauser_waits_out_the_timelock() {
+    let s = setup();
+    let new_pauser = Address::generate(&s.env);
+
+    let eta = s.wrapper.propose_pauser(&new_pauser);
+    assert_eq!(eta, s.env.ledger().timestamp() + TIMELOCK_SECS);
+    // Unchanged until committed.
+    assert_eq!(s.wrapper.get_pauser(), s.pauser);
+    assert_eq!(s.wrapper.try_commit_pauser(), Err(Ok(Error::TimelockNotElapsed)));
+
+    s.env.ledger().set_timestamp(eta);
+    s.wrapper.commit_pauser();
+    assert_eq!(s.wrapper.get_pauser(), new_pauser);
+}
+
+#[test]
+fn the_sitting_pauser_can_veto_its_own_replacement() {
+    // This is the whole property. An attacker holding the admin key proposes a new pauser to
+    // clear the way for a fee grab; the pauser sees `pauser_proposed` and cancels it.
+    let s = setup();
+    let attacker = Address::generate(&s.env);
+    let eta = s.wrapper.propose_pauser(&attacker);
+
+    s.wrapper.cancel_pending(&s.pauser);
+
+    s.env.ledger().set_timestamp(eta);
+    assert_eq!(s.wrapper.try_commit_pauser(), Err(Ok(Error::NothingPending)));
+    assert_eq!(s.wrapper.get_pauser(), s.pauser);
+}
+
+#[test]
+fn a_stolen_admin_key_cannot_strip_the_veto_before_grabbing_fees() {
+    // The end-to-end version: propose a new pauser and maximum fees together, as an attacker
+    // would. The pauser cancels both in one call, and neither lands.
+    let s = setup();
+    let attacker = Address::generate(&s.env);
+    let mut greedy = default_params();
+    greedy.fee_bps = 100; // the 1% ceiling
+    greedy.min_fee = MAX_MIN_FEE_CEILING;
+
+    s.wrapper.propose_pauser(&attacker);
+    let eta = s.wrapper.propose_params(&greedy);
+
+    s.wrapper.cancel_pending(&s.pauser);
+
+    s.env.ledger().set_timestamp(eta);
+    assert_eq!(s.wrapper.try_commit_pauser(), Err(Ok(Error::NothingPending)));
+    assert_eq!(s.wrapper.try_commit_params(), Err(Ok(Error::NothingPending)));
+    assert_eq!(s.wrapper.get_params(), default_params());
+    assert_eq!(s.wrapper.get_pauser(), s.pauser);
 }

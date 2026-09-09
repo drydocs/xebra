@@ -150,6 +150,7 @@ pub enum DataKey {
     Domains,
     PendingParams,
     PendingAdmin,
+    PendingPauser,
     PendingRecipient,
     PendingDomain,
     /// Reentrancy flag. Temporary storage, set and cleared within a single `bridge`.
@@ -297,6 +298,14 @@ pub struct AdminProposed {
 pub struct AdminChanged {
     pub old_admin: Address,
     pub new_admin: Address,
+}
+
+/// Topic: `pauser_proposed`. Alert on this as loudly as on `fee_recipient_proposed`: it opens the
+/// 48h window in which the admin is trying to remove the only check on itself.
+#[contractevent]
+pub struct PauserProposed {
+    pub new_pauser: Address,
+    pub eta: u64,
 }
 
 /// Topic: `pauser_changed`.
@@ -830,6 +839,7 @@ impl XebraCctpWrapper {
         let s = env.storage().instance();
         s.remove(&DataKey::PendingParams);
         s.remove(&DataKey::PendingAdmin);
+        s.remove(&DataKey::PendingPauser);
         s.remove(&DataKey::PendingRecipient);
         s.remove(&DataKey::PendingDomain);
         Self::bump_instance_ttl(&env);
@@ -874,14 +884,49 @@ impl XebraCctpWrapper {
         Ok(())
     }
 
-    pub fn set_pauser(env: Env, new_pauser: Address) -> Result<(), Error> {
+    /// Replacing the pauser is timelocked, and that is the point.
+    ///
+    /// The pauser's veto over pending proposals is the only defence against a stolen admin key
+    /// during the 48h window. While this was instant that defence did not exist: an attacker
+    /// holding the admin key would replace the pauser with themselves in one transaction, then
+    /// propose maximum fees and a new fee recipient with nobody able to cancel them. Timelocked,
+    /// the sitting pauser sees `pauser_proposed` and can `cancel_pending`.
+    ///
+    /// The cost is real and worth stating: if the pauser key is *lost*, rotating to a new one now
+    /// takes 48 hours. That is the trade — a lost pauser key is an inconvenience, a stolen admin
+    /// key is an incident.
+    pub fn propose_pauser(env: Env, new_pauser: Address) -> Result<u64, Error> {
         Self::get_admin(env.clone()).require_auth();
+        let eta = env.ledger().timestamp().saturating_add(TIMELOCK_SECS);
+        env.storage().instance().set(
+            &DataKey::PendingPauser,
+            &PendingAddress {
+                addr: new_pauser.clone(),
+                eta,
+            },
+        );
+        Self::bump_instance_ttl(&env);
+        PauserProposed { new_pauser, eta }.publish(&env);
+        Ok(eta)
+    }
+
+    pub fn commit_pauser(env: Env) -> Result<(), Error> {
+        Self::get_admin(env.clone()).require_auth();
+        let pending: PendingAddress = env
+            .storage()
+            .instance()
+            .get(&DataKey::PendingPauser)
+            .ok_or(Error::NothingPending)?;
+        if env.ledger().timestamp() < pending.eta {
+            return Err(Error::TimelockNotElapsed);
+        }
         let old_pauser = Self::get_pauser(env.clone());
-        env.storage().instance().set(&DataKey::Pauser, &new_pauser);
+        env.storage().instance().set(&DataKey::Pauser, &pending.addr);
+        env.storage().instance().remove(&DataKey::PendingPauser);
         Self::bump_instance_ttl(&env);
         PauserChanged {
             old_pauser,
-            new_pauser,
+            new_pauser: pending.addr,
         }
         .publish(&env);
         Ok(())
