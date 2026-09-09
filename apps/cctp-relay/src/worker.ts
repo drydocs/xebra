@@ -2,8 +2,7 @@ import type { Meter } from "@opentelemetry/api";
 import type { RelayJobState } from "@xebra/cctp-client";
 import { type ConnectionOptions, Queue, Worker } from "bullmq";
 import type { Logger } from "pino";
-import type { RelayJobStore } from "./job-store.js";
-import { type ProcessJobDeps, processJob } from "./process-job.js";
+import { type ProcessJobDeps, type RelayJobStore, processJob } from "@xebra/relay-core";
 
 const QUEUE_NAME = "cctp-relay";
 

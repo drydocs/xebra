@@ -20,20 +20,25 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { rpc } from "@stellar/stellar-sdk";
-import { Connection, PublicKey } from "@solana/web3.js";
 import { createIrisClient } from "@xebra/cctp-client";
+import {
+  createSolanaMintSubmitterFromConfig,
+  decodeRelayKeypair,
+  getRelayBalanceLamports,
+} from "@xebra/cctp-solana";
 import { createDb } from "@xebra/db";
 import { registerPolledGauge, startObservability } from "@xebra/observability";
+import {
+  type BurnWatcherDeps,
+  PostgresCursorStore,
+  PostgresRelayJobStore,
+  createBurnReaderFromUrl,
+  scanForBurns,
+  submitBurn,
+} from "@xebra/relay-core";
 import pino from "pino";
-import { scanForBurns, submitBurn, type BurnWatcherDeps } from "./burn-watcher.js";
 import { loadConfig } from "./config.js";
-import { PostgresCursorStore } from "./cursor-store.js";
-import { decodeRelayKeypair } from "./decode-keypair.js";
 import { startRelayHttpServer } from "./http.js";
-import { PostgresRelayJobStore } from "./postgres-job-store.js";
-import { createRpcEventReader, createSorobanBurnSource } from "./soroban-burn-source.js";
-import { createSolanaMintSubmitter } from "./solana-mint-submitter.js";
 import { enqueueRelayJob, startWorker } from "./worker.js";
 
 const logger = pino({ name: "cctp-relay" });
@@ -42,7 +47,6 @@ async function main() {
   const config = loadConfig();
   const obs = startObservability({ serviceName: "cctp-relay" });
 
-  const connection = new Connection(config.SOLANA_RPC_URL, "confirmed");
   const payer = decodeRelayKeypair(config.RELAY_SOLANA_KEYPAIR);
   const iris = createIrisClient(config.IRIS_BASE_URL);
   const db = createDb(config.DATABASE_URL);
@@ -55,17 +59,21 @@ async function main() {
     obs.meter,
     "relay_sol_balance_lamports",
     { description: "The relay hot wallet's SOL balance, in lamports." },
-    async () => connection.getBalance(payer.publicKey),
+    async () =>
+      getRelayBalanceLamports({
+        rpcUrl: config.SOLANA_RPC_URL,
+        secretKey: config.RELAY_SOLANA_KEYPAIR,
+      }),
   );
 
   // Real, not a stub. The instruction it builds was simulated against Circle's live mainnet
   // programs; every PDA it derives was confirmed to exist on chain.
-  const mint = createSolanaMintSubmitter(
-    connection,
-    payer,
-    new PublicKey(config.SOLANA_USDC_ADDRESS),
-    config.STELLAR_CCTP_DOMAIN_ID,
-  );
+  const mint = createSolanaMintSubmitterFromConfig({
+    rpcUrl: config.SOLANA_RPC_URL,
+    secretKey: config.RELAY_SOLANA_KEYPAIR,
+    usdcMint: config.SOLANA_USDC_ADDRESS,
+    sourceDomainId: config.STELLAR_CCTP_DOMAIN_ID,
+  });
 
   const { queue, worker } = startWorker({
     connection: { url: config.REDIS_URL },
@@ -81,13 +89,11 @@ async function main() {
   });
 
   const readBurnEvents = config.STELLAR_CCTP_WRAPPER_CONTRACT_ID
-    ? createSorobanBurnSource(
-        createRpcEventReader(
-          new rpc.Server(config.SOROBAN_RPC_URL),
-          config.STELLAR_CCTP_WRAPPER_CONTRACT_ID,
-          // Non-null: the config schema requires a start ledger whenever a contract id is set.
-          config.SOROBAN_START_LEDGER as number,
-        ),
+    ? createBurnReaderFromUrl(
+        config.SOROBAN_RPC_URL,
+        config.STELLAR_CCTP_WRAPPER_CONTRACT_ID,
+        // Non-null: the config schema requires a start ledger whenever a contract id is set.
+        config.SOROBAN_START_LEDGER as number,
       )
     : undefined;
 

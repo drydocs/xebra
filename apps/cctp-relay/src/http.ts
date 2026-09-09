@@ -1,5 +1,5 @@
-import { createHash, timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import { authorizeBearer, isStellarTxHash } from "@xebra/relay-core";
 
 /**
  * The relay's submission endpoint.
@@ -28,10 +28,6 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
  * without this service (docs/architecture.md §5). Losing the token cannot strand anyone.
  */
 
-/** Stellar transaction hashes are 32 bytes, lower-case hex. Rejecting anything else here keeps
- *  malformed input out of the job table, where it would occupy the unique index forever. */
-const TX_HASH = /^[0-9a-f]{64}$/;
-
 export interface SubmitHandler {
   (txHash: string): Promise<{ jobId: string; created: boolean }>;
 }
@@ -44,15 +40,6 @@ export interface RelayHttpOptions {
   /** Reports whether the process is healthy enough to take traffic. */
   health?: () => Promise<{ ok: boolean; detail?: Record<string, unknown> }>;
   log?: (message: string, fields?: Record<string, unknown>) => void;
-}
-
-function digest(value: string): Buffer {
-  return createHash("sha256").update(value).digest();
-}
-
-function authorized(header: string | undefined, token: string): boolean {
-  if (!header?.startsWith("Bearer ")) return false;
-  return timingSafeEqual(digest(header.slice("Bearer ".length)), digest(token));
 }
 
 function send(res: ServerResponse, status: number, body: unknown): void {
@@ -91,7 +78,7 @@ export function createRelayHandler(options: RelayHttpOptions) {
       return;
     }
 
-    if (!authorized(req.headers.authorization, options.submitToken)) {
+    if (!authorizeBearer(req.headers.authorization, options.submitToken)) {
       send(res, 401, { error: "unauthorized" });
       return;
     }
@@ -109,7 +96,7 @@ export function createRelayHandler(options: RelayHttpOptions) {
         ? (body as Record<string, unknown>).txHash
         : undefined;
 
-    if (typeof txHash !== "string" || !TX_HASH.test(txHash)) {
+    if (!isStellarTxHash(txHash)) {
       send(res, 400, { error: "txHash must be a 64-character lower-case hex string" });
       return;
     }
