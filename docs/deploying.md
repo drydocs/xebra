@@ -147,9 +147,25 @@ whatever it contains. `scripts/with-env.mjs` treats a missing file as "use the e
 `NETWORK` or `NEXT_PUBLIC_NETWORK` is already set, and still fails loudly on a local checkout where
 neither is.
 
+## If the relay is unavailable
+
+`/claim` completes a transfer from the user's own wallet. It fetches Circle's attestation, builds
+the same `receiveMessage` instruction the relay builds, and has the connected wallet sign and pay.
+The receipt links to it with the burn hash already filled in.
+
+The payer does not have to be the recipient: `receiveMessage` mints to the address the burn named
+whoever submits it, so a third party can rescue someone else's stuck transfer. When the recipient
+has no USDC account yet, the page asks for the destination wallet — a token account address cannot
+be reversed into its owner, so there is no way to create one without being told — and checks the
+derived address against the burn before anything is signed.
+
+Two server routes exist for it, both because the browser cannot do the work directly:
+`/api/attestation` keeps the Iris URL out of the bundle, and `/api/solana-rpc` is a
+method-restricted pass-through, because Solana's public RPC answers the CORS preflight with 200
+and then **403s the actual POST** whenever an `Origin` header is present.
+
 ## What is still missing
 
-- **The in-browser claim page.** If the relay is unavailable the receipt tells the user to keep
-  their hash. The funds are safe, but "someone else runs a script for you" is not self-serve.
 - **Alerting on the hot wallet.** It funds every mint, and when it runs dry every transfer stalls
   at once — silently, because a stalled job looks identical to one waiting on attestation.
+- **The relay has never run against a live Convex deployment.** That needs your login.

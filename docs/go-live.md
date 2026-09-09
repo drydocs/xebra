@@ -123,11 +123,7 @@ on. It is on this list for revenue; this is the second reason.
    is the alert that matters most and the cheapest to add.
 3. **CI.** No `.github/` exists. Lint, typecheck, `vitest`, `cargo test`, `forge test` — worth
    having before the contract parameters are ever changed.
-4. **The in-browser claim page.** Today, if the relay is unavailable, the receipt tells the user to
-   keep their hash and open an issue. The funds are genuinely safe — the attestation is public and
-   never expires — but "someone else runs a script for you" is not a self-serve path. This is the
-   difference between our uptime being your convenience and your risk.
-5. **Seed `chains`, `assets` and `corridors`** if `apps/api` is ever deployed. They have readers
+4. **Seed `chains`, `assets` and `corridors`** if `apps/api` is ever deployed. They have readers
    and no writer, so it throws on every quote against an empty table. The bridge UI does not
    depend on this — it quotes from a Soroban simulation — and neither does the relay, so this is
    not on the deployment path at all.
