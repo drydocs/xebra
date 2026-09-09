@@ -14,7 +14,7 @@
 #
 # Usage:
 #   NETWORK=testnet SOURCE=my-identity ./scripts/deploy-cctp-wrapper.sh
-#   NETWORK=mainnet SOURCE=deployer FEE_BPS=10 MIN_FEE=5000000 ... ./scripts/deploy-cctp-wrapper.sh
+#   NETWORK=mainnet SOURCE=deployer FEE_BPS=10 MIN_FEE=3000000 ... ./scripts/deploy-cctp-wrapper.sh
 #
 # Required env for a real deploy: ADMIN, PAUSER, FEE_RECIPIENT (Stellar addresses).
 # ADMIN and PAUSER must be different keys held by different operators — the script warns
@@ -45,9 +45,19 @@ MESSENGER="$STELLAR_TOKEN_MESSENGER_ADDRESS"
 # Parameters, in 7-decimal stroops. Defaults are conservative starting values; the min_fee
 # should be derived from measured Solana mint gas cost before any real launch.
 FEE_BPS="${FEE_BPS:-10}"              # 0.10%
-MIN_FEE="${MIN_FEE:-5000000}"         # 0.50 USDC
+# Covers the ~872,621 lamports every sponsored mint costs (used_nonce rent, which nobody can
+# ever reclaim, plus the transaction fee), with headroom for SOL moving against us. At $300 SOL
+# that cost is about $0.26, so this is thin — raise it if SOL runs higher.
+MIN_FEE="${MIN_FEE:-3000000}"         # 0.30 USDC
+# Only first-time recipients pay this: creating their token account costs a further 2,039,280
+# lamports, also unreclaimable. Kept separate from MIN_FEE so repeat users are not charged for a
+# cost they do not cause.
+ACCOUNT_FEE="${ACCOUNT_FEE:-7000000}" # 0.70 USDC
 MIN_TRANSFER="${MIN_TRANSFER:-100000000}"      # 10 USDC
-MAX_TRANSFER="${MAX_TRANSFER:-1000000000000}"  # 100k USDC — raise deliberately, not by default
+# Circle's own live per-message cap for USDC. Effectively no ceiling of ours — which also means
+# no bound on the damage from a bug nobody has found. Set this low for the first transfers and
+# raise it as clean ones accumulate; that is what it is for.
+MAX_TRANSFER="${MAX_TRANSFER:-100000000000000}"  # 10M USDC
 MAX_CCTP_FEE_BPS="${MAX_CCTP_FEE_BPS:-20}"
 
 die() { echo "FAIL: $*" >&2; exit 1; }
@@ -87,6 +97,7 @@ if true; then
   echo "    fee_recipient   $FEE_RECIPIENT"
   echo "    fee_bps         $FEE_BPS"
   echo "    min_fee         $MIN_FEE"
+  echo "    account_fee     $ACCOUNT_FEE"
   echo "    min_transfer    $MIN_TRANSFER"
   echo "    max_transfer    $MAX_TRANSFER"
   echo "    max_cctp_fee_bps $MAX_CCTP_FEE_BPS"
@@ -110,7 +121,7 @@ CONTRACT_ID="$(stellar contract deploy \
   --admin "$ADMIN" \
   --pauser "$PAUSER" \
   --fee_recipient "$FEE_RECIPIENT" \
-  --params "{\"fee_bps\":$FEE_BPS,\"min_fee\":\"$MIN_FEE\",\"min_transfer\":\"$MIN_TRANSFER\",\"max_transfer\":\"$MAX_TRANSFER\",\"max_cctp_fee_bps\":$MAX_CCTP_FEE_BPS}" \
+  --params "{\"fee_bps\":$FEE_BPS,\"min_fee\":\"$MIN_FEE\",\"min_transfer\":\"$MIN_TRANSFER\",\"max_transfer\":\"$MAX_TRANSFER\",\"max_cctp_fee_bps\":$MAX_CCTP_FEE_BPS,\"account_fee\":\"$ACCOUNT_FEE\"}" \
   --domains '[{"domain":5,"evm_style":false}]' \
   | tail -1)"
 
@@ -123,7 +134,7 @@ WASM_HASH="$(sha256sum "$WASM" | cut -d' ' -f1)"
 
 # The recorder reads these from the environment, so they must be exported, not just set.
 export USDC_OUT="$USDC" MESSENGER_OUT="$MESSENGER"
-export ADMIN PAUSER FEE_RECIPIENT FEE_BPS MIN_FEE MIN_TRANSFER MAX_TRANSFER MAX_CCTP_FEE_BPS
+export ADMIN PAUSER FEE_RECIPIENT FEE_BPS MIN_FEE ACCOUNT_FEE MIN_TRANSFER MAX_TRANSFER MAX_CCTP_FEE_BPS
 
 python3 - "$RECORD" "$CONTRACT_ID" "$WASM_HASH" <<PYEOF
 import json, os, subprocess, sys, datetime
@@ -142,6 +153,7 @@ rec["cctpWrapper"] = {
     "params": {
         "feeBps": int(os.environ["FEE_BPS"]),
         "minFee": os.environ["MIN_FEE"],
+        "accountFee": os.environ["ACCOUNT_FEE"],
         "minTransfer": os.environ["MIN_TRANSFER"],
         "maxTransfer": os.environ["MAX_TRANSFER"],
         "maxCctpFeeBps": int(os.environ["MAX_CCTP_FEE_BPS"]),
