@@ -1,7 +1,6 @@
-import { createHash } from "node:crypto";
+import { Buffer } from "buffer";
 import {
   type Connection,
-  type Keypair,
   PublicKey,
   SystemProgram,
   TransactionInstruction,
@@ -28,6 +27,12 @@ import {
  *   - V2's receiver account list gains `fee_recipient_token_account`
  *
  * Layouts come from the V2 IDLs and program source.
+ *
+ * # Runs in a browser as well as on a server
+ *
+ * No `node:` imports and no reliance on a global `Buffer`. Both the relay and the self-serve
+ * claim page build the instruction from this one function, because the whole point of the claim
+ * page is that it does exactly what the relay would have done.
  *
  * # `mintRecipient` is a token account, never a wallet
  *
@@ -71,10 +76,20 @@ const pda = (seeds: Buffer[], programId: PublicKey) =>
   PublicKey.findProgramAddressSync(seeds, programId)[0];
 const utf8 = (s: string) => Buffer.from(s, "utf8");
 
-/** Anchor's instruction discriminator: first 8 bytes of sha256("global:<snake_case_name>"). */
-function discriminator(name: string): Buffer {
-  return createHash("sha256").update(`global:${name}`).digest().subarray(0, 8);
-}
+/**
+ * Anchor's instruction discriminator for `receive_message`: the first 8 bytes of
+ * sha256("global:receive_message").
+ *
+ * Precomputed rather than hashed at call time so this module runs in a browser. It used to call
+ * `node:crypto`, which is the only thing that stopped the self-serve claim page from building the
+ * same instruction the relay does — and building a second, subtly different one for the browser is
+ * how the two drift apart.
+ *
+ * A constant is only safe if it is checked, so `receive-message.test.ts` recomputes the hash and
+ * asserts this matches. The value cannot change unless Circle renames the instruction, at which
+ * point the account layout has changed too and the test failing is the correct outcome.
+ */
+export const RECEIVE_MESSAGE_DISCRIMINATOR = Buffer.from("26907fe11fe1ee19", "hex");
 
 /** Borsh `Vec<u8>`: u32 little-endian length prefix, then the bytes. */
 function borshBytes(buf: Buffer): Buffer {
@@ -117,7 +132,7 @@ export interface ReceiveMessageConfig {
  */
 export async function ensureRecipientTokenAccount(
   connection: Connection,
-  payer: Keypair,
+  payer: PublicKey,
   ownerOrTokenAccount: PublicKey,
   mint: PublicKey,
 ): Promise<{ tokenAccount: PublicKey; created: boolean; instruction?: TransactionInstruction }> {
@@ -136,7 +151,7 @@ export async function ensureRecipientTokenAccount(
   const instruction = new TransactionInstruction({
     programId: ASSOCIATED_TOKEN_PROGRAM,
     keys: [
-      { pubkey: payer.publicKey, isSigner: true, isWritable: true },
+      { pubkey: payer, isSigner: true, isWritable: true },
       { pubkey: ata, isSigner: false, isWritable: true },
       { pubkey: ownerOrTokenAccount, isSigner: false, isWritable: false },
       { pubkey: mint, isSigner: false, isWritable: false },
@@ -155,7 +170,10 @@ export async function ensureRecipientTokenAccount(
  */
 export async function buildReceiveMessageInstruction(
   connection: Connection,
-  payer: Keypair,
+  /** The account that will sign and pay. A `PublicKey`, not a `Keypair`: the relay holds a key
+   *  and a browser wallet does not, and only the public key is needed to build the instruction —
+   *  signing happens later, wherever the key actually lives. */
+  payer: PublicKey,
   messageHex: string,
   attestationHex: string,
   config: ReceiveMessageConfig,
@@ -200,13 +218,13 @@ export async function buildReceiveMessageInstruction(
   return new TransactionInstruction({
     programId: MESSAGE_TRANSMITTER_V2,
     data: Buffer.concat([
-      discriminator("receive_message"),
+      RECEIVE_MESSAGE_DISCRIMINATOR,
       borshBytes(message),
       borshBytes(attestation),
     ]),
     keys: [
-      { pubkey: payer.publicKey, isSigner: true, isWritable: true },
-      { pubkey: payer.publicKey, isSigner: true, isWritable: false },
+      { pubkey: payer, isSigner: true, isWritable: true },
+      { pubkey: payer, isSigner: true, isWritable: false },
       { pubkey: authorityPda, isSigner: false, isWritable: false },
       { pubkey: messageTransmitter, isSigner: false, isWritable: false },
       { pubkey: usedNonce, isSigner: false, isWritable: true },

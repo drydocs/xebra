@@ -56,7 +56,7 @@ export function createSolanaMintSubmitter(
 
       const recipient = await ensureRecipientTokenAccount(
         connection,
-        payer,
+        payer.publicKey,
         mintRecipient,
         usdcMint,
       );
@@ -76,7 +76,7 @@ export function createSolanaMintSubmitter(
         });
       }
 
-      const ix = await buildReceiveMessageInstruction(connection, payer, message, attestation, {
+      const ix = await buildReceiveMessageInstruction(connection, payer.publicKey, message, attestation, {
         usdcMint,
         sourceDomain,
       });
