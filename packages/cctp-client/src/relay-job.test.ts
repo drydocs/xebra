@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import type { IrisClient, IrisMessage } from "./iris.js";
-import { type MintSubmitter, advanceRelayJob, createQueuedJob } from "./relay-job.js";
+import {
+  type MintSubmitter,
+  type RelayJobState,
+  advanceRelayJob,
+  createQueuedJob,
+} from "./relay-job.js";
 
 function irisReturning(messages: IrisMessage[]): IrisClient {
   return { getMessages: vi.fn(async () => messages) };
@@ -101,5 +106,71 @@ describe("advanceRelayJob", () => {
       mint: mintSubmitter(),
     });
     expect(result).toEqual(submitted);
+  });
+});
+
+describe("retrying a failed job", () => {
+  /**
+   * A job that failed once must be able to try again. `decideNextStep` schedules `failed` for
+   * another attempt, so if `advanceRelayJob` ignores that status the two requeue each other
+   * forever — and since `attempts` only rises on a real submission failure, the attempt limit
+   * never ends it either.
+   *
+   * This happened on mainnet: a burn whose mint failed on a transaction-size bug sat in `failed`,
+   * was rescheduled every minute, and was never retried once the bug was fixed.
+   */
+  it("re-attempts the mint instead of returning untouched", async () => {
+    let minted = 0;
+    const failed: RelayJobState = {
+      id: "job-1",
+      sourceDomainId: 27,
+      sourceTxHash: "aaa",
+      status: "failed",
+      attempts: 1,
+      lastError: "Transaction too large: 1264 > 1232",
+      createdAt: 1_000,
+    };
+
+    const next = await advanceRelayJob(failed, {
+      iris: {
+        getMessages: async () => [
+          { status: "complete", message: "0xaa", attestation: "0xbb", eventNonce: "1" },
+        ],
+      } as unknown as IrisClient,
+      mint: {
+        submitReceiveMessage: async () => {
+          minted++;
+          return { signature: "sig-after-retry" };
+        },
+      },
+    });
+
+    expect(minted).toBe(1);
+    expect(next.status).toBe("submitted");
+    expect(next.destTxSignature).toBe("sig-after-retry");
+  });
+
+  it("leaves a submitted job alone", async () => {
+    // Retrying a completed transfer would pay a fee to be rejected by `used_nonce`.
+    const done: RelayJobState = {
+      id: "job-2",
+      sourceDomainId: 27,
+      sourceTxHash: "bbb",
+      status: "submitted",
+      attempts: 0,
+      createdAt: 1_000,
+    };
+    let minted = 0;
+    const next = await advanceRelayJob(done, {
+      iris: { getMessages: async () => [] } as unknown as IrisClient,
+      mint: {
+        submitReceiveMessage: async () => {
+          minted++;
+          return { signature: "should-not-happen" };
+        },
+      },
+    });
+    expect(minted).toBe(0);
+    expect(next).toEqual(done);
   });
 });

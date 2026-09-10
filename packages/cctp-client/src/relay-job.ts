@@ -53,9 +53,21 @@ export function createQueuedJob(
   return { ...input, status: "queued", attempts: 0, createdAt: now };
 }
 
-/** Advances a job by exactly one step from its current state. Call repeatedly (e.g. on a
- *  polling/backoff schedule) until it reaches `submitted`/`confirmed`/`failed`. Idempotent by
- *  `sourceTxHash` at the caller's job-store layer — safe to retry after a crash. */
+/**
+ * Advances a job by exactly one step. Call repeatedly on a polling/backoff schedule until it
+ * reaches `submitted` or `confirmed`, or is abandoned by the caller's attempt limit.
+ *
+ * `failed` is retryable, and leaving it out of this switch was a livelock: `decideNextStep`
+ * schedules a `failed` job for another attempt, this function returned it untouched, and the two
+ * requeued each other forever. Because `attempts` is only incremented by a real submission
+ * failure, the counter never advanced either, so the attempt limit never ended it. A transfer
+ * that failed once could never be retried and could never be given up on.
+ *
+ * Retrying a `failed` job is safe: it re-reads the attestation and re-submits, and a mint that
+ * actually succeeded before is rejected on chain by `used_nonce` rather than paid for twice.
+ *
+ * Idempotent by `sourceTxHash` at the caller's job-store layer — safe to retry after a crash.
+ */
 export async function advanceRelayJob(
   job: RelayJobState,
   deps: { iris: IrisClient; mint: MintSubmitter },
@@ -63,6 +75,7 @@ export async function advanceRelayJob(
   switch (job.status) {
     case "queued":
     case "waiting_attestation":
+    case "failed":
       return advanceWaitingForAttestation(job, deps);
     default:
       return job;
