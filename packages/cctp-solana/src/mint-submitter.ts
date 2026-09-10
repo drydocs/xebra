@@ -1,5 +1,4 @@
 import {
-  ComputeBudgetProgram,
   Connection,
   type Keypair,
   PublicKey,
@@ -42,6 +41,9 @@ import {
  * `used_nonce` is replay protection that must live forever, and closing a token account needs
  * the *owner's* signature, which the relay will never have. Both belong in the fee floor.
  */
+/** Solana's hard packet limit. `receiveMessage` sits 8 bytes under it. */
+const MAX_TRANSACTION_BYTES = 1232;
+
 export function createSolanaMintSubmitter(
   connection: Connection,
   payer: Keypair,
@@ -87,13 +89,36 @@ export function createSolanaMintSubmitter(
         },
       );
 
-      const tx = new Transaction()
-        // receiveMessage consumed ~166k units in mainnet simulation; the 200k default leaves
-        // no margin for Circle raising its own costs.
-        .add(ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }))
-        .add(ix);
+      // No compute-budget instruction, and that is forced rather than chosen.
+      //
+      // `receiveMessage` alone serialises to 1224 bytes against Solana's 1232-byte limit — 8
+      // bytes of headroom. `setComputeUnitLimit` adds the ComputeBudget program id to the
+      // account table (32 bytes) plus a compiled instruction (8), landing at exactly 1264 and
+      // failing with `Transaction too large: 1264 > 1232`. That is not a tunable margin; there
+      // is no room for any additional instruction at all.
+      //
+      // So the mint relies on the 200,000-unit default. Measured consumption on a real mainnet
+      // mint was 185,553 units, which leaves about 7% of headroom. If Circle's program ever
+      // costs more than that, the fix is an address lookup table — it replaces each 32-byte
+      // account key with a one-byte index and would free hundreds of bytes — not a compute
+      // budget instruction, which cannot fit.
+      const tx = new Transaction().add(ix);
 
       const prepared = await withBlockhash(connection, tx, payer);
+
+      // Checked before simulating, because an oversize transaction fails with a message about
+      // bytes that says nothing about which instruction pushed it over.
+      const size = prepared.serialize({
+        requireAllSignatures: false,
+        verifySignatures: false,
+      }).length;
+      if (size > MAX_TRANSACTION_BYTES) {
+        throw new Error(
+          `Mint transaction is ${size} bytes, over Solana's ${MAX_TRANSACTION_BYTES}-byte limit. ` +
+            "Nothing was submitted. An address lookup table is the only way to add anything to " +
+            "this transaction.",
+        );
+      }
       const sim = await connection.simulateTransaction(prepared);
       if (sim.value.err) {
         throw new Error(
