@@ -26,21 +26,41 @@ decision rather than code — is [`docs/go-live.md`](./docs/go-live.md).
 
 ## How a transfer works
 
-```
-  Stellar                                   Circle                        Solana
-  ───────                                   ──────                        ──────
-  user signs one authorization
-        │
-        ▼
-  XebraCctpWrapper.bridge()
-    fee  → fee accrual
-    net  → TokenMessengerMinter.deposit_for_burn ──► attestation (Iris)
-        │                                                 │
-        │ burn hash handed to the relay                   │
-        ▼                                                 ▼
-  Convex: relay.submitBurn / relay.tick ─────────────────► receiveMessage
-                                          relay pays SOL   USDC minted to
-                                                           the named address
+```mermaid
+flowchart LR
+  subgraph stellar["Stellar"]
+    direction TB
+    user["User signs once"]
+    wrapper["XebraCctpWrapper.bridge()"]
+    fees["Fee accrual<br/>reachable only by withdraw_fees"]
+    burn["TokenMessengerMinter<br/>deposit_for_burn"]
+  end
+
+  subgraph circle["Circle"]
+    iris["Iris attestation"]
+  end
+
+  subgraph convex["Convex"]
+    relay["relay.submitBurn<br/>relay.tick"]
+  end
+
+  subgraph solana["Solana"]
+    direction TB
+    receive["receiveMessage"]
+    minted["USDC minted to<br/>the named address"]
+  end
+
+  claim["/claim, from the user's own wallet"]
+
+  user --> wrapper
+  wrapper -- "fee" --> fees
+  wrapper -- "net" --> burn
+  burn --> iris
+  burn -. "burn hash" .-> relay
+  iris --> relay
+  relay -- "pays the SOL" --> receive
+  receive --> minted
+  claim -. "if the relay never comes" .-> receive
 ```
 
 Two properties do the load-bearing work when anything goes wrong:
