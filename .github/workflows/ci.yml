@@ -61,9 +61,13 @@ jobs:
         # the configuration this workflow supplies, instead of skipping itself.
         run: pnpm check:env
 
-      - run: pnpm typecheck
+      # The contracts are workspace packages whose `build` and `test` shell out to forge and
+      # cargo, and turbo pulls `build` in ahead of a typecheck. Neither toolchain exists on this
+      # runner, and both contract suites have their own job below with the toolchain they need —
+      # so this job stays on the JavaScript side of the workspace.
+      - run: pnpm exec turbo run typecheck --filter='!./contracts/*'
 
-      - run: pnpm test
+      - run: pnpm exec turbo run test --filter='!./contracts/*'
 
   soroban:
     name: soroban contracts
