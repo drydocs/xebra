@@ -35,9 +35,14 @@ SECRET_ANYWHERE='(SECRET|PRIVATE_KEY|KEYPAIR|MNEMONIC|SEED_PHRASE|PASSWORD|PASSW
 # that would teach everyone to ignore this check.
 SECRET_SUFFIX='_TOKEN'
 
+# CI has no .env.production and is not supposed to: the file is git-ignored, and the workflow
+# supplies the same values through the environment the way a hosting platform does. Demanding
+# the file there fails a build for doing the right thing, so the reminder is for humans only.
 for f in "$ENV_FILE" "$EXAMPLE_FILE"; do
 if [ ! -f "$f" ]; then
-  [ "$f" = "$ENV_FILE" ] && fail "$ENV_FILE is missing — run: cp $EXAMPLE_FILE $ENV_FILE"
+  if [ "$f" = "$ENV_FILE" ] && [ -z "${CI:-}" ]; then
+    fail "$ENV_FILE is missing — run: cp $EXAMPLE_FILE $ENV_FILE"
+  fi
 else
   {
     grep -nEi "^[[:space:]]*[A-Z0-9_]*${SECRET_ANYWHERE}[A-Z0-9_]*[[:space:]]*=[[:space:]]*[^[:space:]]" "$f" || true
@@ -81,19 +86,28 @@ if [ -f .env.local ]; then
 fi
 
 # --- 4. Coherence, via the real validator ------------------------------------
+# Whatever supplies the configuration gets validated: the file when there is one, and otherwise
+# the process environment, which is what CI and every hosting platform actually hand the app.
 if [ -d node_modules ] && [ -f packages/network-config/dist/index.js ]; then
   node --input-type=module -e "
-    import { readFileSync } from 'node:fs';
+    import { existsSync, readFileSync } from 'node:fs';
     import { assertNetwork, describeNetworkConfig } from './packages/network-config/dist/index.js';
+    const file = '$ENV_FILE';
+    const fromFile = existsSync(file);
     const env = {};
-    for (const line of readFileSync('$ENV_FILE','utf8').split('\n')) {
-      const m = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)\$/);
-      if (m && m[2] !== '') env[m[1]] = m[2];
+    if (fromFile) {
+      for (const line of readFileSync(file, 'utf8').split('\n')) {
+        const m = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)\$/);
+        if (m && m[2] !== '') env[m[1]] = m[2];
+      }
+    } else {
+      Object.assign(env, process.env);
     }
+    const source = fromFile ? file : 'the environment';
     try {
-      console.log('  OK $ENV_FILE ->', describeNetworkConfig(assertNetwork('mainnet', env)));
+      console.log('  OK ' + source + ' ->', describeNetworkConfig(assertNetwork('mainnet', env)));
     } catch (e) {
-      console.error('FAIL $ENV_FILE:', e.message);
+      console.error('FAIL ' + source + ':', e.message);
       process.exit(1);
     }
   " || FAILED=1

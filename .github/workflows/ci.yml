@@ -49,15 +49,17 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      - name: Guard the env files
-        # Blocks secret-shaped keys from anything tracked, and catches a dynamic `process.env[...]`
-        # in client-bundled code — which is invisible in Node and undefined in the browser.
-        run: pnpm check:env
-
       - run: pnpm lint
 
       # Typecheck depends on the workspace packages' .d.ts, so they have to be built first.
       - run: pnpm build --filter='./packages/*'
+
+      - name: Guard the env files
+        # Blocks secret-shaped keys from anything tracked, and catches a dynamic `process.env[...]`
+        # in client-bundled code — which is invisible in Node and undefined in the browser.
+        # Runs after the packages are built so the coherence check can use the real validator on
+        # the configuration this workflow supplies, instead of skipping itself.
+        run: pnpm check:env
 
       - run: pnpm typecheck
 
@@ -90,6 +92,16 @@ jobs:
       - uses: actions/checkout@v4
 
       - uses: foundry-rs/foundry-toolchain@v1
+
+      # `contracts/*/lib/` is git-ignored and these are not submodules, so a checkout arrives
+      # with no dependencies. Versions are pinned to what the contracts are developed against:
+      # OpenZeppelin 5.7.0 and forge-std 1.16.2.
+      - name: Install Foundry dependencies
+        working-directory: contracts/arc-evm
+        run: |
+          forge install --no-git --shallow \
+            OpenZeppelin/openzeppelin-contracts@v5.7.0 \
+            foundry-rs/forge-std@v1.16.2
 
       - run: forge test
         working-directory: contracts/arc-evm
