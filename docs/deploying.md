@@ -72,7 +72,14 @@ the wrapper contract is deployed, and the burn watcher stays off until both are 
 
 ### 2. Vercel
 
-Import the repo. `vercel.json` handles the build.
+Import the repo and set **Root Directory to `apps/web`**, with "include files outside the root
+directory" enabled so the workspace packages resolve.
+
+`vercel.json` deliberately sets no `outputDirectory`. Every path in it resolves *relative to the
+root directory*, so naming `apps/web/.next` there produces `apps/web/apps/web/.next` and the
+deploy fails after a completely successful build — the build log shows every route compiled and
+then an error about a missing output directory. Vercel's Next.js preset already knows the default
+is `.next` under the root.
 
 Public variables, inlined into the browser bundle at build time — so they must be set **before**
 the first build, not after. Copy them from `.env.production`:
