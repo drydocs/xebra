@@ -1,3 +1,4 @@
+import type { RelayJobState, RelayJobStatus } from "@xebra/cctp-client";
 import { v } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
 import { internalMutation, internalQuery } from "./_generated/server";
@@ -26,25 +27,30 @@ const jobFields = {
   createdAt: v.number(),
 };
 
-/** Drops the Convex row identity and any absent optional field.
+/**
+ * Drops the Convex row identity and any absent optional field.
  *
- *  Absent rather than `undefined` matters: `RelayJobState` is consumed under
- *  `exactOptionalPropertyTypes`, where an explicit `undefined` is a different thing from a
- *  missing key. */
-function toState(doc: Doc<"relayJobs">) {
-  const state: Record<string, unknown> = {
+ * Returns `RelayJobState` rather than a loose record on purpose: this type is what flows out
+ * through `ctx.runMutation` into `@xebra/relay-core`, so typing it here is what lets the callers
+ * be checked instead of cast. An untyped record forced `as RelayJobState` at every call site,
+ * which is exactly the assertion that stops the compiler noticing a schema drift.
+ *
+ * Absent rather than `undefined` matters: a conditional spread omits the key entirely, which is
+ * what `exactOptionalPropertyTypes` requires of consumers that distinguish the two.
+ */
+function toState(doc: Doc<"relayJobs">): RelayJobState {
+  return {
     id: doc.jobId,
     sourceDomainId: doc.sourceDomainId,
     sourceTxHash: doc.sourceTxHash,
-    status: doc.status,
+    status: doc.status as RelayJobStatus,
     attempts: doc.attempts,
     createdAt: doc.createdAt,
+    ...(doc.message ? { message: doc.message as `0x${string}` } : {}),
+    ...(doc.attestation ? { attestation: doc.attestation as `0x${string}` } : {}),
+    ...(doc.destTxSignature ? { destTxSignature: doc.destTxSignature } : {}),
+    ...(doc.lastError ? { lastError: doc.lastError } : {}),
   };
-  if (doc.message) state.message = doc.message;
-  if (doc.attestation) state.attestation = doc.attestation;
-  if (doc.destTxSignature) state.destTxSignature = doc.destTxSignature;
-  if (doc.lastError) state.lastError = doc.lastError;
-  return state;
 }
 
 export const get = internalQuery({

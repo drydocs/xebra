@@ -98,10 +98,7 @@ function deps(ctx: ActionCtx) {
     save: async (job: RelayJobState) => {
       await ctx.runMutation(internal.jobs.save, toArgs(job));
     },
-    get: async (id: string) => {
-      const job = await ctx.runQuery(internal.jobs.get, { jobId: id });
-      return (job ?? undefined) as RelayJobState | undefined;
-    },
+    get: async (id: string) => (await ctx.runQuery(internal.jobs.get, { jobId: id })) ?? undefined,
   };
 
   const readBurnEvents =
@@ -111,11 +108,7 @@ function deps(ctx: ActionCtx) {
 
   const watcher: BurnWatcherDeps = {
     readBurnEvents: readBurnEvents ?? (async () => ({ events: [], nextCursor: undefined })),
-    upsertBySourceTx: async (job) =>
-      (await ctx.runMutation(internal.jobs.upsertBySourceTx, toArgs(job))) as {
-        job: RelayJobState;
-        created: boolean;
-      },
+    upsertBySourceTx: (job) => ctx.runMutation(internal.jobs.upsertBySourceTx, toArgs(job)),
     // The row is the queue — a freshly inserted job is already due — so there is nothing to
     // enqueue beyond the insert that just happened. Which is also why the insert must come first.
     enqueue: async () => undefined,
@@ -141,8 +134,7 @@ function deps(ctx: ActionCtx) {
     store,
     pollIntervalMs: 5_000,
     maxAttempts: 10,
-    claimDueJobs: async (limit, leaseMs) =>
-      (await ctx.runMutation(internal.jobs.claimDue, { limit, leaseMs })) as RelayJobState[],
+    claimDueJobs: (limit, leaseMs) => ctx.runMutation(internal.jobs.claimDue, { limit, leaseMs }),
     reschedule: async (job, decision) => {
       await ctx.runMutation(internal.jobs.reschedule, {
         jobId: job.id,
