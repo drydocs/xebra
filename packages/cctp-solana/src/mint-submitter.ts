@@ -114,9 +114,7 @@ export function createSolanaMintSubmitter(
       }).length;
       if (size > MAX_TRANSACTION_BYTES) {
         throw new Error(
-          `Mint transaction is ${size} bytes, over Solana's ${MAX_TRANSACTION_BYTES}-byte limit. ` +
-            "Nothing was submitted. An address lookup table is the only way to add anything to " +
-            "this transaction.",
+          `Mint transaction is ${size} bytes, over Solana's ${MAX_TRANSACTION_BYTES}-byte limit. Nothing was submitted. An address lookup table is the only way to add anything to this transaction.`,
         );
       }
       const sim = await connection.simulateTransaction(prepared);
