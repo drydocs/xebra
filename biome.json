@@ -1,9 +1,21 @@
 {
   "$schema": "https://biomejs.dev/schemas/1.9.4/schema.json",
-  "vcs": { "enabled": true, "clientKind": "git", "useIgnoreFile": true },
+  "vcs": {
+    "enabled": true,
+    "clientKind": "git",
+    "useIgnoreFile": true
+  },
   "files": {
     "ignoreUnknown": true,
-    "ignore": ["dist/**", ".next/**", "target/**", "coverage/**", "**/*.sol"]
+    "ignore": [
+      "dist/**",
+      ".next/**",
+      "target/**",
+      "coverage/**",
+      "**/*.sol",
+      "**/convex/_generated/**",
+      "**/.convex/**"
+    ]
   },
   "formatter": {
     "enabled": true,
@@ -15,11 +27,19 @@
     "enabled": true,
     "rules": {
       "recommended": true,
-      "correctness": { "noUnusedVariables": "error" },
-      "suspicious": { "noExplicitAny": "warn" }
+      "correctness": {
+        "noUnusedVariables": "error"
+      },
+      "suspicious": {
+        "noExplicitAny": "warn"
+      }
     }
   },
   "javascript": {
-    "formatter": { "quoteStyle": "double", "semicolons": "always", "trailingCommas": "all" }
+    "formatter": {
+      "quoteStyle": "double",
+      "semicolons": "always",
+      "trailingCommas": "all"
+    }
   }
 }
