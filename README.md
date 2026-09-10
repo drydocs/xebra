@@ -1,5 +1,9 @@
 # Xebra
 
+<img src="film/xebra-film.webp" alt="The Xebra film: a user signs once on Stellar, Circle attests the burn, the relay pays the SOL, and USDC lands on Solana." width="100%">
+
+<sub>The 67-second film, looping. [Full quality, 1080p](film/xebra-film.mp4).</sub>
+
 USDC from Stellar to Solana, over Circle's CCTP. One corridor, one asset, **mainnet only**.
 
 A user connects a Stellar wallet, enters an amount and a Solana address, and signs once. A
