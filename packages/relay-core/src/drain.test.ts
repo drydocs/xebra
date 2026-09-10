@@ -142,8 +142,25 @@ describe("drainDueJobs", () => {
   });
 
   it("counts each outcome separately", async () => {
+    // A job only dead-letters by failing again past the attempt limit — `failed` on its own is
+    // retryable, so the mint has to actually reject this one.
     const h = deps({
       claimDueJobs: batching([[job("done"), job("dead", { status: "failed", attempts: 99 })]]),
+      iris: {
+        getMessages: async (_domain: number, txHash: string) => [
+          {
+            status: "complete" as const,
+            message: `0x${txHash}` as `0x${string}`,
+            attestation: "0xbb" as `0x${string}`,
+          },
+        ],
+      } as unknown as DrainDeps["iris"],
+      mint: {
+        submitReceiveMessage: async (message: string) => {
+          if (message.includes("dead")) throw new Error("mint rejected");
+          return { signature: "sig" };
+        },
+      },
     });
     const result = await drainDueJobs(h.deps);
     expect(result).toMatchObject({ processed: 2, completed: 1, deadLettered: 1, requeued: 0 });
