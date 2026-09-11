@@ -34,3 +34,26 @@ export async function handOffToRelay(txHash: string): Promise<RelayHandoff> {
     };
   }
 }
+
+export type RelayDelivery =
+  | { status: "pending" }
+  | { status: "minted"; signature: string | null }
+  /** Could not ask. Deliberately not "pending" — an unanswerable question is not progress. */
+  | { status: "unknown" };
+
+/**
+ * Whether a burn has been minted yet. Polled by the receipt.
+ *
+ * Never throws, for the same reason `handOffToRelay` does not: the burn is already on chain and a
+ * failed status check says nothing about the money.
+ */
+export async function getRelayDelivery(txHash: string): Promise<RelayDelivery> {
+  try {
+    const res = await fetch(`/api/relay/status?tx=${encodeURIComponent(txHash)}`);
+    if (!res.ok) return { status: "unknown" };
+    const body = (await res.json()) as RelayDelivery;
+    return body.status === "minted" || body.status === "pending" ? body : { status: "unknown" };
+  } catch {
+    return { status: "unknown" };
+  }
+}

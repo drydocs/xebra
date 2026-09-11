@@ -1,7 +1,7 @@
 import type { RelayJobState, RelayJobStatus } from "@xebra/cctp-client";
 import { v } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
-import { internalMutation, internalQuery } from "./_generated/server";
+import { internalMutation, internalQuery, query } from "./_generated/server";
 
 /**
  * Every read and write of relay job state.
@@ -205,5 +205,37 @@ export const countSponsoredSince = internalQuery({
       .withIndex("by_created", (q) => q.gte("createdAt", since))
       .collect();
     return rows.length;
+  },
+});
+
+/**
+ * The delivery status of one burn, for the receipt to poll.
+ *
+ * Public, unlike everything else here, and safe to be: it takes a burn hash the caller must
+ * already have, and returns only what that burn did. It creates nothing and spends nothing.
+ *
+ * It exists so the receipt can stop guessing. Without it the UI could say a transfer was
+ * "waiting" but never learn that it had landed, which is a spinner that never ends — a worse
+ * lie than the wrong error message it replaced.
+ */
+export const statusByBurn = query({
+  args: { sourceDomainId: v.number(), sourceTxHash: v.string() },
+  handler: async (ctx, { sourceDomainId, sourceTxHash }) => {
+    const doc = await ctx.db
+      .query("relayJobs")
+      .withIndex("by_source", (q) =>
+        q.eq("sourceDomainId", sourceDomainId).eq("sourceTxHash", sourceTxHash),
+      )
+      .unique();
+
+    // Absent means the watcher has not reached this burn yet, which on a fresh burn is the
+    // normal state for up to a minute — not a failure, and deliberately not reported as one.
+    if (!doc) return null;
+
+    return {
+      status: doc.status,
+      destTxSignature: doc.destTxSignature ?? null,
+      attempts: doc.attempts,
+    };
   },
 });

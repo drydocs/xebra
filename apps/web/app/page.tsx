@@ -33,7 +33,12 @@ import {
 } from "../lib/cctp-bridge";
 import { env, isCctpRailConfigured } from "../lib/env";
 import { formatError, reportError } from "../lib/format-error";
-import { type RelayHandoff, handOffToRelay } from "../lib/relay";
+import {
+  type RelayDelivery,
+  type RelayHandoff,
+  getRelayDelivery,
+  handOffToRelay,
+} from "../lib/relay";
 import {
   type RecipientResolution,
   checkSolanaAddress,
@@ -97,6 +102,7 @@ export default function HomePage() {
   // `null` while the handoff is still in flight, so the receipt can say "handing off" rather
   // than implying either outcome before one is known.
   const [handoff, setHandoff] = useState<RelayHandoff | null>(null);
+  const [delivery, setDelivery] = useState<RelayDelivery | null>(null);
   const [recipient, setRecipient] = useState<RecipientResolution | null>(null);
   /** Null while unknown — an unread balance must not read as "you have nothing". */
   const [balance, setBalance] = useState<bigint | null>(null);
@@ -192,6 +198,34 @@ export default function HomePage() {
     // taken before the answer was known and then charged a different amount — which the contract
     // rejects via `max_wrapper_fee`, so it would surface as an unexplained failure at signing.
   }, [config, address, amount, recipientNeedsAccount]);
+
+  // Poll until the mint lands.
+  //
+  // Without this the receipt could only ever say "waiting", with nothing to end it — a spinner
+  // that never resolves, which is a worse thing to show someone than a wrong error. The relay
+  // takes up to a minute on the watcher path, so this asks every five seconds and stops as soon
+  // as there is an answer.
+  useEffect(() => {
+    if (!txHash) {
+      setDelivery(null);
+      return;
+    }
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout>;
+
+    const poll = async () => {
+      const result = await getRelayDelivery(txHash);
+      if (cancelled) return;
+      setDelivery(result);
+      if (result.status !== "minted") timer = setTimeout(poll, 5_000);
+    };
+    void poll();
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [txHash]);
 
   // Read the wallet's USDC once it is connected.
   //
@@ -487,7 +521,7 @@ export default function HomePage() {
               )}
 
               {txHash ? (
-                <SubmittedNotice txHash={txHash} handoff={handoff} />
+                <SubmittedNotice txHash={txHash} handoff={handoff} delivery={delivery} />
               ) : (
                 <Button
                   size="lg"
@@ -617,9 +651,11 @@ function QuotePanel({
 function SubmittedNotice({
   txHash,
   handoff,
+  delivery,
 }: {
   txHash: string;
   handoff: RelayHandoff | null;
+  delivery: RelayDelivery | null;
 }) {
   return (
     <div className="mt-6">
@@ -635,7 +671,7 @@ function SubmittedNotice({
           </span>
           <CopyButton value={txHash} label="transaction hash" />
         </div>
-        <HandoffStatus handoff={handoff} txHash={txHash} />
+        <HandoffStatus handoff={handoff} delivery={delivery} txHash={txHash} />
       </InsetTray>
     </div>
   );
@@ -655,38 +691,52 @@ function SubmittedNotice({
  */
 function HandoffStatus({
   handoff,
+  delivery,
   txHash,
 }: {
   handoff: RelayHandoff | null;
+  delivery: RelayDelivery | null;
   txHash: string;
 }) {
-  if (!handoff) {
-    return (
-      <p className="mt-2.5 flex items-center gap-2 border-t border-bone/[0.06] pt-2.5 text-[0.75rem] text-bone/40">
-        <span className="h-1 w-1 shrink-0 rounded-full bg-bone/50 animate-breathe" />
-        Handing off to the relay…
-      </p>
-    );
-  }
+  const line = "mt-2.5 flex items-center gap-2 border-t border-bone/[0.06] pt-2.5 text-[0.75rem]";
 
-  if (handoff.status === "queued") {
+  // Delivery outranks the handoff, because it is the question the user actually has. The handoff
+  // only describes whether one request succeeded; this describes whether the money arrived.
+  if (delivery?.status === "minted") {
     return (
-      <p className="mt-2.5 flex items-center gap-2 border-t border-bone/[0.06] pt-2.5 text-[0.75rem] text-bone/45">
+      <div className={`${line} text-bone/45`}>
         <span className="h-1 w-1 shrink-0 rounded-full bg-signal" />
-        The relay is paying for the mint. Nothing left to do.
-      </p>
+        <span>
+          Minted on Solana.{" "}
+          {delivery.signature ? (
+            <a
+              href={`https://solscan.io/tx/${delivery.signature}`}
+              target="_blank"
+              rel="noreferrer"
+              className="text-bone/70 underline decoration-bone/25 underline-offset-[3px] transition-colors duration-200 ease-haptic hover:text-bone hover:decoration-bone/50"
+            >
+              View it
+            </a>
+          ) : null}
+        </span>
+      </div>
     );
   }
 
-  // Handed off a second after signing, before the burn is searchable. The on-chain watcher scans
-  // for it every minute and mints without any further help — so this is a slower success, not a
-  // failure, and it must not read like one. Saying "no relay picked this up" here sent a user to
-  // pay their own gas for a mint that was already on its way.
-  if (handoff.status === "watching") {
+  // Everything that is not a settled failure is one pending state, deliberately.
+  //
+  // The handoff has several internal outcomes — request in flight, accepted, or refused because
+  // the burn is too fresh for Horizon to have indexed — and none of them are distinctions a user
+  // has any use for. An earlier version surfaced the last one as "No relay picked this up", which
+  // was true for about sixty seconds and sent someone to pay their own gas for a mint already on
+  // its way. From here there is one honest answer until the mint lands: it is coming.
+  const settledFailure = handoff?.status === "unavailable" && delivery?.status !== "pending";
+
+  if (!settledFailure) {
     return (
-      <p className="mt-2.5 flex items-center gap-2 border-t border-bone/[0.06] pt-2.5 text-[0.75rem] text-bone/45">
+      <p className={`${line} text-bone/45`}>
         <span className="h-1 w-1 shrink-0 rounded-full bg-signal animate-breathe" />
-        Too fresh to look up yet — the relay picks this up from the chain within a minute.
+        Waiting for the relay to mint — usually under a minute.
       </p>
     );
   }
