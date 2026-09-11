@@ -678,6 +678,19 @@ function HandoffStatus({
     );
   }
 
+  // Handed off a second after signing, before the burn is searchable. The on-chain watcher scans
+  // for it every minute and mints without any further help — so this is a slower success, not a
+  // failure, and it must not read like one. Saying "no relay picked this up" here sent a user to
+  // pay their own gas for a mint that was already on its way.
+  if (handoff.status === "watching") {
+    return (
+      <p className="mt-2.5 flex items-center gap-2 border-t border-bone/[0.06] pt-2.5 text-[0.75rem] text-bone/45">
+        <span className="h-1 w-1 shrink-0 rounded-full bg-signal animate-breathe" />
+        Too fresh to look up yet — the relay picks this up from the chain within a minute.
+      </p>
+    );
+  }
+
   return (
     <div className="mt-2.5 border-t border-bone/[0.06] pt-2.5 text-[0.75rem] leading-relaxed text-bone/45">
       <p className="flex items-center gap-2">

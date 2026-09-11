@@ -34,11 +34,27 @@ describe("checkBurnAdmission", () => {
     expect((await checkBurnAdmission(at, HASH)).admit).toBe(true);
   });
 
-  it("refuses a transaction Horizon does not know", async () => {
-    // Sponsoring it means polling Iris for a message that will never arrive.
+  it("marks a burn Horizon has not indexed yet as retryable, not refused", async () => {
+    // The frontend calls immediately after signing, so this lookup races Horizon's indexer and
+    // loses on the happy path. Reporting it as a plain refusal told a user their transfer had
+    // not been picked up while the watcher was a minute from minting it.
     const result = await checkBurnAdmission(deps({ burnClosedAt: async () => undefined }), HASH);
     expect(result.admit).toBe(false);
-    expect(result.reason).toContain("not propagated");
+    expect(result.retryable).toBe(true);
+  });
+
+  it("does not mark a refusal on the merits as retryable", async () => {
+    // An old burn and a spent cap will not change by waiting; saying "try again" would be a lie.
+    const old = await checkBurnAdmission(
+      deps({ burnClosedAt: async () => NOW - 3 * 60 * 60 * 1000 }),
+      HASH,
+    );
+    expect(old.retryable).toBeFalsy();
+    const capped = await checkBurnAdmission(
+      deps({ countSponsoredSince: async () => DEFAULT_ADMISSION_POLICY.maxMintsPerWindow }),
+      HASH,
+    );
+    expect(capped.retryable).toBeFalsy();
   });
 
   it("stops sponsoring once the spend cap is reached", async () => {

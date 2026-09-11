@@ -34,8 +34,17 @@
  */
 
 export type AdmissionVerdict =
-  | { admit: true; reason?: undefined }
-  | { admit: false; reason: string };
+  | { admit: true; reason?: undefined; retryable?: undefined }
+  | {
+      admit: false;
+      reason: string;
+      /**
+       * True when the answer could change on its own — the burn exists, we just cannot see it
+       * yet. Distinct from a refusal on the merits, because the two deserve opposite responses:
+       * one is "wait", the other is "this will never be sponsored".
+       */
+      retryable?: boolean;
+    };
 
 export interface AdmissionPolicy {
   /** Refuse a burn older than this. */
@@ -55,10 +64,11 @@ export interface AdmissionDeps {
   /**
    * When the burn transaction closed, or `undefined` if it cannot be found.
    *
-   * Not-found is refused rather than admitted: a hash that Horizon does not know is either not a
-   * transaction or not yet visible, and sponsoring it means polling Iris for a message that will
-   * never arrive. A caller whose burn has not propagated yet can retry — the endpoint is
-   * idempotent.
+   * Not-found is reported as *retryable*, not as a flat refusal. A burn submitted a second ago
+   * has not reached Horizon's index yet, and the frontend calls this immediately after signing —
+   * so on the happy path this lookup loses a race it should not be allowed to lose. Treating
+   * that as a refusal told a user their transfer had not been picked up while the watcher was
+   * about to mint it.
    */
   burnClosedAt(txHash: string): Promise<number | undefined>;
   /** How many mints have been sponsored since `since`. */
@@ -85,7 +95,11 @@ export async function checkBurnAdmission(
 
   const closedAt = await deps.burnClosedAt(txHash);
   if (closedAt === undefined) {
-    return { admit: false, reason: "no such Stellar transaction, or it has not propagated yet" };
+    return {
+      admit: false,
+      retryable: true,
+      reason: "this burn has not reached Horizon's index yet",
+    };
   }
 
   // A future timestamp means clock skew between us and Horizon, not a problem with the burn.

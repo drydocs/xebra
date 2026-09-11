@@ -10,6 +10,8 @@
 
 export type RelayHandoff =
   | { status: "queued"; jobId: string | null }
+  /** The burn is not searchable yet, but the on-chain watcher will find it. Not a failure. */
+  | { status: "watching" }
   | { status: "unavailable"; reason: string };
 
 export async function handOffToRelay(txHash: string): Promise<RelayHandoff> {
@@ -23,6 +25,7 @@ export async function handOffToRelay(txHash: string): Promise<RelayHandoff> {
     if (res.ok && body.status === "queued") {
       return { status: "queued", jobId: (body as { jobId: string | null }).jobId ?? null };
     }
+    if (res.ok && body.status === "watching") return { status: "watching" };
     return { status: "unavailable", reason: body.reason ?? `relay returned ${res.status}` };
   } catch (err) {
     return {

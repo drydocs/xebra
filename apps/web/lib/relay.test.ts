@@ -43,3 +43,13 @@ describe("handOffToRelay", () => {
     expect(result.status).toBe("unavailable");
   });
 });
+
+describe("a burn that is too fresh to look up", () => {
+  it("is reported as watched, not as a failure", async () => {
+    // The browser hands off within a second of signing, before Horizon has indexed the burn. The
+    // on-chain watcher mints it a minute later regardless, so this is a slower success. Calling
+    // it a failure sent a user to pay their own gas for a mint already on its way.
+    mockFetch(() => Response.json({ status: "watching", reason: "not indexed yet" }));
+    expect(await handOffToRelay(HASH)).toEqual({ status: "watching" });
+  });
+});
