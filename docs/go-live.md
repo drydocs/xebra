@@ -3,12 +3,14 @@
 What has to happen before anyone who is not us can connect a wallet and bridge USDC, split by
 who can do it. Ordered so that nothing later depends on something earlier being skipped.
 
-The corridor itself works. One real mainnet transfer has completed end to end: burn
+The corridor itself works. The first real mainnet transfer completed end to end: burn
 `92421fa248da1b1d4418784d5bd91adc4238dae72120e8f740920db7381905a7` on Stellar, mint
 `58dVHAebBDVHWpjRYeGn52YJB8MFsLkgJHefcNgMBgkpYN7LxzdpGNE1tnGcPzGmwFLbDTqg7C7kHzCh4Ja6HZs5` on
 Solana, 1.000001 USDC delivered. That transfer's mint was submitted by hand from
-`scripts/cctp-mint-solana.mjs`. The relay now does it unattended, but it has never run against
-a live database, and nothing in this repo has ever been deployed anywhere.
+`scripts/cctp-mint-solana.mjs`. Since then the relay has run unattended against a live Convex
+deployment (`knowing-zebra-183`) and completed a transfer — burn to mint — with nobody watching.
+The frontend is deployed at [xebra-sandy.vercel.app](https://xebra-sandy.vercel.app/). See
+[`writeups/`](../writeups/) for the full incident-by-incident account.
 
 ---
 
@@ -113,14 +115,14 @@ not prevent a griefer inside the bounds from having their own transfers sponsore
 The wrapper removes the vector, because then the watcher only ever sees burns we were paid a fee
 on. It is on this list for revenue; this is the second reason.
 
-## 4. What is left on my side
-
-**One item, and it needs your Convex login:** the relay has never run against a live deployment.
-Every part of it is unit-tested and none of it has talked to a real database. That is the only
-thing standing between the code and a working deployment.
+## 4. What was left on my side
 
 Done since this document was first written, so you do not have to ask for them:
 
+- The relay running unattended against a live Convex deployment — the thing this section used to
+  list as the one open item. It has now picked up a burn, waited on Circle's attestation, and
+  submitted the mint with nobody watching.
+- The frontend deployed to Vercel, at [xebra-sandy.vercel.app](https://xebra-sandy.vercel.app/).
 - The self-serve claim page (`/claim`), so a user can complete their own transfer when nobody
   sponsors the mint. This is what makes the no-hang promise usable rather than merely true.
 - Hot-wallet alerting: a Convex cron that fails loudly, and `GET /api/health` returning 503 for any
@@ -128,21 +130,26 @@ Done since this document was first written, so you do not have to ask for them:
 - CI, running lint, typecheck, `vitest`, `cargo test` and `forge test` on every push. `pnpm lint`
   had never passed before this; it does now.
 
+What is still genuinely open is §7 and §8 below: the bug bounty has not been published, and
+`MAX_TRANSFER` has not been raised past its cautious starting value.
+
 Not on the deployment path: seeding `chains`, `assets` and `corridors`. They have readers and no
 writer, so `apps/api` throws on every quote against an empty table — but the bridge UI quotes from
 a Soroban simulation and the relay does not touch them, so nothing deployed here needs it.
 
-## 5. Sequence, once the above exists
+## 5. Sequence
 
-1. `scripts/check-cctp-interface.sh` — Circle can redeploy their contracts.
-2. Deploy the wrapper with parameters from §1. Record `deployments/mainnet.json`.
-3. Fill `STELLAR_CCTP_WRAPPER_CONTRACT_ID` and `NEXT_PUBLIC_STELLAR_CCTP_WRAPPER_CONTRACT_ID`
-   in `.env.production`, plus `SOROBAN_START_LEDGER` at the deploy ledger.
-4. `npx convex deploy`, then deploy the frontend. `NEXT_PUBLIC_*` are inlined at build time, so
-   they must be set in Vercel before the build, not after.
-5. Transfer your own money through the deployed stack. Then do it with the relay stopped, and
+Steps 1–5 are done. 6–8 are what is still open.
+
+1. ~~`scripts/check-cctp-interface.sh` — Circle can redeploy their contracts.~~
+2. ~~Deploy the wrapper with parameters from §1. Record `deployments/mainnet.json`.~~
+3. ~~Fill `STELLAR_CCTP_WRAPPER_CONTRACT_ID` and `NEXT_PUBLIC_STELLAR_CCTP_WRAPPER_CONTRACT_ID`
+   in `.env.production`, plus `SOROBAN_START_LEDGER` at the deploy ledger.~~
+4. ~~`npx convex deploy`, then deploy the frontend. `NEXT_PUBLIC_*` are inlined at build time, so
+   they must be set in Vercel before the build, not after.~~
+5. ~~Transfer your own money through the deployed stack. Then do it with the relay stopped, and
    complete the mint by hand, and write down that you did — the same standard
-   `scripts/e2e-demo/` set for the escrow.
+   `scripts/e2e-demo/` set for the escrow.~~
 6. Raise `MAX_TRANSFER` in steps, through the timelock, as clean transfers accumulate.
 7. Publish the bug bounty. Its duration is the only audit this contract gets, so treat it as a
    real gate.

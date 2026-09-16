@@ -20,9 +20,9 @@ same transaction, or the whole transaction reverts and the user keeps every stro
 | | |
 |---|---|
 | Wrapper contract | **Live on Stellar mainnet** — `CCNWLGFMILJU476RZHDA2PSUH2WH3LIPERHS6BYPCRVDDYYNNUIKZMTJ` ([`deployments/mainnet.json`](./deployments/mainnet.json)) |
-| Corridor | **One real transfer has completed end to end** — 1.000001 USDC, Stellar burn → Solana mint |
-| Relay | Every part unit-tested; **has never run against a live Convex deployment**. That first transfer's mint was submitted by hand from `scripts/cctp-mint-solana.mjs` |
-| Frontend | Builds and runs locally; not deployed |
+| Corridor | **Real transfers have completed end to end**, including fully unattended ones. One burn is unrecoverable forever — see [`writeups/01-the-lost-dollar.md`](./writeups/01-the-lost-dollar.md) |
+| Relay | Running against a live Convex deployment (`knowing-zebra-183`). Most recent transfer was picked up, attested and minted with nobody watching — see [`writeups/04-thirty-two-bytes.md`](./writeups/04-thirty-two-bytes.md) |
+| Frontend | **Live** — [xebra-sandy.vercel.app](https://xebra-sandy.vercel.app/) |
 | CI | lint, typecheck, `vitest`, `cargo test` and `forge test` on every push |
 
 What is left before someone who is not us can bridge — and which parts need an account, a key or a
@@ -189,6 +189,13 @@ when the balance is critical, and `GET /api/health` returning 503 for any uptime
 | [`docs/go-live.md`](./docs/go-live.md) | What has to happen before launch, split by who can do it |
 | [`docs/deploying.md`](./docs/deploying.md) | Vercel + Convex mechanics, costs, alerting, the relay's exposure |
 | [`docs/environments.md`](./docs/environments.md) | Mainnet-only config, what is enforced, secrets handling |
+| [`docs/GOVERNANCE.md`](./docs/GOVERNANCE.md) | Admin/pauser roles, the 48h timelock, why pausing skips it |
+| [`SECURITY.md`](./SECURITY.md) | Scope, what's worth reporting, how to report it privately |
+| [`CONTRIBUTING.md`](./CONTRIBUTING.md) | Setup, checks to run before a PR, what's on the deployment path |
 | [`contracts/stellar-cctp-wrapper/README.md`](./contracts/stellar-cctp-wrapper/README.md) | Fee model, decimals, the no-custody invariant, residual risks |
 | [`docs/architecture.md`](./docs/architecture.md) | The original two-rail v2 design. Written before the build; the Postgres/Kafka/ECS stack it describes is the self-host path, not what deploys |
 | [`xebra-spec_051150 (1).md`](<./xebra-spec_051150 (1).md>) | Corridor 1 (Arc → Stellar), spec frozen |
+
+## License
+
+[Apache 2.0](./LICENSE).
