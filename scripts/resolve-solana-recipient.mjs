@@ -26,11 +26,20 @@ try {
   if (!PublicKey.isOnCurve(owner.toBytes())) {
     throw new Error("that is not a wallet address (it is off the ed25519 curve)");
   }
-  const [ata] = PublicKey.findProgramAddressSync([owner.toBuffer(), TOKEN.toBuffer(), USDC.toBuffer()], ATA);
-  const conn = new Connection(process.env.SOLANA_RPC_URL ?? "https://api.mainnet-beta.solana.com", "confirmed");
+  const [ata] = PublicKey.findProgramAddressSync(
+    [owner.toBuffer(), TOKEN.toBuffer(), USDC.toBuffer()],
+    ATA,
+  );
+  const conn = new Connection(
+    process.env.SOLANA_RPC_URL ?? "https://api.mainnet-beta.solana.com",
+    "confirmed",
+  );
   const info = await conn.getParsedAccountInfo(ata);
   const parsed = info.value?.data?.parsed?.info;
-  if (info.value && (!parsed || parsed.owner !== owner.toBase58() || parsed.mint !== USDC.toBase58())) {
+  if (
+    info.value &&
+    (!parsed || parsed.owner !== owner.toBase58() || parsed.mint !== USDC.toBase58())
+  ) {
     throw new Error("the derived token account exists but is not this wallet's USDC account");
   }
   const hex = (k) => Buffer.from(k.toBytes()).toString("hex");

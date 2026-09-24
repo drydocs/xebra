@@ -62,7 +62,8 @@ const die = (m) => {
   console.error(`FAIL: ${m}`);
   process.exit(1);
 };
-const load = (p) => Keypair.fromSecretKey(Uint8Array.from(JSON.parse(readFileSync(resolve(ROOT, p), "utf8"))));
+const load = (p) =>
+  Keypair.fromSecretKey(Uint8Array.from(JSON.parse(readFileSync(resolve(ROOT, p), "utf8"))));
 
 const relayer = load(".secrets/solana-relayer.json");
 const test = load(".secrets/mainnet-test-wallets/solana-fresh-1.json");
@@ -73,7 +74,10 @@ const wallets = [
 const short = (k) => `${k.toBase58().slice(0, 6)}…${k.toBase58().slice(-4)}`;
 
 const ata = (owner, mint, program) =>
-  PublicKey.findProgramAddressSync([owner.toBuffer(), program.toBuffer(), mint.toBuffer()], ATA_PROGRAM)[0];
+  PublicKey.findProgramAddressSync(
+    [owner.toBuffer(), program.toBuffer(), mint.toBuffer()],
+    ATA_PROGRAM,
+  )[0];
 
 function u64(n) {
   const b = Buffer.alloc(8);
@@ -106,7 +110,9 @@ const closeAccount = (acct, dest, owner, program) =>
 
 const holdings = []; // { wallet, account, mint, amount, decimals, program }
 for (const w of wallets) {
-  const res = await conn.getParsedTokenAccountsByOwner(w.kp.publicKey, { programId: TOKEN_PROGRAM });
+  const res = await conn.getParsedTokenAccountsByOwner(w.kp.publicKey, {
+    programId: TOKEN_PROGRAM,
+  });
   for (const { pubkey, account } of res.value) {
     const info = account.data.parsed.info;
     holdings.push({
@@ -126,7 +132,8 @@ for (const w of wallets) {
     dataSlice: { offset: 0, length: 0 },
     filters: [{ memcmp: { offset: 32, bytes: w.kp.publicKey.toBase58() } }],
   });
-  if (t22.length) die(`${w.name} owns ${t22.length} Token-2022 account(s); this script does not handle them`);
+  if (t22.length)
+    die(`${w.name} owns ${t22.length} Token-2022 account(s); this script does not handle them`);
 }
 
 console.log(`destination  ${DESTINATION.toBase58()}`);
@@ -137,7 +144,9 @@ for (const w of wallets) {
   console.log(`${w.name}  ${w.kp.publicKey.toBase58()}  ${Number(lamports[w.name]) / 1e9} SOL`);
 }
 for (const h of holdings) {
-  console.log(`  token account ${short(h.account)} (${h.wallet.name}): ${h.ui} of mint ${short(h.mint)}`);
+  console.log(
+    `  token account ${short(h.account)} (${h.wallet.name}): ${h.ui} of mint ${short(h.mint)}`,
+  );
 }
 console.log();
 
@@ -152,11 +161,20 @@ for (const h of holdings) {
     const parsed = info.value?.data?.parsed?.info;
     if (!parsed || parsed.owner !== DESTINATION.toBase58() || parsed.mint !== h.mint.toBase58()) {
       die(
-        `the destination has no token account for mint ${h.mint.toBase58()} (expected ${destAta.toBase58()}). ` +
-          "This script does not create one: it would cost rent nobody gets back. Create it, or leave that token.",
+        `the destination has no token account for mint ${h.mint.toBase58()} (expected ${destAta.toBase58()}). This script does not create one: it would cost rent nobody gets back. Create it, or leave that token.`,
       );
     }
-    ins.push(transferChecked(h.account, h.mint, destAta, h.wallet.kp.publicKey, h.amount, h.decimals, h.program));
+    ins.push(
+      transferChecked(
+        h.account,
+        h.mint,
+        destAta,
+        h.wallet.kp.publicKey,
+        h.amount,
+        h.decimals,
+        h.program,
+      ),
+    );
   }
   ins.push(closeAccount(h.account, DESTINATION, h.wallet.kp.publicKey, h.program));
   const signers = [relayer, ...(h.wallet.kp === relayer ? [] : [h.wallet.kp])];
@@ -187,7 +205,13 @@ const solSend = relayerAfter - FEE_PER_SIGNATURE;
 if (solSend > 0n) {
   txs.push({
     label: `send the relay wallet's remaining SOL (${Number(solSend) / 1e9}), leaving it at zero`,
-    ins: [SystemProgram.transfer({ fromPubkey: relayer.publicKey, toPubkey: DESTINATION, lamports: solSend })],
+    ins: [
+      SystemProgram.transfer({
+        fromPubkey: relayer.publicKey,
+        toPubkey: DESTINATION,
+        lamports: solSend,
+      }),
+    ],
     signers: [relayer],
   });
 }
@@ -224,7 +248,10 @@ for (const [i, t] of txs.entries()) {
     : t.ins;
   const { tx } = await build(ins, t.signers);
   const sim = await conn.simulateTransaction(tx);
-  if (sim.value.err) die(`simulation of step ${i + 1} failed: ${JSON.stringify(sim.value.err)}\n${(sim.value.logs ?? []).join("\n")}`);
+  if (sim.value.err)
+    die(
+      `simulation of step ${i + 1} failed: ${JSON.stringify(sim.value.err)}\n${(sim.value.logs ?? []).join("\n")}`,
+    );
   console.log(`  step ${i + 1} simulates OK`);
 }
 console.log();
@@ -248,14 +275,25 @@ for (const [i, t] of txs.entries()) {
       console.log(`  step ${i + 1}: nothing left to send`);
       continue;
     }
-    ins = [SystemProgram.transfer({ fromPubkey: relayer.publicKey, toPubkey: DESTINATION, lamports: amount })];
+    ins = [
+      SystemProgram.transfer({
+        fromPubkey: relayer.publicKey,
+        toPubkey: DESTINATION,
+        lamports: amount,
+      }),
+    ];
   }
   const { tx, lastValidBlockHeight } = await build(ins, t.signers);
   const sig = await conn.sendRawTransaction(tx.serialize(), { skipPreflight: false });
-  const res = await conn.confirmTransaction({ signature: sig, blockhash: tx.recentBlockhash, lastValidBlockHeight }, "confirmed");
-  if (res.value.err) die(`step ${i + 1} failed on chain: ${JSON.stringify(res.value.err)} (${sig})`);
+  const res = await conn.confirmTransaction(
+    { signature: sig, blockhash: tx.recentBlockhash, lastValidBlockHeight },
+    "confirmed",
+  );
+  if (res.value.err)
+    die(`step ${i + 1} failed on chain: ${JSON.stringify(res.value.err)} (${sig})`);
   console.log(`  step ${i + 1} confirmed  ${sig}`);
 }
 
 console.log();
-for (const w of wallets) console.log(`${w.name} now holds ${Number(await conn.getBalance(w.kp.publicKey)) / 1e9} SOL`);
+for (const w of wallets)
+  console.log(`${w.name} now holds ${Number(await conn.getBalance(w.kp.publicKey)) / 1e9} SOL`);
