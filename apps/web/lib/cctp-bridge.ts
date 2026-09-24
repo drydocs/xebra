@@ -8,9 +8,18 @@ import {
   scValToNative,
 } from "@stellar/stellar-sdk";
 import { formatError } from "./format-error";
+import type { DomainForwardConfig, FeeParams } from "./forward-fee";
 
 /**
- * Client for `contracts/stellar-cctp-wrapper` — the CCTP-direct USDC rail, Stellar → Solana.
+ * Client for `contracts/stellar-cctp-wrapper-v2` — Stellar to Solana and Arc, delivered by Circle's
+ * Forwarding Service.
+ *
+ * # There is no direct mode
+ *
+ * An earlier version could burn straight through Circle's TokenMessengerMinter when the wrapper was
+ * not deployed. That produced a burn with nobody to mint it: the relay that used to do so is gone,
+ * and a burn without the forwarding hook is only ever claimed by its owner. Every transfer now goes
+ * through the wrapper, which puts the hook on the burn.
  *
  * # The fee breakdown is read from the contract, never recomputed here
  *
@@ -23,13 +32,12 @@ import { formatError } from "./format-error";
  *    USDC has 7 decimals and CCTP's canonical representation has 6; a JS reimplementation
  *    that got that wrong would quote a number the contract never burns.
  *
- * # `max_fee` comes from Circle, also on-chain
+ * # `max_fee` is the delivery fee, and comes from Circle's quote
  *
- * CCTP charges its own fee at mint time on the destination chain. `max_fee` is the ceiling
- * the user authorizes for it, and the wrapper bounds it further (`check_max_fee`) so a buggy
- * frontend cannot hand away a user's principal. The correct value is Circle's own
- * `get_min_fee_amount` for this token and amount — read live, not guessed, because the
- * min-fee controller can change it.
+ * With forwarding, `max_fee` is what Circle charges, in full, to mint on the destination (gas plus
+ * its service fee). It is taken from Circle's live forward-fee quote (`lib/forward-fee.ts`) and
+ * bounded on chain by a per-domain cap and a tenth of the burn, so a buggy front end cannot hand
+ * away a user's principal.
  */
 
 /** Stellar token amounts are 7-decimal fixed point. */
@@ -62,15 +70,24 @@ const INCLUSION_FEE = "1000000";
 export interface BridgeQuote {
   /** What the user asked to send, in stroops. */
   amount: bigint;
-  /** Xebra's fee, in stroops. Includes `accountFee`. */
+  /** Everything the user pays besides the principal, in stroops: Circle's delivery fee, or our
+   *  percentage-or-floor fee if that is larger. One number, so the page can say what it costs. */
   fee: bigint;
-  /** The part of `fee` that pays to create the recipient's USDC account, in stroops. Zero when
-   *  the recipient already has one. Broken out so the UI can say what the charge is for. */
+  /** Zero when forwarded: creating a recipient's account is inside the delivery fee. */
   accountFee: bigint;
-  /** What is actually burned and minted on the destination, in stroops. */
+  /** What is burned. The recipient receives this less Circle's delivery fee. */
   netBurned: bigint;
   /** Sub-10-stroop remainder that never leaves the user's wallet. */
   remainder: bigint;
+  /** Circle's delivery fee for this transfer, in stroops. It is inside `fee`, not on top of it. */
+  forwardFee: bigint;
+  /** The part of `fee` we keep: `fee - forwardFee`. */
+  wrapperTake: bigint;
+  /** False means the contract would not forward this transfer, so nobody would deliver it. The
+   *  page must refuse to send. */
+  forwarded: boolean;
+  /** Circle will also create the recipient's token account. */
+  accountCreated: boolean;
 }
 
 export interface BridgeChainConfig {
@@ -115,25 +132,6 @@ export function formatUsdc(stroops: bigint): string {
 }
 
 /**
- * The split when bridging directly through Circle: no Xebra fee, and `net` floored to a
- * 10-stroop boundary because Stellar USDC is 7-decimal and CCTP's canonical form is 6.
- *
- * Computing this in TypeScript is safe here precisely because there is no fee to get wrong —
- * the only arithmetic is the same flooring Circle itself applies internally. When the wrapper
- * IS deployed, the numbers come from its own `quote()` instead, so the fee math is never
- * duplicated.
- */
-export function directQuote(amount: bigint): BridgeQuote {
-  const remainder = amount % STROOPS_PER_CANONICAL_UNIT;
-  // Direct mode takes no fee at all, so there is nothing to break out — the user pays their own
-  // destination gas either way.
-  return { amount, fee: 0n, accountFee: 0n, netBurned: amount - remainder, remainder };
-}
-
-/** Stellar 7-decimal stroops per CCTP 6-decimal canonical unit. */
-export const STROOPS_PER_CANONICAL_UNIT = 10n;
-
-/**
  * Reads the fee split from the wrapper. Throws with the contract's own error name when the
  * amount is outside the configured bounds, so the user sees the real reason (AmountBelowMin,
  * AmountAboveMax) rather than a generic failure.
@@ -143,17 +141,17 @@ export async function quoteBridge(
   sourceAddress: string,
   amount: bigint,
   /**
-   * Whether the destination has no USDC account yet, from `/api/recipient`.
-   *
-   * It changes the price: creating one costs about 2,039,280 lamports of rent that nobody can
-   * ever reclaim, and the sponsor pays it. Charged separately from the floor so a repeat
-   * recipient is not billed for a cost only a first-time one causes.
+   * Whether the destination has no USDC account yet, from `/api/recipient`. Circle then creates
+   * it as part of delivery, which roughly doubles its fee.
    *
    * Must match what `submitBridge` is given, or the quote shown and the amount charged differ.
    */
   recipientNeedsAccount: boolean,
+  /** The delivery fee the transfer will sign, in stroops (`chooseMaxFee`). On the forward path it
+   *  *is* the price, so the price cannot be quoted without it. */
+  maxFee: bigint,
 ): Promise<BridgeQuote> {
-  if (!config.wrapperContractId) return directQuote(amount);
+  if (!config.wrapperContractId) throw new Error("The bridge contract is not configured.");
 
   const server = new rpc.Server(config.sorobanRpcUrl);
   const contract = new Contract(config.wrapperContractId);
@@ -168,6 +166,8 @@ export async function quoteBridge(
         "quote",
         nativeToScVal(amount, { type: "i128" }),
         nativeToScVal(recipientNeedsAccount, { type: "bool" }),
+        nativeToScVal(config.destinationDomain, { type: "u32" }),
+        nativeToScVal(maxFee, { type: "i128" }),
       ),
     )
     .setTimeout(30)
@@ -185,6 +185,10 @@ export async function quoteBridge(
     account_fee: bigint;
     net_burned: bigint;
     remainder: bigint;
+    forward_fee: bigint;
+    wrapper_take: bigint;
+    forwarded: boolean;
+    account_created: boolean;
   };
 
   return {
@@ -193,30 +197,67 @@ export async function quoteBridge(
     accountFee: BigInt(raw.account_fee),
     netBurned: BigInt(raw.net_burned),
     remainder: BigInt(raw.remainder),
+    forwardFee: BigInt(raw.forward_fee),
+    wrapperTake: BigInt(raw.wrapper_take),
+    forwarded: raw.forwarded,
+    accountCreated: raw.account_created,
   };
 }
 
 /**
- * Circle's minimum fee for burning `amount` of `usdc`, read from the live TokenMessengerMinter.
- * This is the floor `max_fee` must meet; passing less makes `deposit_for_burn` revert
- * (`InsufficientMaxFee`) or silently downgrade a Fast transfer to Standard.
+ * The wrapper's percentage and floor fee, which decide how small a forwarded transfer can be: Circle's
+ * delivery fee may not exceed a tenth of the burn, and the burn is what is left after our share.
  */
-export async function getCircleMinFee(
+export async function getWrapperFeeParams(
   config: BridgeChainConfig,
   sourceAddress: string,
-  amount: bigint,
-): Promise<bigint> {
+): Promise<FeeParams | null> {
+  if (!config.wrapperContractId) return null;
   const server = new rpc.Server(config.sorobanRpcUrl);
   const retval = await simulateWithPassphrase(
     server,
     config.networkPassphrase,
-    config.cctpTokenMessengerId,
+    config.wrapperContractId,
     sourceAddress,
-    "get_min_fee_amount",
-    nativeToScVal(new Address(config.usdcSacAddress), { type: "address" }),
-    nativeToScVal(amount, { type: "i128" }),
+    "get_params",
   );
-  return BigInt(scValToNative(retval) as string | bigint);
+  const p = scValToNative(retval) as { fee_bps: number | bigint; min_fee: bigint };
+  return { feeBps: BigInt(p.fee_bps), minFee: BigInt(p.min_fee) };
+}
+
+/**
+ * A destination's forwarding switches and caps, read from the wrapper. The caps are what
+ * `chooseMaxFee` checks a quote against, and `forward: false` is the kill switch, which the page
+ * must honour: with no relay, a transfer the contract will not forward is one nobody delivers.
+ */
+export async function getDomainForwardConfig(
+  config: BridgeChainConfig,
+  sourceAddress: string,
+): Promise<DomainForwardConfig | null> {
+  if (!config.wrapperContractId) return null;
+  const server = new rpc.Server(config.sorobanRpcUrl);
+  const retval = await simulateWithPassphrase(
+    server,
+    config.networkPassphrase,
+    config.wrapperContractId,
+    sourceAddress,
+    "get_domains",
+  );
+  const domains = scValToNative(retval) as Array<{
+    domain: number;
+    forward: boolean;
+    max_forward_fee: bigint;
+    account_creation: boolean;
+    max_forward_fee_new_account: bigint;
+  }>;
+  const d = domains.find((x) => x.domain === config.destinationDomain);
+  if (!d) return null;
+  return {
+    forward: d.forward,
+    maxForwardFee: BigInt(d.max_forward_fee),
+    accountCreation: d.account_creation,
+    maxForwardFeeNewAccount: BigInt(d.max_forward_fee_new_account),
+  };
 }
 
 async function simulateWithPassphrase(
@@ -271,6 +312,9 @@ export function encodeBridgeRequest(req: {
   maxFee: bigint;
   minFinalityThreshold: number;
   recipientNeedsAccount: boolean;
+  /** The wallet that owns the recipient's token account, when Circle is to create it; all zeroes
+   *  otherwise. */
+  recipientOwner: Uint8Array;
   approvalExpirationLedger: number;
   maxWrapperFee: bigint;
   deadline: bigint;
@@ -284,6 +328,7 @@ export function encodeBridgeRequest(req: {
       max_fee: req.maxFee,
       min_finality_threshold: req.minFinalityThreshold,
       recipient_needs_account: req.recipientNeedsAccount,
+      recipient_owner: Buffer.from(req.recipientOwner),
       approval_expiration_ledger: req.approvalExpirationLedger,
       max_wrapper_fee: req.maxWrapperFee,
       deadline: req.deadline,
@@ -297,6 +342,7 @@ export function encodeBridgeRequest(req: {
         max_fee: ["symbol", "i128"],
         min_finality_threshold: ["symbol", "u32"],
         recipient_needs_account: ["symbol", "bool"],
+        recipient_owner: ["symbol", "bytes"],
         approval_expiration_ledger: ["symbol", "u32"],
         max_wrapper_fee: ["symbol", "i128"],
         deadline: ["symbol", "u64"],
@@ -314,11 +360,14 @@ export interface SubmitBridgeParams {
   maxFee: bigint;
   /** The user's own ceiling on Xebra's fee, from the quote they were shown. */
   maxWrapperFee: bigint;
-  /** <= 1000 requests Fast Transfer. */
+  /** 2000: Standard, the only finality Stellar has. Fast is not available from Stellar. */
   minFinalityThreshold: number;
   /** Must match the value the quote was taken with, or the price shown and the price charged
    *  differ. */
   recipientNeedsAccount: boolean;
+  /** The recipient's wallet, 32 bytes, when `recipientNeedsAccount` (Circle creates the token
+   *  account for it, and `mintRecipient` must be that account); otherwise null. */
+  recipientOwner: Uint8Array | null;
   /** Seconds from now. The contract rejects anything beyond one hour. */
   ttlSeconds: number;
 }
@@ -337,9 +386,9 @@ export async function submitBridge(
 ): Promise<{ txHash: string }> {
   const { config } = params;
   if (!config.wrapperContractId) {
-    // Callers must route to submitDirectBurn when the wrapper is not deployed. Failing here
-    // rather than silently falling back keeps "which contract took my money" unambiguous.
-    throw new Error("The fee wrapper is not deployed; use submitDirectBurn instead.");
+    // There is no direct path to fall back to: a burn that skips the wrapper skips the forwarding
+    // hook, and nobody would deliver it.
+    throw new Error("The bridge contract is not configured.");
   }
   const server = new rpc.Server(config.sorobanRpcUrl);
   const contract = new Contract(config.wrapperContractId);
@@ -371,6 +420,7 @@ export async function submitBridge(
     maxFee: params.maxFee,
     minFinalityThreshold: params.minFinalityThreshold,
     recipientNeedsAccount: params.recipientNeedsAccount,
+    recipientOwner: params.recipientOwner ?? new Uint8Array(32),
     approvalExpirationLedger,
     maxWrapperFee: params.maxWrapperFee,
     deadline,
@@ -402,27 +452,6 @@ export async function submitBridge(
 }
 
 /**
- * Reads the caller's current USDC allowance for Circle's TokenMessengerMinter.
- *
- * Circle's `deposit_for_burn` pulls the principal with `transfer_from`, which consumes an
- * allowance ledger entry — `require_auth` on the caller does NOT substitute for one. Without
- * it the burn reverts with the SAC's contract error #9, "not enough allowance to spend".
- */
-export async function getUsdcAllowance(config: BridgeChainConfig, owner: string): Promise<bigint> {
-  const server = new rpc.Server(config.sorobanRpcUrl);
-  const retval = await simulateWithPassphrase(
-    server,
-    config.networkPassphrase,
-    config.usdcSacAddress,
-    owner,
-    "allowance",
-    nativeToScVal(new Address(owner), { type: "address" }),
-    nativeToScVal(new Address(config.cctpTokenMessengerId), { type: "address" }),
-  );
-  return BigInt(scValToNative(retval) as string | bigint);
-}
-
-/**
  * The user's USDC balance on Stellar, in stroops.
  *
  * Checked before the button is enabled, because the alternative is what actually happened on
@@ -446,49 +475,6 @@ export async function getUsdcBalance(config: BridgeChainConfig, owner: string): 
 
 /** Ledgers the allowance stays live for. It only needs to survive the following burn. */
 const APPROVAL_TTL_LEDGERS = 60;
-
-/**
- * Approves Circle's TokenMessengerMinter to pull exactly `amount` of the user's USDC.
- *
- * This is a **separate transaction** from the burn. A Soroban transaction carries a single
- * contract invocation, so approve-then-burn cannot be batched from the client — hence two
- * wallet signatures in direct mode. Routing through the deployed wrapper collapses it back to
- * one, because a contract can make both cross-contract calls within a single invocation.
- */
-export async function approveUsdcForCctp(
-  kit: StellarWalletsKit,
-  config: BridgeChainConfig,
-  userAddress: string,
-  amount: bigint,
-): Promise<{ txHash: string }> {
-  const server = new rpc.Server(config.sorobanRpcUrl);
-  const usdc = new Contract(config.usdcSacAddress);
-  const account = await server.getAccount(userAddress);
-  const { sequence } = await server.getLatestLedger();
-
-  const tx = new TransactionBuilder(account, {
-    fee: INCLUSION_FEE,
-    networkPassphrase: config.networkPassphrase,
-  })
-    .addOperation(
-      usdc.call(
-        "approve",
-        nativeToScVal(new Address(userAddress), { type: "address" }),
-        nativeToScVal(new Address(config.cctpTokenMessengerId), { type: "address" }),
-        nativeToScVal(amount, { type: "i128" }),
-        nativeToScVal(sequence + APPROVAL_TTL_LEDGERS, { type: "u32" }),
-      ),
-    )
-    .setTimeout(120)
-    .build();
-
-  const prepared = await server.prepareTransaction(tx);
-  const { signedTxXdr } = await kit.signTransaction(prepared.toXDR(), {
-    networkPassphrase: config.networkPassphrase,
-  });
-  const signedTx = TransactionBuilder.fromXDR(signedTxXdr, config.networkPassphrase);
-  return submitSigned(server, signedTx, "approval");
-}
 
 /**
  * Submits a signed transaction and interprets the full status set.
@@ -581,92 +567,6 @@ export async function waitForTx(
 }
 
 /**
- * Bridges **directly** through Circle's TokenMessengerMinter, with no Xebra contract in the
- * path and no fee taken.
- *
- * The argument list is identical to what the wrapper passes internally, which is the point:
- * this exercises the whole risky surface — the auth tree a real wallet produces, the 32-byte
- * `mint_recipient` encoding, Circle's `max_fee` handling and its five revert conditions —
- * before anything of ours is deployed. If this works, the wrapper's only untested addition is
- * the fee arithmetic, which has 29 unit tests behind it.
- *
- * `destination_caller` is zeroed so the mint is permissionlessly claimable on the destination
- * chain by anyone holding the attestation, including the user. That is what stops a relay
- * outage from becoming stuck funds.
- */
-export async function submitDirectBurn(
-  kit: StellarWalletsKit,
-  params: Omit<SubmitBridgeParams, "maxWrapperFee">,
-): Promise<{ txHash: string }> {
-  const { config } = params;
-  const server = new rpc.Server(config.sorobanRpcUrl);
-  const messenger = new Contract(config.cctpTokenMessengerId);
-  const account = await server.getAccount(params.userAddress);
-
-  const tx = new TransactionBuilder(account, {
-    fee: INCLUSION_FEE,
-    networkPassphrase: config.networkPassphrase,
-  })
-    .addOperation(
-      messenger.call(
-        "deposit_for_burn",
-        nativeToScVal(new Address(params.userAddress), { type: "address" }),
-        nativeToScVal(params.amount, { type: "i128" }),
-        nativeToScVal(config.destinationDomain, { type: "u32" }),
-        nativeToScVal(Buffer.from(params.mintRecipient), { type: "bytes" }),
-        nativeToScVal(new Address(config.usdcSacAddress), { type: "address" }),
-        nativeToScVal(Buffer.alloc(32), { type: "bytes" }),
-        nativeToScVal(params.maxFee, { type: "i128" }),
-        nativeToScVal(params.minFinalityThreshold, { type: "u32" }),
-      ),
-    )
-    .setTimeout(120)
-    .build();
-
-  // Simulation attaches auth entries and the resource footprint. If Circle would reject this,
-  // it fails HERE — before the user is asked to sign anything.
-  let prepared: Awaited<ReturnType<typeof server.prepareTransaction>>;
-  try {
-    prepared = await server.prepareTransaction(tx);
-  } catch (err) {
-    throw new Error(humanizeCircleError(formatError(err)));
-  }
-
-  const { signedTxXdr } = await kit.signTransaction(prepared.toXDR(), {
-    networkPassphrase: config.networkPassphrase,
-  });
-
-  const signedTx = TransactionBuilder.fromXDR(signedTxXdr, config.networkPassphrase);
-  return submitSigned(server, signedTx, "burn");
-}
-
-/**
- * Circle's own revert conditions, which surface as opaque contract error codes. Names come
- * from circlefin/stellar-cctp's TokenMessengerMinterError enum.
- */
-export function humanizeCircleError(raw: string): string {
-  if (/AmountMustBeNonzero/i.test(raw)) return "Enter an amount greater than zero.";
-  if (/MintRecipientMustBeNonzero/i.test(raw)) return "The destination address cannot be empty.";
-  if (/MaxFeeMustBeLessThanAmount/i.test(raw)) {
-    return "The network fee would exceed the amount. Try a larger transfer.";
-  }
-  if (/InsufficientMaxFee/i.test(raw)) {
-    return "Circle's network fee rose above the quote. Refresh and try again.";
-  }
-  if (/burn limit|BurnLimit/i.test(raw)) {
-    return "That amount is above Circle's per-transfer burn limit.";
-  }
-  if (/denylist|Denylist/i.test(raw)) return "This account is not permitted to bridge USDC.";
-  if (/insufficient balance|underflow/i.test(raw)) {
-    return "Your USDC balance is too low for this transfer.";
-  }
-  if (/trustline|TrustLine/i.test(raw)) {
-    return "This wallet has no USDC trustline on Stellar. Add one, then try again.";
-  }
-  return raw;
-}
-
-/**
  * Maps the wrapper's `#[contracterror]` variants to something a person can act on. Soroban
  * surfaces these as `Error(Contract, #N)`, which is accurate and completely opaque to a user
  * about to move money.
@@ -678,7 +578,7 @@ const CONTRACT_ERRORS: Record<number, string> = {
   7: "That destination chain is not supported yet.",
   8: "The destination address cannot be all zeroes.",
   9: "That looks like an Ethereum address, not a Solana one.",
-  10: "The delivery speed setting was not accepted. Refresh and try again.",
+  10: "The transfer speed was not accepted. Refresh and try again.",
   11: "Enter an amount greater than zero.",
   12: "That amount is below the minimum for this bridge.",
   13: "That amount is above the current per-transfer limit.",
@@ -691,6 +591,12 @@ const CONTRACT_ERRORS: Record<number, string> = {
   30: "Not enough accrued fees to withdraw.",
   36: "This transfer sat too long before being submitted. Refresh and try again.",
   37: "The approval window was set too far ahead. Refresh and try again.",
+  39: "Circle's delivery fee was zero, which should not happen. Refresh and try again.",
+  40: "Circle's delivery fee is above the limit we allow for this destination right now. Try again shortly.",
+  41: "Circle's delivery fee is more than a tenth of this transfer. Try a larger amount.",
+  43: "This wallet needs a USDC account opened, but its owner was missing. Refresh and try again.",
+  44: "That request named an account owner it should not have. Refresh and try again.",
+  45: "The delivery address was the wallet itself, not its USDC account. Refresh and try again.",
 };
 
 /**

@@ -1,8 +1,11 @@
 "use client";
 
 import type { StellarWalletsKit } from "@creit.tech/stellar-wallets-kit";
+import type { CircleHealth } from "@xebra/cctp-client";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { getAddress } from "viem";
 import { XebraMark } from "../components/brand/xebra-mark";
+import { DestinationPicker } from "../components/bridge/destination-picker";
 import { RouteTrack } from "../components/bridge/route-track";
 import { SiteFooter } from "../components/site/site-footer";
 import { TopBar } from "../components/site/top-bar";
@@ -20,34 +23,35 @@ import { StripeRule } from "../components/ui/stripe-rule";
 import {
   type BridgeChainConfig,
   type BridgeQuote,
-  approveUsdcForCctp,
   formatUsdc,
-  getCircleMinFee,
-  getUsdcAllowance,
+  getDomainForwardConfig,
   getUsdcBalance,
+  getWrapperFeeParams,
   parseUsdc,
   quoteBridge,
   submitBridge,
-  submitDirectBurn,
-  waitForTx,
 } from "../lib/cctp-bridge";
+import { type DeliveryView, getCircleHealth, getDelivery } from "../lib/circle-status";
+import {
+  DESTINATIONS,
+  type Destination,
+  type DestinationId,
+  availableDestinations,
+} from "../lib/destinations";
 import { env, isCctpRailConfigured } from "../lib/env";
 import { formatError, reportError } from "../lib/format-error";
 import {
-  type RelayDelivery,
-  type RelayHandoff,
-  getRelayDelivery,
-  handOffToRelay,
-} from "../lib/relay";
-import {
-  type RecipientResolution,
-  checkSolanaAddress,
-  resolveRecipient,
-} from "../lib/solana-address";
+  type DomainForwardConfig,
+  type FeeParams,
+  chooseMaxFee,
+  minimumForwardedAmount,
+  suggestedMinimum,
+} from "../lib/forward-fee";
+import { type RecipientResolution, resolveRecipient } from "../lib/solana-address";
 import { createStellarWalletKit } from "../lib/stellar-wallet";
 
 /**
- * One job: move USDC from Stellar to Solana over Circle's CCTP.
+ * One job: move USDC from Stellar to Solana or Arc over Circle's CCTP.
  *
  * # What is deliberately not asked
  *
@@ -72,17 +76,14 @@ import { createStellarWalletKit } from "../lib/stellar-wallet";
  * that reports on it (`app/intent/[hash]`). See `tailwind.config.ts` for the tokens.
  */
 
-/** Fast Transfer. Circle treats anything above 1000 as Standard. */
-const FAST_FINALITY_THRESHOLD = 1000;
+/** Standard finality, the only kind Stellar has: Fast Transfer is not available from Stellar. */
+const STANDARD_FINALITY_THRESHOLD = 2000;
 /** How long a signed request stays valid. The contract caps this at one hour. */
 const REQUEST_TTL_SECONDS = 600;
-/** Headroom over Circle's quoted minimum, so a fee tick between quote and submit
- *  doesn't downgrade a Fast transfer to Standard. Bounded on-chain by `check_max_fee`. */
-const CIRCLE_FEE_BUFFER_BPS = 150n;
 
 /** Offered as one tap each. Not a "max" button: this screen never reads a balance, and a
  *  max that guesses is a max that overdraws the reserve. */
-const QUICK_AMOUNTS = ["1", "10", "100"];
+const QUICK_AMOUNTS = ["5", "10", "100"];
 
 export default function HomePage() {
   const [kit, setKit] = useState<StellarWalletsKit | null>(null);
@@ -90,8 +91,12 @@ export default function HomePage() {
   // Deliberately small. This is mainnet: the field's default is the amount someone will send
   // if they don't think about it. Direct mode has no minimum (the 10 USDC floor is Xebra's
   // contract, not Circle's), so a first transfer can be a single dollar.
-  const [amountInput, setAmountInput] = useState("1");
+  const [amountInput, setAmountInput] = useState("5");
   const [destination, setDestination] = useState("");
+  const [destId, setDestId] = useState<DestinationId>("solana");
+  // What the receipt describes. Fixed at the moment of signing, so switching the picker
+  // afterwards cannot rewrite where an already-burned transfer says it is going.
+  const [sentTo, setSentTo] = useState<DestinationId>("solana");
   const [quote, setQuote] = useState<BridgeQuote | null>(null);
   const [quoting, setQuoting] = useState(false);
   const [quoteError, setQuoteError] = useState<string | null>(null);
@@ -99,10 +104,18 @@ export default function HomePage() {
   const [step, setStep] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [txHash, setTxHash] = useState<string | null>(null);
-  // `null` while the handoff is still in flight, so the receipt can say "handing off" rather
-  // than implying either outcome before one is known.
-  const [handoff, setHandoff] = useState<RelayHandoff | null>(null);
-  const [delivery, setDelivery] = useState<RelayDelivery | null>(null);
+  // Circle's own account of the transfer. `null` until the first answer.
+  const [delivery, setDelivery] = useState<DeliveryView | null>(null);
+  // Whether Circle looks able to carry a transfer right now. `null` means not checked or the check
+  // could not run — which must never block anyone.
+  const [healthState, setHealthState] = useState<{
+    key: string;
+    value: CircleHealth | null;
+  } | null>(null);
+  // This destination's forwarding switches and caps, read from the contract.
+  const [domainCfg, setDomainCfg] = useState<DomainForwardConfig | null>(null);
+  // The wrapper's fee and floor, which set how small a transfer to this destination can be.
+  const [feeParams, setFeeParams] = useState<FeeParams | null>(null);
   const [recipient, setRecipient] = useState<RecipientResolution | null>(null);
   /** Null while unknown — an unread balance must not read as "you have nothing". */
   const [balance, setBalance] = useState<bigint | null>(null);
@@ -115,6 +128,9 @@ export default function HomePage() {
     setKit(createStellarWalletKit());
   }, []);
 
+  const dest = DESTINATIONS[destId];
+  const destinations = useMemo(() => availableDestinations(env.arcEnabled), []);
+
   // Always present. When the fee wrapper is not deployed, `wrapperContractId` is null and
   // the flow bridges directly through Circle's live contract — no fee, but a real transfer.
   const config: BridgeChainConfig = useMemo(
@@ -125,9 +141,9 @@ export default function HomePage() {
       usdcSacAddress: env.usdcSacAddress,
       sorobanRpcUrl: env.sorobanRpcUrl,
       networkPassphrase: env.stellarNetworkPassphrase,
-      destinationDomain: env.destinationDomain,
+      destinationDomain: dest.domain,
     }),
-    [],
+    [dest.domain],
   );
 
   const amount = useMemo(() => {
@@ -148,34 +164,134 @@ export default function HomePage() {
     }
   }, [amountInput]);
 
-  const destinationCheck = useMemo(() => checkSolanaAddress(destination), [destination]);
+  const destinationCheck = useMemo(() => dest.checkAddress(destination), [dest, destination]);
 
-  // Quote is debounced: every keystroke would otherwise be a Soroban simulation.
   /**
    * Whether the destination has no USDC account yet.
    *
-   * With the wrapper deployed this is a *price*, not a blocker: the quote adds the account fee,
-   * the burn records that it was paid, and the sponsor creates the account when it mints. One
-   * transaction, no second step for the user.
+   * It is a *price*, not a blocker: Circle creates the account during delivery and its fee for that
+   * (about twice the ordinary one) is inside the single fee the user is shown. One transaction, no
+   * second step.
    *
-   * Direct mode has no fee and no sponsor, so there is nobody to pay that rent — a missing
-   * account still blocks there, because burning would produce a mint nobody can land.
+   * Only Solana has the concept. An Arc mint credits an ERC-20 balance and creates nothing.
    */
-  const recipientNeedsAccount = recipient?.status === "missing";
-  const blockedOnMissingAccount = recipientNeedsAccount && !isCctpRailConfigured;
+  const recipientNeedsAccount = dest.needsAccountResolution && recipient?.status === "missing";
+  // A failed or unfinished lookup is not "has an account". Pricing as if it did would quote the
+  // cheaper delivery and then have Circle's forward fall short on a wallet that needs the account
+  // opened, so an unverified recipient blocks the transfer instead of guessing.
+  const recipientUnverified =
+    dest.needsAccountResolution &&
+    destinationCheck.ok &&
+    (resolving || !recipient || recipient.status === "unknown");
 
+  // Circle's fee quote depends on whether it also has to open an account, so a health reading only
+  // counts for the flavour it was taken for.
+  const healthKey = `${destId}:${recipientNeedsAccount}`;
+  const health = healthState?.key === healthKey ? healthState.value : null;
+  const healthUnavailable = healthState?.key === healthKey && healthState.value === null;
+
+  // The contract's own switches and caps for this destination.
+  useEffect(() => {
+    if (!address) {
+      setDomainCfg(null);
+      setFeeParams(null);
+      return;
+    }
+    let cancelled = false;
+    getDomainForwardConfig(config, address)
+      .then((c) => {
+        if (!cancelled) setDomainCfg(c);
+      })
+      .catch(() => {
+        if (!cancelled) setDomainCfg(null);
+      });
+    getWrapperFeeParams(config, address)
+      .then((p) => {
+        if (!cancelled) setFeeParams(p);
+      })
+      .catch(() => {
+        if (!cancelled) setFeeParams(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [config, address]);
+
+  // The delivery fee this transfer will sign: Circle's live `high` quote at 1.0x, checked against the
+  // contract's caps and switches. `null` until both are known.
+  const feeChoice = useMemo(
+    () =>
+      health?.quote && domainCfg
+        ? chooseMaxFee({
+            quote: health.quote,
+            needsAccount: recipientNeedsAccount,
+            cfg: domainCfg,
+            destinationName: dest.name,
+          })
+        : null,
+    [health, domainCfg, recipientNeedsAccount, dest.name],
+  );
+  const maxFee = feeChoice?.ok ? feeChoice.maxFee : null;
+  const feeRefusal = feeChoice && !feeChoice.ok ? feeChoice.reason : null;
+
+  // The contract refuses a delivery fee above a tenth of what is burned, so the smallest transfer depends on
+  // the route: about 1 USDC to Arc, nearer 2 to an existing Solana account, nearer 4 to a new one. Say so
+  // before the person signs, instead of surfacing the contract's error code.
+  const routeMinimum =
+    maxFee !== null && feeParams ? minimumForwardedAmount(maxFee, feeParams) : null;
+  const routeMinimumProblem =
+    routeMinimum !== null &&
+    maxFee !== null &&
+    amount !== null &&
+    amount > 0n &&
+    amount < routeMinimum
+      ? `The smallest transfer to ${dest.name} right now is about ${formatUsdc(suggestedMinimum(routeMinimum))} USDC. Circle's delivery fee is ${formatUsdc(maxFee)} USDC, and it cannot be more than a tenth of what is sent.`
+      : null;
+  const amountProblem = amountError ?? routeMinimumProblem;
+
+  // Quote is debounced: every keystroke would otherwise be a Soroban simulation.
   useEffect(() => {
     if (!address || !amount || amount <= 0n) {
       setQuote(null);
       setQuoteError(null);
       return;
     }
+    if (feeRefusal) {
+      setQuote(null);
+      setQuoteError(feeRefusal);
+      return;
+    }
+    if (routeMinimumProblem) {
+      // Explained under the amount; pricing it would only produce the contract's refusal.
+      setQuote(null);
+      setQuoteError(null);
+      return;
+    }
+    if (maxFee === null) {
+      // Still waiting on Circle's fee or the contract's caps. Not an error unless the fee service
+      // has answered that it cannot be read.
+      setQuote(null);
+      setQuoteError(
+        healthUnavailable
+          ? "We could not get Circle's delivery fee just now. Try again in a moment."
+          : null,
+      );
+      return;
+    }
     let cancelled = false;
     setQuoting(true);
     const timer = setTimeout(() => {
-      quoteBridge(config, address, amount, recipientNeedsAccount)
+      quoteBridge(config, address, amount, recipientNeedsAccount, maxFee)
         .then((result) => {
           if (cancelled) return;
+          // A transfer the contract would not forward is a burn nobody delivers; it is not offered.
+          if (!result.forwarded) {
+            setQuote(null);
+            setQuoteError(
+              `Automatic delivery to ${dest.name} is not available for this transfer right now.`,
+            );
+            return;
+          }
           setQuote(result);
           setQuoteError(null);
         })
@@ -193,18 +309,29 @@ export default function HomePage() {
       clearTimeout(timer);
       setQuoting(false);
     };
-    // `recipientNeedsAccount` is a dependency, not just an argument: it flips once the recipient
-    // lookup resolves, and it changes the price. Without it here the user would be shown a quote
-    // taken before the answer was known and then charged a different amount — which the contract
-    // rejects via `max_wrapper_fee`, so it would surface as an unexplained failure at signing.
-  }, [config, address, amount, recipientNeedsAccount]);
+    // `recipientNeedsAccount` and `maxFee` are dependencies, not just arguments: both change the
+    // price. Without them the user would be shown a quote taken before the answer was known and then
+    // charged a different amount — which the contract rejects via `max_wrapper_fee`, so it would
+    // surface as an unexplained failure at signing.
+  }, [
+    config,
+    address,
+    amount,
+    recipientNeedsAccount,
+    maxFee,
+    feeRefusal,
+    healthUnavailable,
+    routeMinimumProblem,
+    dest.name,
+  ]);
 
-  // Poll until the mint lands.
+  // Poll until Circle reports an outcome.
   //
   // Without this the receipt could only ever say "waiting", with nothing to end it — a spinner
-  // that never resolves, which is a worse thing to show someone than a wrong error. The relay
-  // takes up to a minute on the watcher path, so this asks every five seconds and stops as soon
-  // as there is an answer.
+  // that never resolves, which is a worse thing to show someone than a wrong error. It asks every
+  // five seconds for the first two minutes and every fifteen after that, and stops as soon as
+  // Circle reports the transfer delivered, failed, or claimable. The server budgets and caches
+  // these lookups, so a long wait costs Circle's rate limit almost nothing.
   useEffect(() => {
     if (!txHash) {
       setDelivery(null);
@@ -212,12 +339,16 @@ export default function HomePage() {
     }
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout>;
+    const startedAt = Date.now();
 
     const poll = async () => {
-      const result = await getRelayDelivery(txHash);
+      const result = await getDelivery(txHash);
       if (cancelled) return;
       setDelivery(result);
-      if (result.status !== "minted") timer = setTimeout(poll, 5_000);
+      const settled =
+        result.status === "known" &&
+        (result.state === "delivered" || result.state === "failed" || result.state === "claimable");
+      if (!settled) timer = setTimeout(poll, Date.now() - startedAt < 120_000 ? 5_000 : 15_000);
     };
     void poll();
 
@@ -226,6 +357,26 @@ export default function HomePage() {
       clearTimeout(timer);
     };
   }, [txHash]);
+
+  // Ask whether Circle can carry this transfer before anyone is invited to sign it.
+  //
+  // A burn made while Circle is down is USDC the owner has to claim by hand, paying gas on a chain
+  // they may hold nothing on. Declining to start is free. Re-checked every minute while the page is
+  // open, and again immediately before signing.
+  useEffect(() => {
+    let cancelled = false;
+    const key = `${destId}:${recipientNeedsAccount}`;
+    const check = () =>
+      getCircleHealth(destId, recipientNeedsAccount).then((h) => {
+        if (!cancelled) setHealthState({ key, value: h });
+      });
+    void check();
+    const timer = setInterval(check, 60_000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [destId, recipientNeedsAccount]);
 
   // Read the wallet's USDC once it is connected.
   //
@@ -259,8 +410,9 @@ export default function HomePage() {
   // CCTP's mintRecipient on Solana is the TOKEN ACCOUNT, not the wallet. Resolve it as soon
   // as the typed address is valid, so the burn never carries a wallet address.
   useEffect(() => {
-    if (!destinationCheck.ok) {
+    if (!destinationCheck.ok || !dest.needsAccountResolution) {
       setRecipient(null);
+      setResolving(false);
       return;
     }
     let cancelled = false;
@@ -278,7 +430,22 @@ export default function HomePage() {
     return () => {
       cancelled = true;
     };
-  }, [destination, destinationCheck.ok]);
+  }, [destination, destinationCheck.ok, dest.needsAccountResolution]);
+
+  // What the burn names as the recipient. Solana: the resolved USDC token account, never the
+  // wallet. Arc: the address itself, left-padded — an EVM mint credits the address directly.
+  const mintRecipient = dest.needsAccountResolution
+    ? (recipient?.tokenAccountBytes ?? null)
+    : (destinationCheck.bytes ?? null);
+
+  function chooseDestination(id: DestinationId) {
+    if (id === destId) return;
+    // An address valid on one chain is never valid on the other, so carrying it over could only
+    // ever be a mistake waiting to be signed.
+    setDestId(id);
+    setDestination("");
+    setSubmitError(null);
+  }
 
   const connect = useCallback(async () => {
     if (!kit) return;
@@ -296,69 +463,100 @@ export default function HomePage() {
     balance !== null && quote !== null && balance < quote.amount ? quote.amount - balance : null;
 
   const ready =
-    Boolean(kit && address && quote && destinationCheck.ok && !blockedOnMissingAccount) &&
+    Boolean(kit && address && quote && destinationCheck.ok && isCctpRailConfigured) &&
+    quote?.forwarded === true &&
     shortfall === null &&
-    Boolean(recipient) &&
+    health?.status !== "down" &&
+    mintRecipient !== null &&
+    !recipientUnverified &&
     !submitting &&
     !quoting &&
     !resolving;
 
   async function bridge() {
-    if (!kit || !address || !quote || !recipient) return;
+    if (!kit || !address || !quote || !mintRecipient || !domainCfg) return;
     setSubmitting(true);
+    setSentTo(destId);
     setSubmitError(null);
     setTxHash(null);
     try {
-      // Circle's own minimum for this burn, read live — the min-fee controller can change it,
-      // so a hardcoded value would eventually revert with InsufficientMaxFee.
-      const circleMin = await getCircleMinFee(config, address, quote.netBurned);
-      const maxFee = circleMin + (circleMin * CIRCLE_FEE_BUFFER_BPS) / 10_000n;
+      // The check the page already ran may be a minute old. Ask again now that the user has
+      // committed, because this is the last moment declining costs nothing.
+      const fresh = await getCircleHealth(destId, recipientNeedsAccount);
+      setHealthState({ key: healthKey, value: fresh });
+      if (fresh?.status === "down") {
+        setSubmitError(
+          `Circle is not able to deliver to ${dest.name} right now, so nothing was sent. ${fresh.reasons[0] ?? ""}`.trim(),
+        );
+        return;
+      }
+      // With no relay, a transfer signed without a live delivery fee is one nobody can deliver.
+      if (!fresh?.quote) {
+        setSubmitError("We could not get Circle's delivery fee just now, so nothing was sent.");
+        return;
+      }
 
-      const common = {
+      const choice = chooseMaxFee({
+        quote: fresh.quote,
+        needsAccount: recipientNeedsAccount,
+        cfg: domainCfg,
+        destinationName: dest.name,
+      });
+      if (!choice.ok) {
+        setSubmitError(choice.reason);
+        return;
+      }
+
+      // Circle's fee drifts by a few percent over minutes. Price the transfer again at the fee about
+      // to be signed, and if the total went up, stop and show it instead of signing a number the user
+      // did not see. (The contract would refuse it anyway, via `max_wrapper_fee`, but as an error.)
+      const latest = await quoteBridge(
+        config,
+        address,
+        quote.amount,
+        recipientNeedsAccount,
+        choice.maxFee,
+      );
+      if (!latest.forwarded) {
+        setQuote(null);
+        setSubmitError(
+          `Automatic delivery to ${dest.name} is not available right now, so nothing was sent.`,
+        );
+        return;
+      }
+      if (latest.fee > quote.fee) {
+        setQuote(latest);
+        setSubmitError(
+          `Circle's delivery fee moved while you were reviewing: the fee is now ${formatUsdc(latest.fee)} USDC, was ${formatUsdc(quote.fee)}. Nothing was sent. Check the new total and confirm again.`,
+        );
+        return;
+      }
+
+      // The wrapper approves and burns inside one invocation, so this is one signature.
+      setStep("Confirm the transfer in your wallet");
+      const { txHash: hash } = await submitBridge(kit, {
         config,
         userAddress: address,
         amount: quote.amount,
-        // The TOKEN ACCOUNT, never the wallet address. Circle enforces
-        // recipient_token_account.key() == mint_recipient; a wallet address here strands
-        // the transfer permanently.
-        mintRecipient: recipient.tokenAccountBytes,
+        // Solana: the TOKEN ACCOUNT, never the wallet address. Circle enforces
+        // recipient_token_account.key() == mint_recipient; a wallet address here strands the
+        // transfer permanently. Arc: the address itself.
+        mintRecipient,
+        // When Circle creates the account it needs the wallet that will own it. The contract cannot
+        // check that `mintRecipient` is that wallet's token account (Soroban has no curve check), so
+        // the derivation happens here and Circle enforces it.
+        recipientOwner: recipientNeedsAccount ? (destinationCheck.bytes ?? null) : null,
         recipientNeedsAccount,
-        maxFee,
-        minFinalityThreshold: FAST_FINALITY_THRESHOLD,
+        maxFee: choice.maxFee,
+        minFinalityThreshold: STANDARD_FINALITY_THRESHOLD,
         ttlSeconds: REQUEST_TTL_SECONDS,
-      };
-
-      let hash: string;
-      if (isCctpRailConfigured) {
-        // The wrapper approves and burns inside one invocation, so this stays one signature.
-        setStep("Confirm the transfer in your wallet");
-        ({ txHash: hash } = await submitBridge(kit, {
-          ...common,
-          // Pin the fee the user was actually shown. If params change between quote and
-          // signing, the contract rejects rather than charging more than was displayed.
-          maxWrapperFee: quote.fee,
-        }));
-      } else {
-        // Direct mode needs two signatures: Circle pulls the principal with `transfer_from`,
-        // which consumes an allowance, and a Soroban transaction carries only one contract
-        // invocation — so approve and burn cannot be batched from the client.
-        const allowance = await getUsdcAllowance(config, address);
-        if (allowance < quote.netBurned) {
-          setStep("Step 1 of 2 — approve USDC in your wallet");
-          const approval = await approveUsdcForCctp(kit, config, address, quote.netBurned);
-          setStep("Waiting for the approval to confirm…");
-          await waitForTx(config, approval.txHash);
-        }
-        setStep("Step 2 of 2 — confirm the transfer in your wallet");
-        ({ txHash: hash } = await submitDirectBurn(kit, common));
-      }
+        // Pin the fee the user was actually shown. If it moves between quote and signing, the
+        // contract rejects rather than charging more than was displayed.
+        maxWrapperFee: quote.fee,
+      });
+      // The burn is on chain and irreversible from here. Circle attests it and its forwarding
+      // service mints on the destination; the effect above watches for the outcome.
       setTxHash(hash);
-
-      // The burn is on chain and irreversible from here. Telling the relay is what gets the
-      // mint paid for; if it fails the transfer is still fine, it just needs claiming from
-      // /recover, so this runs after the receipt is already on screen and never throws.
-      setHandoff(null);
-      setHandoff(await handOffToRelay(hash));
     } catch (err) {
       setSubmitError(reportError("transfer failed", err));
     } finally {
@@ -385,27 +583,31 @@ export default function HomePage() {
             <span className="text-bone/45">One signature.</span>
           </h1>
           <p className="mt-6 max-w-[36ch] text-[0.9375rem] leading-relaxed text-bone/45">
-            Circle burns your USDC on Stellar and mints the same dollars on Solana. No wrapped
-            asset, no bridge token, and nobody holds your funds in between.
+            Circle burns your USDC on Stellar and mints the same dollars on{" "}
+            {env.arcEnabled ? "Solana or Arc" : "Solana"}. No wrapped asset, no bridge token, and
+            nobody holds your funds in between.
           </p>
         </Reveal>
 
         {!isCctpRailConfigured && (
           <Reveal delay={80} className="mt-10">
-            <DirectModeNotice />
+            <Notice tone="alarm" title="Bridging is not available yet">
+              The bridge contract is not configured for this deployment, so no transfer can be
+              started. Nothing has been sent.
+            </Notice>
           </Reveal>
         )}
 
         <Reveal delay={140} className="mt-12">
           <GlassCard id="bridge" labelledBy="bridge-heading" className="scroll-mt-24">
             <h2 id="bridge-heading" className="sr-only">
-              Bridge USDC from Stellar to Solana
+              Bridge USDC from Stellar to {dest.name}
             </h2>
 
             <div className="px-5 py-5 sm:px-6">
               <RouteTrack
                 from="stellar"
-                to="solana"
+                to={destId}
                 active={submitting}
                 fromDetail={
                   address ? (
@@ -426,7 +628,7 @@ export default function HomePage() {
               <Field
                 id="amount"
                 label="You send"
-                error={amountError}
+                error={amountProblem}
                 trailing={
                   <div className="flex items-center gap-1">
                     {QUICK_AMOUNTS.map((preset) => (
@@ -447,9 +649,9 @@ export default function HomePage() {
                     autoComplete="off"
                     value={amountInput}
                     onChange={(e) => setAmountInput(e.target.value)}
-                    invalid={Boolean(amountError)}
-                    aria-invalid={amountError ? "true" : undefined}
-                    aria-describedby={amountError ? "amount-error" : undefined}
+                    invalid={Boolean(amountProblem)}
+                    aria-invalid={amountProblem ? "true" : undefined}
+                    aria-describedby={amountProblem ? "amount-error" : undefined}
                     className="tabular h-16 pr-24 text-[1.75rem] font-medium tracking-[-0.02em]"
                   />
                   <span className="pointer-events-none absolute right-5 top-1/2 -translate-y-1/2 text-[0.8125rem] font-medium tracking-[0.02em] text-bone/35">
@@ -458,9 +660,23 @@ export default function HomePage() {
                 </div>
               </Field>
 
+              {destinations.length > 1 && (
+                <div className="mt-6">
+                  <span className="mb-2.5 block text-eyebrow font-medium uppercase text-bone/40">
+                    Send to
+                  </span>
+                  <DestinationPicker
+                    options={destinations}
+                    value={destId}
+                    onChange={chooseDestination}
+                    disabled={submitting || Boolean(txHash)}
+                  />
+                </div>
+              )}
+
               <Field
                 id="destination"
-                label="Solana address"
+                label={dest.addressLabel}
                 className="mt-6"
                 error={destinationCheck.error}
                 hint="Check this carefully. A CCTP transfer cannot be reversed or refunded once signed."
@@ -471,7 +687,7 @@ export default function HomePage() {
                   autoComplete="off"
                   value={destination}
                   onChange={(e) => setDestination(e.target.value)}
-                  placeholder="Recipient wallet"
+                  placeholder={dest.addressPlaceholder}
                   invalid={Boolean(destinationCheck.error)}
                   aria-invalid={destinationCheck.error ? "true" : undefined}
                   aria-describedby={
@@ -481,19 +697,22 @@ export default function HomePage() {
                 />
               </Field>
 
-              <RecipientPanel
-                resolving={resolving}
-                recipient={recipient}
-                accountFee={quote?.accountFee ?? null}
-                sponsored={isCctpRailConfigured}
-                addressValid={destinationCheck.ok}
-              />
+              {dest.needsAccountResolution ? (
+                <RecipientPanel
+                  resolving={resolving}
+                  recipient={recipient}
+                  addressValid={destinationCheck.ok}
+                />
+              ) : (
+                <ArcRecipientPanel address={destination.trim()} valid={destinationCheck.ok} />
+              )}
 
               <QuotePanel
                 quote={quote}
                 loading={quoting}
                 error={quoteError}
                 hasAddress={Boolean(address)}
+                destinationName={dest.name}
               />
 
               {shortfall !== null && (
@@ -520,8 +739,31 @@ export default function HomePage() {
                 </Notice>
               )}
 
+              {!txHash && health?.status === "down" && (
+                <Notice
+                  tone="alarm"
+                  title={`Circle is not delivering to ${dest.name} right now`}
+                  className="mt-5"
+                >
+                  <p>{health.reasons[0]}</p>
+                  <p className="mt-1.5 text-bone/35">
+                    Bridging is paused so your USDC is not burned into a transfer nobody can
+                    complete. This page checks again every minute.
+                  </p>
+                </Notice>
+              )}
+              {!txHash && health?.status === "degraded" && (
+                <p className="mt-5 text-[0.75rem] leading-relaxed text-bone/40">
+                  {health.reasons[0]}. You can still bridge.
+                </p>
+              )}
+
               {txHash ? (
-                <SubmittedNotice txHash={txHash} handoff={handoff} delivery={delivery} />
+                <SubmittedNotice
+                  txHash={txHash}
+                  delivery={delivery}
+                  destination={DESTINATIONS[sentTo]}
+                />
               ) : (
                 <Button
                   size="lg"
@@ -583,11 +825,13 @@ function QuotePanel({
   loading,
   error,
   hasAddress,
+  destinationName,
 }: {
   quote: BridgeQuote | null;
   loading: boolean;
   error: string | null;
   hasAddress: boolean;
+  destinationName: string;
 }) {
   if (!hasAddress) {
     return (
@@ -626,21 +870,25 @@ function QuotePanel({
     <InsetTray className="mt-6">
       <dl className="tabular space-y-3">
         <DataRow label="Amount" value={`${formatUsdc(quote.amount)} USDC`} />
-        <DataRow label="Xebra fee" value={`−${formatUsdc(quote.fee)} USDC`} />
+        <DataRow
+          label="Fee"
+          value={`−${formatUsdc(quote.fee)} USDC`}
+          hint={`Includes Circle's delivery to ${destinationName}${quote.accountCreated ? ", and opening the recipient's USDC account" : ""}. Nothing more to pay on ${destinationName}.`}
+        />
         {quote.remainder > 0n && (
           <DataRow
             label="Not sent"
             value={`${formatUsdc(quote.remainder)} USDC`}
-            hint="Below Solana's smallest USDC unit, so it stays in your wallet."
+            hint={`Below USDC's smallest unit on ${destinationName}, so it stays in your wallet.`}
           />
         )}
         <div className="pt-3">
           <StripeRule className="mb-3 opacity-50" />
           <DataRow
             label="Recipient gets"
-            value={`${formatUsdc(quote.netBurned)} USDC`}
+            value={`${formatUsdc(quote.netBurned - quote.forwardFee)} USDC`}
             emphasis
-            hint="Before Circle's network fee, charged on delivery."
+            hint="After every fee."
           />
         </div>
       </dl>
@@ -650,19 +898,19 @@ function QuotePanel({
 
 function SubmittedNotice({
   txHash,
-  handoff,
   delivery,
+  destination,
 }: {
   txHash: string;
-  handoff: RelayHandoff | null;
-  delivery: RelayDelivery | null;
+  delivery: DeliveryView | null;
+  destination: Destination;
 }) {
   return (
     <div className="mt-6">
       <Notice tone="signal" title="Burn submitted">
-        Circle attests the transfer, then it is minted on Solana. This usually takes under a minute.
-        Your funds are claimable by anyone with the attestation, including you, if our relay is
-        unavailable.
+        Circle attests the transfer, then delivers it to {destination.name}. This usually takes a
+        few minutes. If delivery ever fails, your USDC is still yours: anyone holding Circle&rsquo;s
+        attestation can complete the mint, and you can do it yourself.
       </Notice>
       <InsetTray className="mt-2.5 py-3">
         <div className="flex items-center gap-3">
@@ -671,49 +919,49 @@ function SubmittedNotice({
           </span>
           <CopyButton value={txHash} label="transaction hash" />
         </div>
-        <HandoffStatus handoff={handoff} delivery={delivery} txHash={txHash} />
+        <DeliveryStatus delivery={delivery} txHash={txHash} destination={destination} />
       </InsetTray>
     </div>
   );
 }
 
+const claimLink =
+  "text-bone/70 underline decoration-bone/25 underline-offset-[3px] transition-colors duration-200 ease-haptic hover:text-bone hover:decoration-bone/50";
+
 /**
- * Whether anyone is paying for the mint yet.
+ * Where the transfer is, in Circle's words.
  *
- * Worth its own line because the two outcomes ask different things of the reader. Queued means
- * do nothing. Unavailable means the dollars are waiting and one more signature collects them —
- * which the receipt above already promises, so the link has to actually be here rather than
- * left as an idea.
+ * Three outcomes ask different things of the reader. Waiting and forwarding mean do nothing.
+ * Delivered links to the destination transaction. Failed and claimable mean the dollars are burned
+ * and one more signature from the owner collects them, so the link has to be here rather than left
+ * as an idea. There is no relay to fall back on: a failed forward is the owner's to claim, and the
+ * page says so plainly.
  *
- * The reason string is shown rather than smoothed into "something went wrong": whoever reads it
- * is about to either wait or click through to /recover, and "no relay is configured" and "relay
- * returned 503" call for different amounts of patience.
+ * `unknown` is its own line. Not being able to ask is not progress and not failure.
  */
-function HandoffStatus({
-  handoff,
+function DeliveryStatus({
   delivery,
   txHash,
+  destination,
 }: {
-  handoff: RelayHandoff | null;
-  delivery: RelayDelivery | null;
+  delivery: DeliveryView | null;
   txHash: string;
+  destination: Destination;
 }) {
   const line = "mt-2.5 flex items-center gap-2 border-t border-bone/[0.06] pt-2.5 text-[0.75rem]";
 
-  // Delivery outranks the handoff, because it is the question the user actually has. The handoff
-  // only describes whether one request succeeded; this describes whether the money arrived.
-  if (delivery?.status === "minted") {
+  if (delivery?.status === "known" && delivery.state === "delivered") {
     return (
       <div className={`${line} text-bone/45`}>
         <span className="h-1 w-1 shrink-0 rounded-full bg-signal" />
         <span>
-          Minted on Solana.{" "}
-          {delivery.signature ? (
+          Delivered to {destination.name}.{" "}
+          {delivery.forwardTxHash ? (
             <a
-              href={`https://solscan.io/tx/${delivery.signature}`}
+              href={destination.explorerTxUrl(delivery.forwardTxHash)}
               target="_blank"
               rel="noreferrer"
-              className="text-bone/70 underline decoration-bone/25 underline-offset-[3px] transition-colors duration-200 ease-haptic hover:text-bone hover:decoration-bone/50"
+              className={claimLink}
             >
               View it
             </a>
@@ -723,42 +971,47 @@ function HandoffStatus({
     );
   }
 
-  // Everything that is not a settled failure is one pending state, deliberately.
-  //
-  // The handoff has several internal outcomes — request in flight, accepted, or refused because
-  // the burn is too fresh for Horizon to have indexed — and none of them are distinctions a user
-  // has any use for. An earlier version surfaced the last one as "No relay picked this up", which
-  // was true for about sixty seconds and sent someone to pay their own gas for a mint already on
-  // its way. From here there is one honest answer until the mint lands: it is coming.
-  const settledFailure = handoff?.status === "unavailable" && delivery?.status !== "pending";
+  if (
+    delivery?.status === "known" &&
+    (delivery.state === "failed" || delivery.state === "claimable")
+  ) {
+    return (
+      <div className="mt-2.5 border-t border-bone/[0.06] pt-2.5 text-[0.75rem] leading-relaxed text-bone/45">
+        <p className="flex items-center gap-2">
+          <span className="h-1 w-1 shrink-0 rounded-full bg-alarm" />
+          {delivery.state === "failed"
+            ? `Circle could not deliver this to ${destination.name}${delivery.reason ? ` (${delivery.reason})` : ""}.`
+            : `This transfer was not set up for automatic delivery to ${destination.name}.`}
+        </p>
+        <p className="mt-1.5 pl-3">
+          Your USDC is burned and still yours: Circle&rsquo;s attestation is public and does not
+          expire for a transfer like this, so it can be minted by anyone holding it.{" "}
+          <a href={`/claim?tx=${encodeURIComponent(txHash)}`} className={claimLink}>
+            Claim it yourself
+          </a>{" "}
+          — you pay the {destination.name} gas, {destination.claimCost}.
+        </p>
+      </div>
+    );
+  }
 
-  if (!settledFailure) {
+  if (delivery?.status === "unknown") {
     return (
       <p className={`${line} text-bone/45`}>
-        <span className="h-1 w-1 shrink-0 rounded-full bg-signal animate-breathe" />
-        Waiting for the relay to mint — usually under a minute.
+        <span className="h-1 w-1 shrink-0 rounded-full bg-bone/30" />
+        We cannot read Circle&rsquo;s status right now. Your transfer is not affected; check{" "}
+        {destination.name} for the USDC, or try again shortly.
       </p>
     );
   }
 
   return (
-    <div className="mt-2.5 border-t border-bone/[0.06] pt-2.5 text-[0.75rem] leading-relaxed text-bone/45">
-      <p className="flex items-center gap-2">
-        <span className="h-1 w-1 shrink-0 rounded-full bg-alarm" />
-        No relay picked this up — {handoff.reason}.
-      </p>
-      <p className="mt-1.5 pl-3">
-        Your USDC is burned and still claimable: Circle&rsquo;s attestation is public and never
-        expires, so anyone holding it can complete the mint.{" "}
-        <a
-          href={`/claim?tx=${encodeURIComponent(txHash)}`}
-          className="text-bone/70 underline decoration-bone/25 underline-offset-[3px] transition-colors duration-200 ease-haptic hover:text-bone hover:decoration-bone/50"
-        >
-          Claim it yourself
-        </a>{" "}
-        — you pay the Solana gas, roughly 0.001 SOL, which is what we would have paid.
-      </p>
-    </div>
+    <p className={`${line} text-bone/45`}>
+      <span className="h-1 w-1 shrink-0 rounded-full bg-signal animate-breathe" />
+      {delivery?.status === "known" && delivery.state === "forwarding"
+        ? `Circle is delivering to ${destination.name}.`
+        : "Waiting for Circle to attest the transfer."}
+    </p>
   );
 }
 
@@ -808,7 +1061,7 @@ function Assurances() {
   const items = [
     { icon: Vault, title: "Non-custodial", body: "Funds move contract to contract." },
     { icon: Fingerprint, title: "Circle-attested", body: "Each burn carries its own proof." },
-    { icon: Spark, title: "Under a minute", body: "Fast Transfer on every burn." },
+    { icon: Spark, title: "Delivered for you", body: "Circle mints it. Usually a few minutes." },
   ];
 
   return (
@@ -826,16 +1079,23 @@ function Assurances() {
   );
 }
 
-function DirectModeNotice() {
+/**
+ * Arc's counterpart of `RecipientPanel`, and much smaller because there is less to resolve.
+ *
+ * Nothing needs looking up — an Arc mint credits the address directly — so this only shows the
+ * one thing worth a second look before a burn nobody can undo: the address exactly as it will be
+ * used, in its checksummed form. A typo that survives validation shows up as a different string
+ * here, in a different case pattern, which is easier to notice than in the box it was typed into.
+ */
+function ArcRecipientPanel({ address, valid }: { address: string; valid: boolean }) {
+  if (!valid) return null;
   return (
-    <Notice tone="info" title="Direct mode — no Xebra fee">
-      Transfers go straight through Circle&apos;s CCTP contract, so this is a real bridge and costs
-      you nothing beyond Circle&apos;s own network fee. It takes{" "}
-      <strong className="font-medium text-bone/75">two wallet signatures</strong>: Circle pulls your
-      USDC with <code className="font-mono text-[0.75rem] text-bone/65">transfer_from</code>, which
-      needs an approval first, and a Soroban transaction carries only one contract call. Deploying
-      Xebra&apos;s contract collapses it to one signature and adds the fee.
-    </Notice>
+    <InsetTray className="mt-3 py-3">
+      <p className="text-xs text-bone/40">USDC will be minted to this Arc address</p>
+      <p className="tabular mt-1.5 break-all font-mono text-xs text-bone/70">
+        {getAddress(address)}
+      </p>
+    </InsetTray>
   );
 }
 
@@ -854,16 +1114,10 @@ function DirectModeNotice() {
 function RecipientPanel({
   resolving,
   recipient,
-  accountFee,
-  sponsored,
   addressValid,
 }: {
   resolving: boolean;
   recipient: RecipientResolution | null;
-  /** The surcharge the quote added for creating the account, or null before a quote exists. */
-  accountFee: bigint | null;
-  /** Whether anyone is paying that rent. Without the wrapper, nobody is. */
-  sponsored: boolean;
   addressValid: boolean;
 }) {
   if (!addressValid) return null;
@@ -872,34 +1126,14 @@ function RecipientPanel({
     return <p className="mt-3 text-[0.8125rem] text-bone/40">Checking the recipient account…</p>;
   }
 
-  // A missing account is a surcharge, not a wall — we create it during delivery and the quote
-  // already includes what that costs. It only blocks in direct mode, where there is no fee and so
-  // nobody to pay the rent.
+  // A missing account is a price, not a wall: Circle opens it while delivering, and its fee for that
+  // is already inside the fee shown above.
   if (recipient.status === "missing") {
-    if (!sponsored) {
-      return (
-        <Notice tone="alarm" title="This wallet has no USDC account on Solana yet" className="mt-3">
-          USDC can only be delivered to a token account, and this wallet does not have one.
-          Receiving any USDC on Solana once will create it. Burning now would leave the transfer
-          unmintable until somebody creates the account.
-          <p className="mt-2 break-all font-mono text-[0.75rem] text-bone/40">
-            {recipient.tokenAccount}
-          </p>
-        </Notice>
-      );
-    }
     return (
-      <Notice tone="info" title="We will open this wallet's USDC account" className="mt-3">
-        First transfer to this wallet, so its USDC account does not exist yet. We create it as part
-        of delivery
-        {accountFee !== null && accountFee > 0n ? (
-          <>
-            {" "}
-            for <span className="tabular">{formatUsdc(accountFee)}</span> USDC, already included in
-            the fee above
-          </>
-        ) : null}
-        . Nothing extra for you to do, and it is a one-off — later transfers to this wallet skip it.
+      <Notice tone="info" title="Circle will open this wallet's USDC account" className="mt-3">
+        First transfer to this wallet, so its USDC account does not exist yet. Circle creates it as
+        part of delivery, and the fee above already covers that. It is a one-off — later transfers
+        skip it. To move the USDC on afterwards, the wallet will need a little SOL for network fees.
         <p className="mt-2 break-all font-mono text-[0.75rem] text-bone/40">
           {recipient.tokenAccount}
         </p>
@@ -907,14 +1141,15 @@ function RecipientPanel({
     );
   }
 
-  // A failed lookup must not read as "no account" — that mistake blocked a wallet that
-  // plainly held USDC. Say what is actually known and let the user decide.
+  // A failed lookup must not read as "no account" (that blocked a wallet that plainly held USDC),
+  // and it must not read as "has one" either: the price and the delivery both depend on which it
+  // is, so the transfer waits until the lookup succeeds.
   if (recipient.status === "unknown") {
     return (
-      <Notice tone="info" title="Could not verify the recipient account" className="mt-3">
-        The Solana lookup failed{recipient.reason ? `: ${recipient.reason}` : ""}. The account below
-        is where the USDC will be delivered — confirm it holds USDC already before continuing,
-        because CCTP will not create it.
+      <Notice tone="info" title="Could not check the recipient account" className="mt-3">
+        The Solana lookup failed{recipient.reason ? `: ${recipient.reason}` : ""}. Bridging stays
+        off until it succeeds, because whether this wallet already has a USDC account changes what
+        delivery costs. Change the address or wait a moment and it will retry.
         <p className="mt-2 break-all font-mono text-[0.75rem] text-bone/40">
           {recipient.tokenAccount}
         </p>

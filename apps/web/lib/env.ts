@@ -55,6 +55,7 @@ const RAW = {
   NEXT_PUBLIC_SOLANA_CCTP_DOMAIN_ID: process.env.NEXT_PUBLIC_SOLANA_CCTP_DOMAIN_ID,
   NEXT_PUBLIC_SOLANA_RPC_URL: process.env.NEXT_PUBLIC_SOLANA_RPC_URL,
   NEXT_PUBLIC_SOLANA_USDC_MINT: process.env.NEXT_PUBLIC_SOLANA_USDC_MINT,
+  NEXT_PUBLIC_ARC_ENABLED: process.env.NEXT_PUBLIC_ARC_ENABLED,
   NEXT_PUBLIC_STELLAR_ESCROW_CONTRACT_ID: process.env.NEXT_PUBLIC_STELLAR_ESCROW_CONTRACT_ID,
   NEXT_PUBLIC_STELLAR_CCTP_WRAPPER_CONTRACT_ID:
     process.env.NEXT_PUBLIC_STELLAR_CCTP_WRAPPER_CONTRACT_ID,
@@ -114,6 +115,16 @@ export const env = {
   solanaRpcUrl: required("NEXT_PUBLIC_SOLANA_RPC_URL"),
   /** USDC mint on the destination chain, for deriving the recipient token account. */
   usdcSolanaMint: required("NEXT_PUBLIC_SOLANA_USDC_MINT"),
+  /**
+   * Whether Arc is offered as a destination. Off unless set to exactly `1`.
+   *
+   * A switch and not an inference, because two things outside this bundle have to be true first:
+   * the wrapper's admin must have committed domain 26 (`propose_domain`, then `commit_domain`
+   * after the 48-hour timelock), and the relay must hold an Arc key. Offering Arc before either
+   * would let someone sign a transfer the contract rejects, or burn one nobody sponsors. The
+   * flag is flipped when both are done, by the person who did them.
+   */
+  arcEnabled: optional("NEXT_PUBLIC_ARC_ENABLED") === "1",
   /**
    * Intent/swap-rail only, which is out of scope: the product is a USDC bridge over CCTP.
    * Optional so a mainnet build is not blocked on deploying an escrow the product does not

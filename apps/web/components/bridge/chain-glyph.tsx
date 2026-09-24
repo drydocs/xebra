@@ -6,10 +6,10 @@ import { cn } from "../ui/cn";
  * Dropping each project's official logo into the route would put three different stroke
  * weights and two brand colours inside a monochrome plate. These are abstractions at the
  * same 1.4 stroke as the rest of the icon set, inheriting `currentColor` — recognisable in
- * place (Solana's slanted bars, a stellar four-point spark) without importing anyone's
- * brand palette.
+ * place (Solana's slanted bars, a stellar four-point spark, Arc's nested arch) without
+ * importing anyone's brand palette.
  */
-export type Chain = "stellar" | "solana";
+export type Chain = "stellar" | "solana" | "arc";
 
 export function ChainGlyph({ chain, className }: { chain: Chain; className?: string }) {
   return (
@@ -27,6 +27,11 @@ export function ChainGlyph({ chain, className }: { chain: Chain; className?: str
         <>
           <path d="M12 3.5c.6 4.4 3.5 7.3 7.9 8-4.4.7-7.3 3.6-7.9 8-.6-4.4-3.5-7.3-7.9-8 4.4-.7 7.3-3.6 7.9-8Z" />
         </>
+      ) : chain === "arc" ? (
+        <>
+          <path d="M4 18.5a8 8 0 0 1 16 0" />
+          <path d="M8.2 18.5a3.8 3.8 0 0 1 7.6 0" opacity="0.45" />
+        </>
       ) : (
         <>
           <path d="M6.6 7.4h11.2l-2.6 2.6H4z" />
@@ -41,4 +46,5 @@ export function ChainGlyph({ chain, className }: { chain: Chain; className?: str
 export const CHAIN_NAMES: Record<Chain, string> = {
   stellar: "Stellar",
   solana: "Solana",
+  arc: "Arc",
 };

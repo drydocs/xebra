@@ -95,6 +95,18 @@ export function loadNetworkConfig(env: EnvLike = process.env): NetworkConfig {
       ),
       usdcAddress: pick("SOLANA_USDC_ADDRESS", preset.solana.usdcAddress),
     },
+    arc: {
+      chainId: Number(pick("ARC_CHAIN_ID", String(preset.arc.chainId))),
+      rpcUrl: pick("ARC_RPC_URL", preset.arc.rpcUrl),
+      cctpDomainId: Number(pick("ARC_CCTP_DOMAIN_ID", String(preset.arc.cctpDomainId))),
+      tokenMessengerAddress: pick("ARC_TOKEN_MESSENGER_ADDRESS", preset.arc.tokenMessengerAddress),
+      messageTransmitterAddress: pick(
+        "ARC_MESSAGE_TRANSMITTER_ADDRESS",
+        preset.arc.messageTransmitterAddress,
+      ),
+      usdcAddress: pick("ARC_USDC_ADDRESS", preset.arc.usdcAddress),
+      explorerUrl: pick("ARC_EXPLORER_URL", preset.arc.explorerUrl),
+    },
     irisBaseUrl: pick("IRIS_BASE_URL", preset.irisBaseUrl),
     overrides: [],
   };
@@ -112,7 +124,7 @@ export function loadNetworkConfig(env: EnvLike = process.env): NetworkConfig {
  */
 export function validate(config: NetworkConfig): string[] {
   const problems: string[] = [];
-  const { stellar, solana, irisBaseUrl } = config;
+  const { stellar, solana, arc, irisBaseUrl } = config;
   const pinned = PRESETS.mainnet;
 
   // 1. The passphrase is the authoritative network fingerprint.
@@ -128,10 +140,12 @@ export function validate(config: NetworkConfig): string[] {
     ["SOROBAN_RPC_URL", stellar.sorobanRpcUrl],
     ["HORIZON_URL", stellar.horizonUrl],
     ["SOLANA_RPC_URL", solana.rpcUrl],
+    ["ARC_RPC_URL", arc.rpcUrl],
     ["IRIS_BASE_URL", irisBaseUrl],
     ["STELLAR_TOKEN_MESSENGER_ADDRESS", stellar.tokenMessengerAddress],
     ["STELLAR_USDC_ADDRESS", stellar.usdcAddress],
     ["SOLANA_USDC_ADDRESS", solana.usdcAddress],
+    ["ARC_USDC_ADDRESS", arc.usdcAddress],
   ];
   for (const [name, value] of endpoints) {
     const marker = NON_MAINNET_MARKERS.find((m) => value.toLowerCase().includes(m));
@@ -148,6 +162,13 @@ export function validate(config: NetworkConfig): string[] {
     ],
     ["STELLAR_USDC_ADDRESS", stellar.usdcAddress, pinned.stellar.usdcAddress],
     ["SOLANA_USDC_ADDRESS", solana.usdcAddress, pinned.solana.usdcAddress],
+    ["ARC_TOKEN_MESSENGER_ADDRESS", arc.tokenMessengerAddress, pinned.arc.tokenMessengerAddress],
+    [
+      "ARC_MESSAGE_TRANSMITTER_ADDRESS",
+      arc.messageTransmitterAddress,
+      pinned.arc.messageTransmitterAddress,
+    ],
+    ["ARC_USDC_ADDRESS", arc.usdcAddress, pinned.arc.usdcAddress],
   ];
   for (const [name, actual, expected] of mustMatch) {
     if (actual !== expected) {
@@ -165,6 +186,9 @@ export function validate(config: NetworkConfig): string[] {
     ["SOLANA_TOKEN_MESSENGER_ADDRESS", solana.tokenMessengerAddress],
     ["SOLANA_MESSAGE_TRANSMITTER_ADDRESS", solana.messageTransmitterAddress],
     ["SOLANA_USDC_ADDRESS", solana.usdcAddress],
+    ["ARC_TOKEN_MESSENGER_ADDRESS", arc.tokenMessengerAddress],
+    ["ARC_MESSAGE_TRANSMITTER_ADDRESS", arc.messageTransmitterAddress],
+    ["ARC_USDC_ADDRESS", arc.usdcAddress],
   ];
   for (const [name, value] of required) {
     if (!value) problems.push(`${name} is empty`);
@@ -181,6 +205,15 @@ export function validate(config: NetworkConfig): string[] {
     problems.push(
       `SOLANA_CCTP_DOMAIN_ID must be ${pinned.solana.cctpDomainId}, got ${solana.cctpDomainId}`,
     );
+  }
+
+  if (arc.cctpDomainId !== pinned.arc.cctpDomainId) {
+    problems.push(`ARC_CCTP_DOMAIN_ID must be ${pinned.arc.cctpDomainId}, got ${arc.cctpDomainId}`);
+  }
+  // The chain id is what a signed Arc transaction is bound to. A wrong one either fails to
+  // broadcast or, worse, is valid on a different EVM chain the same key controls.
+  if (arc.chainId !== pinned.arc.chainId) {
+    problems.push(`ARC_CHAIN_ID must be ${pinned.arc.chainId}, got ${arc.chainId}`);
   }
 
   // 6. Iris has separate production and sandbox deployments; attesting against the wrong one

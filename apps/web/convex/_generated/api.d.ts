@@ -8,10 +8,7 @@
  * @module
  */
 
-import type * as crons from "../crons.js";
-import type * as cursors from "../cursors.js";
-import type * as jobs from "../jobs.js";
-import type * as relay from "../relay.js";
+import type * as irisBudget from "../irisBudget.js";
 
 import type {
   ApiFromModules,
@@ -20,10 +17,7 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
-  crons: typeof crons;
-  cursors: typeof cursors;
-  jobs: typeof jobs;
-  relay: typeof relay;
+  irisBudget: typeof irisBudget;
 }>;
 
 /**

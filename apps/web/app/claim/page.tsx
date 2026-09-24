@@ -4,28 +4,31 @@ import { useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useState } from "react";
 import { Notice } from "../../components/ui/notice";
 import { browserConnection, prepareClaim } from "../../lib/claim";
+import type { ArcClaimTarget } from "../../lib/claim-arc";
 import { reportError } from "../../lib/format-error";
+import { ArcClaim } from "./arc-claim";
 
 /**
- * Completes a transfer from the user's own wallet, without the relay.
+ * Completes a transfer from the user's own wallet, when Circle's forwarding did not.
  *
  * # Why this page is the point
  *
  * The product promises funds cannot hang: once Circle attests a burn, the `(message, attestation)`
  * pair is public and anyone can submit `receiveMessage` to mint to the recipient. Before this page
- * that was true and unusable — if the relay was down the receipt told you to keep your hash and
- * wait for a human to run a script, which made our uptime your risk rather than your convenience.
+ * that was true and unusable — if delivery failed the receipt told you to keep your hash and wait
+ * for a human to run a script, which made our uptime your risk rather than your convenience.
+ * There is no relay any more: a forward that fails is claimed here, by the owner.
  *
  * Distinct from `/recover`, which countersigns a transaction the relayer partly signed, for a burn
  * addressed to a wallet instead of a token account. That is a rescue from a specific past bug.
- * This is the ordinary path when nobody sponsored your mint.
+ * This is the path when a forward failed or was never requested.
  *
  * # What it costs the person clicking
  *
  * The transaction fee plus 867,621 lamports of permanent `used_nonce` rent — about 0.0009 SOL —
  * and roughly 0.002 SOL more if the recipient has no USDC account yet. None of it is recoverable
- * by anyone. That is exactly the cost the relay absorbs, stated rather than hidden, because the
- * person paying it is about to approve it in a wallet prompt that will not explain it.
+ * by anyone. That is what Circle's delivery fee normally covers, stated rather than hidden, because
+ * the person paying it is about to approve it in a wallet prompt that will not explain it.
  */
 
 type PhantomProvider = {
@@ -50,6 +53,10 @@ type Attestation =
       attestation: string;
       usdcMint: string;
       sourceDomainId: number;
+      /** Read from the message itself, so it is the destination Circle will enforce. */
+      destinationDomain: number;
+      /** Present only for an Arc-bound message. */
+      arc?: ArcClaimTarget;
     }
   | { status: "pending" }
   | { status: "unknown"; reason?: string };
@@ -161,7 +168,7 @@ function Claim() {
         <p className="mt-3 text-[0.8125rem] leading-relaxed text-bone/50">
           Circle&rsquo;s attestation for a burn is public and never expires, so anyone holding it
           can complete the mint — including you, and including transfers that are not yours. Use
-          this when nobody sponsored your mint.
+          this when Circle&rsquo;s automatic delivery failed.
         </p>
       </header>
 
@@ -205,11 +212,20 @@ function Claim() {
         </Notice>
       )}
 
-      {attestation?.status === "complete" && !signature && (
+      {attestation?.status === "complete" && attestation.arc && (
+        <ArcClaim
+          message={attestation.message as `0x${string}`}
+          attestation={attestation.attestation as `0x${string}`}
+          target={attestation.arc}
+        />
+      )}
+
+      {attestation?.status === "complete" && !attestation.arc && !signature && (
         <>
           <Notice tone="signal" title="Attested and claimable">
             The funds are waiting. Submitting the mint costs you the Solana fee and about 0.0009 SOL
-            of account rent, which nobody can reclaim — this is the cost our relay normally absorbs.
+            of account rent, which nobody can reclaim — this is the cost Circle&rsquo;s delivery fee
+            normally covers.
           </Notice>
 
           <section className="rounded-tray bg-bone/[0.03] px-4 py-4">

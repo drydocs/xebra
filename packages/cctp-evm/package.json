@@ -1,5 +1,5 @@
 {
-  "name": "@xebra/cctp-solana",
+  "name": "@xebra/cctp-evm",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -17,7 +17,7 @@
     "clean": "rm -rf dist .turbo"
   },
   "dependencies": {
-    "@solana/web3.js": "^1.95.0"
+    "viem": "^2.21.0"
   },
   "devDependencies": {
     "typescript": "^5.7.0",
