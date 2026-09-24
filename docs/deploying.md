@@ -63,8 +63,19 @@ npx convex env set SOLANA_RPC_URL       "https://api.mainnet-beta.solana.com"
 npx convex env set SOLANA_USDC_MINT     "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
 ```
 
+To also mint on Arc, give the relay an Arc key. Without it the relay serves Solana only, and a
+burn addressed to Arc retries with a readable error until the key appears:
+
+```bash
+npx convex env set RELAY_ARC_PRIVATE_KEY "<32-byte hex private key>"
+```
+
+Fund that address with USDC on Arc — USDC is Arc's gas token, and a mint costs well under a cent.
+`docs/go-live.md` has the full order of operations, including the on-chain step that must come
+first.
+
 Optional, each defaulting to the pinned mainnet constant: `IRIS_BASE_URL`, `HORIZON_URL`,
-`SOROBAN_RPC_URL`, `STELLAR_CCTP_DOMAIN_ID`, `RELAY_SUBMIT_TOKEN`. Two more are needed only once
+`SOROBAN_RPC_URL`, `STELLAR_CCTP_DOMAIN_ID`, `ARC_RPC_URL`, `RELAY_SUBMIT_TOKEN`. Two more are needed only once
 the wrapper contract is deployed, and the burn watcher stays off until both are set:
 `STELLAR_CCTP_WRAPPER_CONTRACT_ID` and `SOROBAN_START_LEDGER`.
 

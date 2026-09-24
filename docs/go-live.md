@@ -104,6 +104,45 @@ Taking a fee for moving other people's money is a regulated activity in most jur
 "anyone can connect their wallet" is the version that attracts attention. That question is
 outside what this repo can answer and worth settling before launch rather than after.
 
+## Turning on Arc
+
+Stellar → Arc runs over the same wrapper and the same fee schedule as Solana. Every part of it is
+built and tested; what remains needs a key or a decision. **Nothing here has moved real money yet.**
+
+What was verified against the live chains (`pnpm check:arc` repeats it, read-only): Arc is chain
+5042; its TokenMessengerV2 holds Stellar's messenger as domain 27 and Stellar's holds Arc's as
+domain 26, byte for byte; Arc's minter maps Stellar USDC to `0x3600…0000`, a 6-decimal ERC-20;
+Iris prices `27 → 26` for both Fast and Standard.
+
+In this order, because each step depends on the one before:
+
+1. **Commit domain 26 on the wrapper.** Only domain 5 is allowed today (`get_domains` →
+   `[{"domain":5,"evm_style":false}]`), so an Arc burn would revert with `DomainNotAllowed`. As
+   `ADMIN`: `propose_domain` with `{"domain":26,"evm_style":true}`, wait out the 48-hour timelock,
+   then `commit_domain`. `evm_style: true` is what makes the contract insist on a left-padded
+   20-byte recipient. No redeploy.
+2. **Give the relay an Arc wallet.** Generate a fresh 32-byte key, set it as
+   `RELAY_ARC_PRIVATE_KEY` on Convex, and send it a few USDC on Arc. Do not reuse another key.
+   The relay's `health` action (and `/api/health`) reports this wallet next to the Solana one.
+3. **Run one transfer yourself** before anyone else can: burn a small amount to an Arc address you
+   control, and watch it arrive. This is the first real Arc mint; the gas figure in
+   `packages/cctp-evm/src/health.ts` is an assumption until it has one to be measured against.
+4. **Flip `NEXT_PUBLIC_ARC_ENABLED=1`** in Vercel and redeploy. It is inlined at build time, so a
+   running deployment cannot be switched over — which is the point: the UI should not offer Arc
+   until 1 and 2 are done.
+
+The fee is unchanged (0.10%, 0.30 USDC floor). The 0.70 USDC account fee is Solana rent and never
+applies to Arc: an Arc mint credits an ERC-20 balance and creates nothing.
+
+Known gaps, none of which lose money silently but all worth knowing:
+
+- The UI checks an Arc address's shape and EIP-55 checksum, and refuses the zero address, system
+  and burn addresses and Circle's own contracts. It cannot tell a wallet from a contract that
+  rejects tokens, or see USDC's blocklist. A mint to either reverts on chain after the burn; the
+  transfer stays claimable, but it would not complete.
+- Arc's Fast Transfer allowance is set by Circle and was not checked here. Iris quotes a zero fee
+  for both thresholds today.
+
 ## 3. One more reason to deploy the wrapper early
 
 Until it exists, nothing on chain distinguishes a burn made through this app from any other CCTP
