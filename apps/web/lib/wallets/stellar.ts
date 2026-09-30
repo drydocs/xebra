@@ -36,6 +36,18 @@ export async function connectStellar(
   entry: WalletEntry,
 ): Promise<Connection> {
   kit.setWallet(entry.key.replace("stellar:", ""));
-  const { address } = await kit.getAddress();
+  let address: string;
+  try {
+    ({ address } = await kit.getAddress());
+  } catch (err) {
+    const raw = err instanceof Error ? err.message : JSON.stringify(err);
+    // The kit's own text ("Freighter is not connected") names neither cause nor cure.
+    if (/not connected|not available|not installed/i.test(raw)) {
+      throw new Error(
+        `${entry.name} did not respond. Check that the extension is installed, unlocked, and allowed on this site, then try again.`,
+      );
+    }
+    throw err;
+  }
   return { family: "stellar", walletKey: entry.key, walletName: entry.name, address };
 }

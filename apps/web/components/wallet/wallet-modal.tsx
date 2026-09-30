@@ -149,12 +149,12 @@ export function WalletModal({
               <li key={w.key}>
                 <button
                   type="button"
-                  disabled={!w.installed || pending !== null}
+                  disabled={pending !== null}
                   onClick={() => onConnect(w)}
                   className={cn(
                     "flex w-full items-center gap-3 rounded-2xl p-3 text-left ring-1 ring-inset transition-colors",
                     "ring-bone/10 hover:bg-bone/[0.06] hover:ring-bone/25",
-                    "disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent",
+                    "disabled:cursor-wait disabled:opacity-50 disabled:hover:bg-transparent",
                   )}
                 >
                   {w.icon ? (
@@ -181,7 +181,7 @@ export function WalletModal({
                         ? connections[w.family]?.walletKey === w.key
                           ? "Connected"
                           : "Detected"
-                        : "Not installed"}
+                        : "Not detected · try anyway"}
                   </span>
                 </button>
                 {!w.installed && w.installUrl ? (

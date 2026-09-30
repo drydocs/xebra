@@ -62,12 +62,35 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
 
   // The kit touches `window` on construction, so it only exists after mount.
   useEffect(() => {
-    const k = createStellarWalletKit();
-    setKit(k);
-    void stellarEntries(k)
-      .then(setStellar)
-      .catch(() => setStellar([]));
+    setKit(createStellarWalletKit());
   }, []);
+
+  // Freighter's "is it there" check is a round trip to the extension. Asked once at page load it often
+  // answers "no" (the content script is not ready, or the wallet was unlocked afterwards), and a stale
+  // "not installed" is the worst answer to keep. So it is asked again shortly after load, whenever the
+  // tab regains focus, and whenever the modal opens.
+  const refreshStellar = useCallback(async () => {
+    if (!kit) return;
+    try {
+      setStellar(await stellarEntries(kit));
+    } catch {
+      /* keep the last answer */
+    }
+  }, [kit]);
+
+  useEffect(() => {
+    if (!kit) return;
+    void refreshStellar();
+    const timers = [600, 1800, 4000].map((ms) => setTimeout(() => void refreshStellar(), ms));
+    const onFocus = () => void refreshStellar();
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onFocus);
+    return () => {
+      for (const t of timers) clearTimeout(t);
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onFocus);
+    };
+  }, [kit, refreshStellar]);
   useEffect(() => watchEvmWallets(setEvmMap), []);
   useEffect(() => watchSolanaWallets(setSolWallets), []);
 
@@ -147,10 +170,14 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     [connections.solana?.walletKey, solWallets, setConn],
   );
 
-  const open = useCallback((f?: readonly Family[]) => {
-    setError(null);
-    setFamilies(f ?? ["stellar", "solana", "evm"]);
-  }, []);
+  const open = useCallback(
+    (f?: readonly Family[]) => {
+      setError(null);
+      setFamilies(f ?? ["stellar", "solana", "evm"]);
+      void refreshStellar();
+    },
+    [refreshStellar],
+  );
 
   const value = useMemo<WalletContextValue>(
     () => ({ connections, stellarKit: kit, open, disconnect }),
