@@ -54,7 +54,7 @@ export function DestinationPicker({
                 : "text-bone/40 hover:bg-bone/[0.04] hover:text-bone/70",
             )}
           >
-            <ChainGlyph chain={option.id} className="h-4 w-4 shrink-0" />
+            <ChainGlyph chain={option.id} className="h-5 w-5" />
             {option.name}
           </span>
         </label>

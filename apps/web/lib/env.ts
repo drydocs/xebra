@@ -60,6 +60,8 @@ const RAW = {
   NEXT_PUBLIC_STELLAR_CCTP_WRAPPER_CONTRACT_ID:
     process.env.NEXT_PUBLIC_STELLAR_CCTP_WRAPPER_CONTRACT_ID,
   NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL,
+  NEXT_PUBLIC_STELLAR_CCTP_WRAPPER_LEGACY_CONTRACT_ID:
+    process.env.NEXT_PUBLIC_STELLAR_CCTP_WRAPPER_LEGACY_CONTRACT_ID,
 } as const;
 
 type RawKey = keyof typeof RAW;
@@ -143,6 +145,9 @@ export const env = {
    * silently sends funds nowhere. Absent means "the CCTP rail is unavailable in this build".
    */
   cctpWrapperContractId: optional("NEXT_PUBLIC_STELLAR_CCTP_WRAPPER_CONTRACT_ID"),
+  /** The retired v1 wrapper. Read-only, and only so the admin panel can show its rent running down
+   *  until it is allowed to lapse. Nothing in the bridge flow reads it. */
+  legacyWrapperContractId: optional("NEXT_PUBLIC_STELLAR_CCTP_WRAPPER_LEGACY_CONTRACT_ID"),
 } as const;
 
 /** Whether the CCTP-direct rail can be offered in this build. */

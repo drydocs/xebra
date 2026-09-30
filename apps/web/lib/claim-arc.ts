@@ -37,20 +37,7 @@ export interface ArcClaimTarget {
   explorerUrl: string;
 }
 
-export function getInjectedProvider(): Eip1193Provider | null {
-  if (typeof window === "undefined") return null;
-  const eth = (window as unknown as { ethereum?: Eip1193Provider }).ethereum;
-  return eth && typeof eth.request === "function" ? eth : null;
-}
-
 const hex = (n: number) => `0x${n.toString(16)}`;
-
-export async function connectEvmWallet(provider: Eip1193Provider): Promise<string> {
-  const accounts = (await provider.request({ method: "eth_requestAccounts" })) as string[];
-  const first = accounts[0];
-  if (!first) throw new Error("the wallet returned no accounts");
-  return first;
-}
 
 /** Switches the wallet to Arc, adding the network first if it has never seen it. */
 export async function ensureArcNetwork(

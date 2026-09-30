@@ -1,5 +1,6 @@
 "use client";
 
+import { type Connection, FAMILIES, FAMILY_LABEL, type Family } from "../../lib/wallets/types";
 import { XebraWordmark } from "../brand/xebra-mark";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
@@ -17,16 +18,17 @@ import { cn } from "../ui/cn";
  * money form be "which wallet", which is the wrong first question.
  */
 export function TopBar({
-  address,
+  connections,
   walletReady,
   network,
   onConnect,
 }: {
-  address: string | null;
+  connections: Partial<Record<Family, Connection>>;
   walletReady: boolean;
   network: string;
   onConnect: () => void;
 }) {
+  const connected = FAMILIES.map((f) => connections[f]).filter((c): c is Connection => Boolean(c));
   return (
     <header className="sticky top-4 z-30 mx-auto w-full max-w-xl px-1 sm:top-6">
       <nav
@@ -43,18 +45,28 @@ export function TopBar({
           </Badge>
         </div>
 
-        {address ? (
-          <span
-            title={address}
-            className={cn(
-              "tabular flex items-center gap-2 rounded-full py-1.5 pl-3 pr-3.5 font-mono text-xs",
-              "bg-bone/[0.06] text-bone/75 ring-1 ring-inset ring-bone/10",
-            )}
+        {connected.length > 0 ? (
+          <button
+            type="button"
+            onClick={onConnect}
+            aria-label="Manage connected wallets"
+            className="flex items-center gap-1.5"
           >
-            <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-signal" />
-            <span className="sr-only">Connected Stellar wallet </span>
-            {address.slice(0, 4)}…{address.slice(-4)}
-          </span>
+            {connected.map((c) => (
+              <span
+                key={c.family}
+                title={`${FAMILY_LABEL[c.family]} · ${c.walletName} · ${c.address}`}
+                className={cn(
+                  "tabular flex items-center gap-2 rounded-full py-1.5 pl-3 pr-3.5 font-mono text-xs",
+                  "bg-bone/[0.06] text-bone/75 ring-1 ring-inset ring-bone/10",
+                )}
+              >
+                <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-signal" />
+                <span className="sr-only">Connected {FAMILY_LABEL[c.family]} wallet </span>
+                {c.address.slice(0, 4)}…{c.address.slice(-4)}
+              </span>
+            ))}
+          </button>
         ) : (
           <Button variant="secondary" size="sm" disabled={!walletReady} onClick={onConnect}>
             {walletReady ? "Connect" : "Loading"}

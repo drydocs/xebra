@@ -1,6 +1,5 @@
 "use client";
 
-import type { StellarWalletsKit } from "@creit.tech/stellar-wallets-kit";
 import type { CircleHealth } from "@xebra/cctp-client";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { getAddress } from "viem";
@@ -20,6 +19,7 @@ import { Notice } from "../components/ui/notice";
 import { Reveal } from "../components/ui/reveal";
 import { Skeleton } from "../components/ui/skeleton";
 import { StripeRule } from "../components/ui/stripe-rule";
+import { useWallets } from "../components/wallet/wallet-provider";
 import {
   type BridgeChainConfig,
   type BridgeQuote,
@@ -48,7 +48,7 @@ import {
   suggestedMinimum,
 } from "../lib/forward-fee";
 import { type RecipientResolution, resolveRecipient } from "../lib/solana-address";
-import { createStellarWalletKit } from "../lib/stellar-wallet";
+import type { Connection, Family } from "../lib/wallets/types";
 
 /**
  * One job: move USDC from Stellar to Solana or Arc over Circle's CCTP.
@@ -86,8 +86,10 @@ const REQUEST_TTL_SECONDS = 600;
 const QUICK_AMOUNTS = ["5", "10", "100"];
 
 export default function HomePage() {
-  const [kit, setKit] = useState<StellarWalletsKit | null>(null);
-  const [address, setAddress] = useState<string | null>(null);
+  // Wallets live in <WalletProvider>: Stellar signs and pays; a Solana or EVM wallet can fill in the
+  // recipient. Only the Stellar connection is the sender.
+  const { connections, stellarKit: kit, open: openWallets } = useWallets();
+  const address = connections.stellar?.address ?? null;
   // Deliberately small. This is mainnet: the field's default is the amount someone will send
   // if they don't think about it. Direct mode has no minimum (the 10 USDC floor is Xebra's
   // contract, not Circle's), so a first transfer can be a single dollar.
@@ -120,13 +122,6 @@ export default function HomePage() {
   /** Null while unknown — an unread balance must not read as "you have nothing". */
   const [balance, setBalance] = useState<bigint | null>(null);
   const [resolving, setResolving] = useState(false);
-
-  // StellarWalletsKit touches `window` at construction time (wallet detection), so it must
-  // only ever be created client-side, after mount — never during Next.js's server render pass
-  // (even for a "use client" component, React still renders once on the server for SSR/SSG).
-  useEffect(() => {
-    setKit(createStellarWalletKit());
-  }, []);
 
   const dest = DESTINATIONS[destId];
   const destinations = useMemo(() => availableDestinations(env.arcEnabled), []);
@@ -447,16 +442,7 @@ export default function HomePage() {
     setSubmitError(null);
   }
 
-  const connect = useCallback(async () => {
-    if (!kit) return;
-    await kit.openModal({
-      onWalletSelected: async (option) => {
-        kit.setWallet(option.id);
-        const { address: connected } = await kit.getAddress();
-        setAddress(connected);
-      },
-    });
-  }, [kit]);
+  const connect = useCallback(() => openWallets(["stellar", "solana", "evm"]), [openWallets]);
 
   // Only a *known* shortfall blocks. An unread balance is not a zero balance.
   const shortfall =
@@ -568,7 +554,7 @@ export default function HomePage() {
   return (
     <>
       <TopBar
-        address={address}
+        connections={connections}
         walletReady={Boolean(kit)}
         network={env.network}
         onConnect={connect}
@@ -696,6 +682,14 @@ export default function HomePage() {
                   className="h-14 font-mono text-sm placeholder:font-sans"
                 />
               </Field>
+
+              <UseMyWallet
+                family={destId === "solana" ? "solana" : "evm"}
+                connection={connections[destId === "solana" ? "solana" : "evm"]}
+                disabled={submitting || Boolean(txHash)}
+                onUse={setDestination}
+                onConnect={openWallets}
+              />
 
               {dest.needsAccountResolution ? (
                 <RecipientPanel
@@ -1163,6 +1157,51 @@ function RecipientPanel({
       <p className="mt-1 break-all font-mono text-[0.75rem] text-bone/60">
         {recipient.tokenAccount}
       </p>
+    </div>
+  );
+}
+
+/**
+ * One tap to send to yourself: fills the recipient from a connected wallet of the destination's own
+ * kind. It only fills the field. Everything after (validation, the token-account lookup, the
+ * address shown back before signing) is the same as for a typed address, so a wrong wallet is
+ * caught by the same checks.
+ */
+function UseMyWallet({
+  family,
+  connection,
+  disabled,
+  onUse,
+  onConnect,
+}: {
+  family: "solana" | "evm";
+  connection: Connection | undefined;
+  disabled: boolean;
+  onUse: (address: string) => void;
+  onConnect: (families: readonly Family[]) => void;
+}) {
+  return (
+    <div className="mt-2 px-1 text-[0.8125rem] text-bone/45">
+      {connection ? (
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={() => onUse(connection.address)}
+          className="underline underline-offset-4 transition-colors hover:text-bone disabled:opacity-40"
+        >
+          Use my {connection.walletName} address ({connection.address.slice(0, 4)}…
+          {connection.address.slice(-4)})
+        </button>
+      ) : (
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={() => onConnect([family])}
+          className="underline underline-offset-4 transition-colors hover:text-bone disabled:opacity-40"
+        >
+          Connect {family === "solana" ? "a Solana" : "an EVM"} wallet to fill this in
+        </button>
+      )}
     </div>
   );
 }

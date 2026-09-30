@@ -1,13 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import { Notice } from "../../components/ui/notice";
+import { useWallets } from "../../components/wallet/wallet-provider";
 import {
   type ArcClaimTarget,
-  type Eip1193Provider,
-  connectEvmWallet,
   ensureArcNetwork,
-  getInjectedProvider,
   isAlreadyMinted,
   sendClaim,
   waitForClaim,
@@ -31,24 +29,16 @@ export function ArcClaim({
   attestation: `0x${string}`;
   target: ArcClaimTarget;
 }) {
-  const [provider, setProvider] = useState<Eip1193Provider | null>(null);
-  const [wallet, setWallet] = useState<string | null>(null);
+  // The shared EVM connection (picked in the wallet modal). Falls back to nothing: a claim signed by
+  // a wallet the user did not choose is worse than asking them to choose one.
+  const { connections, open } = useWallets();
+  const evm = connections.evm;
+  const provider = evm?.provider ?? null;
+  const wallet = evm?.address ?? null;
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [hash, setHash] = useState<string | null>(null);
   const [alreadyMinted, setAlreadyMinted] = useState(false);
-
-  useEffect(() => setProvider(getInjectedProvider()), []);
-
-  const connect = useCallback(async () => {
-    if (!provider) return;
-    setError(null);
-    try {
-      setWallet(await connectEvmWallet(provider));
-    } catch (err) {
-      setError(reportError("wallet connect failed", err));
-    }
-  }, [provider]);
 
   async function claim() {
     if (!provider || !wallet) return;
@@ -121,11 +111,10 @@ export function ArcClaim({
           ) : (
             <button
               type="button"
-              onClick={connect}
-              disabled={!provider}
+              onClick={() => open(["evm"])}
               className="rounded-lg px-3 py-1.5 text-sm font-medium text-bone ring-1 ring-inset ring-bone/20 transition-colors duration-200 hover:bg-bone/5 disabled:opacity-40"
             >
-              {provider ? "Connect wallet" : "No EVM wallet detected"}
+              Connect wallet
             </button>
           )}
         </div>

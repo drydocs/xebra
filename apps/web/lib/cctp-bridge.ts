@@ -260,7 +260,7 @@ export async function getDomainForwardConfig(
   };
 }
 
-async function simulateWithPassphrase(
+export async function simulateWithPassphrase(
   server: rpc.Server,
   networkPassphrase: string,
   contractId: string,
@@ -484,7 +484,7 @@ const APPROVAL_TTL_LEDGERS = 60;
  * therefore treats TRY_AGAIN_LATER (the node declined to queue it, usually fee/congestion)
  * as success, and the caller then polls a hash that will never appear in any ledger.
  */
-async function submitSigned(
+export async function submitSigned(
   server: rpc.Server,
   signedTx: Parameters<rpc.Server["sendTransaction"]>[0],
   what: string,
