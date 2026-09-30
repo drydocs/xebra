@@ -17,8 +17,7 @@
     "clean": "rm -rf dist .turbo"
   },
   "dependencies": {
-    "@solana/web3.js": "^1.95.0",
-    "@xebra/cctp-client": "workspace:*"
+    "@solana/web3.js": "^1.95.0"
   },
   "devDependencies": {
     "typescript": "^5.7.0",

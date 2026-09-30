@@ -41,6 +41,8 @@ contracts/stellar-soroban/target/
 contracts/stellar-soroban/test_snapshots/
 contracts/stellar-cctp-wrapper/target/
 contracts/stellar-cctp-wrapper/test_snapshots/
+contracts/stellar-cctp-wrapper-v2/target/
+contracts/stellar-cctp-wrapper-v2/test_snapshots/
 
 # solana
 test-ledger/

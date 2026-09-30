@@ -41,7 +41,6 @@
     "ARC_*",
     "ARBITER_*",
     "IRIS_*",
-    "RELAY_*",
     "CCTP_*",
     "KMS_*",
     "CRON_SECRET",

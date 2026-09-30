@@ -27,6 +27,8 @@ describe("loadNetworkConfig", () => {
     );
     expect(cfg.solana.rpcUrl).toBe("https://api.mainnet-beta.solana.com");
     expect(cfg.solana.usdcAddress).toBe("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v");
+    expect(cfg.arc.chainId).toBe(5042);
+    expect(cfg.arc.usdcAddress).toBe("0x3600000000000000000000000000000000000000");
     expect(cfg.irisBaseUrl).toBe("https://iris-api.circle.com");
     expect(cfg.overrides).toEqual([]);
   });
@@ -113,10 +115,56 @@ describe("loadNetworkConfig", () => {
     ).toBe(true);
   });
 
-  it("pins Stellar to domain 27 and Solana to domain 5", () => {
+  it("pins Stellar to domain 27, Solana to domain 5 and Arc to domain 26", () => {
     const cfg = loadNetworkConfig({ NETWORK: "mainnet" });
     expect(cfg.stellar.cctpDomainId).toBe(27);
     expect(cfg.solana.cctpDomainId).toBe(5);
+    expect(cfg.arc.cctpDomainId).toBe(26);
+  });
+
+  it("rejects an overridden Arc Circle contract or USDC address", () => {
+    for (const name of [
+      "ARC_TOKEN_MESSENGER_ADDRESS",
+      "ARC_MESSAGE_TRANSMITTER_ADDRESS",
+      "ARC_USDC_ADDRESS",
+    ]) {
+      const problems = problemsOf({
+        NETWORK: "mainnet",
+        [name]: "0x8FE6B999Dc680CcFDD5Bf7EB0974218be2542DAA",
+      });
+      expect(problems.some((p) => p.includes(name) && p.includes("pinned"))).toBe(true);
+    }
+  });
+
+  it("rejects a tampered Arc domain id or chain id", () => {
+    expect(
+      problemsOf({ NETWORK: "mainnet", ARC_CCTP_DOMAIN_ID: "0" }).some((p) =>
+        p.includes("ARC_CCTP_DOMAIN_ID must be 26"),
+      ),
+    ).toBe(true);
+    // 5042002 is Arc's testnet chain id.
+    expect(
+      problemsOf({ NETWORK: "mainnet", ARC_CHAIN_ID: "5042002" }).some((p) =>
+        p.includes("ARC_CHAIN_ID must be 5042"),
+      ),
+    ).toBe(true);
+  });
+
+  it("rejects an Arc testnet endpoint", () => {
+    expect(
+      problemsOf({ NETWORK: "mainnet", ARC_RPC_URL: "https://rpc.testnet.arc.io" }).some((p) =>
+        p.includes('contains "testnet"'),
+      ),
+    ).toBe(true);
+  });
+
+  it("allows a private Arc RPC override and records it", () => {
+    const cfg = loadNetworkConfig({
+      NETWORK: "mainnet",
+      ARC_RPC_URL: "https://rpc.quicknode.mainnet.arc.io",
+    });
+    expect(cfg.arc.rpcUrl).toBe("https://rpc.quicknode.mainnet.arc.io");
+    expect(cfg.overrides).toContain("ARC_RPC_URL");
   });
 });
 

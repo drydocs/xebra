@@ -62,7 +62,7 @@ function Endpoint({
           align === "right" && "flex-row-reverse",
         )}
       >
-        <ChainGlyph chain={chain} className="h-4 w-4 shrink-0 text-bone/55" />
+        <ChainGlyph chain={chain} className="h-5 w-5" />
         {CHAIN_NAMES[chain]}
       </span>
       <span className="mt-1 block truncate text-xs text-bone/35">{detail}</span>

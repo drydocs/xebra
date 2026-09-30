@@ -17,5 +17,44 @@
     "tokenMessenger": "CAE2G5Z77UP7GYPYGFOWFGW7C7J6I4YP2AFGSADRKQY62SYUFLPNFTXL",
     "usdc": "CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75",
     "wasmSha256": "4796e68ef93af4e19d53970c35240445e20e4f3a424b6e6e81f35125dbaaa630"
+  },
+  "cctpWrapperV2": {
+    "admin": "GBTVJ6JACFRBNI6BETAY4CWYWYNJHX43TGNEAVC3YQCSPPPY4R7H5TBN",
+    "contractId": "CCPVTWII2TW6VVSVA4JQ2KFHICGBG4QVAHPIGUPSIW3E4VNPUI4Y2WQR",
+    "deployedAt": "2026-09-24T14:55:57.050220+00:00",
+    "domains": [
+      {
+        "account_creation": true,
+        "domain": 5,
+        "evm_style": false,
+        "forward": true,
+        "max_forward_fee": "2500000",
+        "max_forward_fee_new_account": "4500000"
+      },
+      {
+        "account_creation": false,
+        "domain": 26,
+        "evm_style": true,
+        "forward": true,
+        "max_forward_fee": "1000000",
+        "max_forward_fee_new_account": "0"
+      }
+    ],
+    "feeRecipient": "GCTKQAVT2YZBOJTZI2BZQG3O7NCZLS5D5UBCV7NHTR4Y2XG5OBC3BDQ5",
+    "gitCommit": "d97ae4535d07b01588cba03493c505722395a3e1",
+    "gitDirty": true,
+    "params": {
+      "account_fee": "0",
+      "fee_bps": 10,
+      "max_cctp_fee_bps": 20,
+      "max_transfer": "1000000000",
+      "min_fee": "3000000",
+      "min_transfer": "10000000"
+    },
+    "pauser": "GBZWUXOTGHAAWMFNG262QPRIJJ77XI44VHZ4GAO4XYGPL43TDKAQVF42",
+    "sourceSha256": "0291564a5e2e78bad005830eabcd5518544bf7ba3b7ca3302dd5ef244a3fb51e",
+    "tokenMessenger": "CAE2G5Z77UP7GYPYGFOWFGW7C7J6I4YP2AFGSADRKQY62SYUFLPNFTXL",
+    "usdc": "CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75",
+    "wasmSha256": "b5227c305b916c80a81d675dd8fbd8103e7d62e91c501e044ec93e365e686cd8"
   }
 }

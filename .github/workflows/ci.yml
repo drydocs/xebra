@@ -81,12 +81,17 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: contracts/stellar-cctp-wrapper -> target
+          workspaces: |
+            contracts/stellar-cctp-wrapper -> target
+            contracts/stellar-cctp-wrapper-v2 -> target
 
       # The wrapper is the contract that will hold mainnet approval rights. Its tests cover the
       # fee arithmetic, the parameter ceilings a compromised admin cannot exceed, and the
       # no-hang paths where a failure must revert the whole transaction.
       - run: cargo test --manifest-path contracts/stellar-cctp-wrapper/Cargo.toml
+      # v2 is the forwarding wrapper (docs/forwarding-wrapper.md). It inherits v1's suite and adds
+      # the tests that bound the one new risk: Circle charges the whole `max_fee`.
+      - run: cargo test --manifest-path contracts/stellar-cctp-wrapper-v2/Cargo.toml
       - run: cargo test --manifest-path contracts/stellar-soroban/Cargo.toml
 
   evm:

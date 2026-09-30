@@ -1,12 +1,15 @@
+import { IrisUnavailable, readDestinationDomain } from "@xebra/cctp-client";
+import { CCTP_DOMAIN, PRESETS } from "@xebra/network-config";
 import { env } from "../../../lib/env";
+import { irisBaseUrl, irisFetch, stellarDomainId } from "../../../lib/server/iris";
 
 /**
  * Circle's attested `(message, attestation)` pair for a burn.
  *
  * This is what makes a transfer claimable by anyone. Circle attests a burn and publishes the
- * signed pair; whoever holds it can submit `receiveMessage` on Solana and complete the mint. The
- * relay is a convenience that does this for you and pays the gas — it is not custody, and this
- * route is what lets the `/claim` page prove it.
+ * signed pair; whoever holds it can submit `receiveMessage` on the destination chain and
+ * complete the mint. Circle's Forwarding Service normally does that for you; when a forward does
+ * not land, this route is what lets the owner do it themselves at `/claim`.
  *
  * # Why it is proxied rather than called from the browser
  *
@@ -29,11 +32,12 @@ export async function GET(request: Request): Promise<Response> {
     return Response.json({ error: "tx must be a 64-character hex string" }, { status: 400 });
   }
 
-  const base = process.env.IRIS_BASE_URL ?? "https://iris-api.circle.com";
-  const domain = process.env.STELLAR_CCTP_DOMAIN_ID ?? "27";
+  const domain = String(stellarDomainId());
 
   try {
-    const res = await fetch(`${base}/v2/messages/${domain}?transactionHash=${tx}`, {
+    // Through the shared budget, like every Iris call from here, so a burst of claim lookups
+    // cannot get us blocked.
+    const res = await irisFetch(`${irisBaseUrl()}/v2/messages/${domain}?transactionHash=${tx}`, {
       cache: "no-store",
     });
 
@@ -68,6 +72,11 @@ export async function GET(request: Request): Promise<Response> {
       return Response.json({ status: "pending" });
     }
 
+    // Read from the message itself — the copy Circle's contracts enforce — so the page can never
+    // be told one destination while the message says another.
+    const destinationDomain = readDestinationDomain(first.message as `0x${string}`);
+    const arc = PRESETS.mainnet.arc;
+
     return Response.json({
       status: "complete",
       message: first.message,
@@ -76,8 +85,27 @@ export async function GET(request: Request): Promise<Response> {
       // build-time constant of its own.
       usdcMint: env.usdcSolanaMint,
       sourceDomainId: Number(domain),
+      destinationDomain,
+      // Only for an Arc-bound message. Served from the pinned presets rather than a
+      // `NEXT_PUBLIC_*` constant, so the claim page needs no build-time value of its own.
+      ...(destinationDomain === CCTP_DOMAIN.arc
+        ? {
+            arc: {
+              chainId: arc.chainId,
+              messageTransmitter: arc.messageTransmitterAddress,
+              rpcUrl: arc.rpcUrl,
+              explorerUrl: arc.explorerUrl,
+            },
+          }
+        : {}),
     });
   } catch (err) {
+    if (err instanceof IrisUnavailable) {
+      return Response.json(
+        { status: "unknown", reason: "Circle lookups are paused for a moment; try again shortly" },
+        { status: 503 },
+      );
+    }
     return Response.json(
       { status: "unknown", reason: err instanceof Error ? err.message : "request failed" },
       { status: 502 },

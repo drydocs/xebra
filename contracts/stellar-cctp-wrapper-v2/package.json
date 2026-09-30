@@ -1,0 +1,11 @@
+{
+  "name": "@xebra/stellar-cctp-wrapper-v2",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Forwarding version of the fee-taking Soroban wrapper in front of Circle CCTP V2 on Stellar: Circle mints on the destination, so the relay needs no gas float",
+  "scripts": {
+    "build": "cargo build --release --target wasm32v1-none",
+    "test": "cargo test",
+    "check:interface": "../../scripts/check-cctp-interface.sh"
+  }
+}

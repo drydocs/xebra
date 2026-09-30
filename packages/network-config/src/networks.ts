@@ -24,6 +24,13 @@
  * - Solana is registered as remote domain 5 on the Stellar messenger:
  *   `get_remote_token_messenger(5)` -> `a65fc81d...` (a Solana-shaped 32-byte value, as
  *   distinct from the left-padded EVM shape returned for domains 0 and 26).
+ * - Arc (chain id 5042, `eth_chainId` -> 0x13b2 on rpc.mainnet.arc.io): the two Circle contracts
+ *   carry proxy code, `MessageTransmitterV2.localDomain()` is 26 and it is not paused, and
+ *   `TokenMessengerV2.remoteTokenMessengers(27)` is byte-for-byte the Stellar TokenMessengerMinter
+ *   (`09a3773f...aded2`). `TokenMinterV2.getLocalToken(27, <Stellar USDC>)` returns
+ *   `0x3600...0000`, a 6-decimal ERC-20 `USDC`. Iris quotes `27 -> 26` for both finality
+ *   thresholds. A second set of Arc CCTP addresses circulates (`0x8FE6…`, `0xE737…`); those are Arc's
+ *testnet* deployments, have no code on mainnet, and must never be used here.
  *
  * Re-verify with `scripts/check-cctp-interface.sh` before any deploy. Circle can redeploy.
  */
@@ -57,10 +64,23 @@ export interface SolanaPreset {
   usdcAddress: string;
 }
 
+export interface ArcPreset {
+  chainId: number;
+  rpcUrl: string;
+  cctpDomainId: number;
+  tokenMessengerAddress: string;
+  messageTransmitterAddress: string;
+  /** Arc's USDC ERC-20 interface. Arc's *gas* token is the same USDC at 18 decimals; this
+   *  interface is the 6-decimal one CCTP mints into. */
+  usdcAddress: string;
+  explorerUrl: string;
+}
+
 export interface NetworkPreset {
   network: Network;
   stellar: StellarPreset;
   solana: SolanaPreset;
+  arc: ArcPreset;
   irisBaseUrl: string;
 }
 
@@ -82,6 +102,15 @@ export const PRESETS: Record<Network, NetworkPreset> = {
       tokenMessengerAddress: "CCTPV2vPZJS2u2BBsUoscuikbYjnpFmbFsvVuJdgUMQe",
       messageTransmitterAddress: "CCTPV2Sm4AdWt5296sk4P66VBZ7bEhcARwFaaS9YPbeC",
       usdcAddress: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+    },
+    arc: {
+      chainId: 5042,
+      rpcUrl: "https://rpc.mainnet.arc.io",
+      cctpDomainId: CCTP_DOMAIN.arc,
+      tokenMessengerAddress: "0x28b5a0e9C621a5BadaA536219b3a228C8168cf5d",
+      messageTransmitterAddress: "0x81D40F21F12A8F0E3252Bccb954D722d4c464B64",
+      usdcAddress: "0x3600000000000000000000000000000000000000",
+      explorerUrl: "https://explorer.arc.io",
     },
     irisBaseUrl: "https://iris-api.circle.com",
   },

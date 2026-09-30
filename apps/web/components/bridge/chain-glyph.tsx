@@ -1,44 +1,45 @@
 import { cn } from "../ui/cn";
 
 /**
- * Chain marks, redrawn to one weight.
+ * Each chain's own mark, as the chain publishes it.
  *
- * Dropping each project's official logo into the route would put three different stroke
- * weights and two brand colours inside a monochrome plate. These are abstractions at the
- * same 1.4 stroke as the rest of the icon set, inheriting `currentColor` — recognisable in
- * place (Solana's slanted bars, a stellar four-point spark) without importing anyone's
- * brand palette.
+ * These used to be redrawn abstractions in a single stroke weight, to keep the monochrome plate
+ * monochrome. People do not recognise an abstraction of a chain; they recognise its logo, and on a
+ * screen that moves money the recognition is worth more than the palette. Each mark sits in a round
+ * (Arc: rounded-square, as its icon is drawn) tile so three different backgrounds read as three
+ * badges instead of three stray rectangles.
+ *
+ * Files are 96px PNGs in /public/chains, sized for a 24px slot at 2x. Sources: Solana and Stellar
+ * from the Trust Wallet assets repository, Arc from arc.network's own site icon.
  */
-export type Chain = "stellar" | "solana";
+export type Chain = "stellar" | "solana" | "arc";
+
+const SRC: Record<Chain, string> = {
+  stellar: "/chains/stellar.png",
+  solana: "/chains/solana.png",
+  arc: "/chains/arc.png",
+};
 
 export function ChainGlyph({ chain, className }: { chain: Chain; className?: string }) {
   return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.4}
-      strokeLinecap="round"
-      strokeLinejoin="round"
+    <img
+      src={SRC[chain]}
+      alt=""
+      width={24}
+      height={24}
       aria-hidden="true"
-      className={cn("h-4 w-4", className)}
-    >
-      {chain === "stellar" ? (
-        <>
-          <path d="M12 3.5c.6 4.4 3.5 7.3 7.9 8-4.4.7-7.3 3.6-7.9 8-.6-4.4-3.5-7.3-7.9-8 4.4-.7 7.3-3.6 7.9-8Z" />
-        </>
-      ) : (
-        <>
-          <path d="M6.6 7.4h11.2l-2.6 2.6H4z" />
-          <path d="M6.6 12.2h11.2L15.2 14.8H4z" />
-          <path d="M6.6 17h11.2" opacity="0.45" />
-        </>
+      draggable={false}
+      className={cn(
+        "h-5 w-5 shrink-0 select-none object-cover",
+        chain === "arc" ? "rounded-[22%]" : "rounded-full",
+        className,
       )}
-    </svg>
+    />
   );
 }
 
 export const CHAIN_NAMES: Record<Chain, string> = {
   stellar: "Stellar",
   solana: "Solana",
+  arc: "Arc",
 };

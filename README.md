@@ -4,7 +4,9 @@
 
 <sub>The 67-second film, looping. [Full quality, 1080p](film/xebra-film.mp4).</sub>
 
-USDC from Stellar to Solana, over Circle's CCTP. One corridor, one asset, **mainnet only**.
+USDC from Stellar to Solana, and to Arc, over Circle's CCTP. One asset, **mainnet only**. The Arc
+destination is built and verified against the live chains but not yet switched on — see
+[`docs/go-live.md`](./docs/go-live.md#turning-on-arc).
 
 A user connects a Stellar wallet, enters an amount and a Solana address, and signs once. A
 Soroban wrapper contract takes the fee and hands the burn to Circle in the same transaction. A
@@ -88,15 +90,18 @@ apps/web/                    Next.js frontend (Vercel) and its server routes
   app/api/                     relay handoff, attestation, Solana RPC, recipient, health
   convex/                      relay state + scheduler: submitBurn, tick, jobs, cursors
 contracts/stellar-cctp-wrapper/  XebraCctpWrapper — fee-taking front door to CCTP V2 (41 tests)
+contracts/stellar-cctp-wrapper-v2/  the forwarding version: Circle mints on the destination (83 tests, not deployed)
 packages/
   relay-core/                  the relay pipeline, with no opinion about how it is hosted
   cctp-solana/                 receiveMessage builder, keypair decoding, mint submission
+  cctp-evm/                    the same for Arc: receiveMessage calldata, submitter, gas health
   network-config/              pinned mainnet constants + a validator that refuses an incoherent mix
   cctp-client/                 Iris attestation client, shared by relay and solver
   observability/               OTel traces/metrics, wired in through apps/web's instrumentation.ts
 scripts/
   deploy-cctp-wrapper.sh       gated deploy (interface check, tests, release build, typed confirm)
   check-cctp-interface.sh      our trait vs. the live mainnet Circle contract
+  check-arc-cctp.sh            every Arc corridor constant vs. the live chains (read-only)
   preflight-bridge.mjs         checks that must pass before any burn
   recover-stranded-mint.mjs    operator recovery for a burn that named a wallet, not a token account
   cctp-mint-solana.mjs         manual mint, used for the first live transfer
@@ -189,6 +194,8 @@ when the balance is critical, and `GET /api/health` returning 503 for any uptime
 | [`docs/go-live.md`](./docs/go-live.md) | What has to happen before launch, split by who can do it |
 | [`docs/deploying.md`](./docs/deploying.md) | Vercel + Convex mechanics, costs, alerting, the relay's exposure |
 | [`docs/environments.md`](./docs/environments.md) | Mainnet-only config, what is enforced, secrets handling |
+| [`docs/forwarding-wrapper.md`](./docs/forwarding-wrapper.md) | The v2 wrapper: let Circle mint on the destination so the relay needs no gas float. Built and proven on testnet, not deployed |
+| [`docs/roadmap.md`](./docs/roadmap.md) | What comes after the USDC corridor: compliance-preserving RWA bridging |
 | [`docs/GOVERNANCE.md`](./docs/GOVERNANCE.md) | Admin/pauser roles, the 48h timelock, why pausing skips it |
 | [`SECURITY.md`](./SECURITY.md) | Scope, what's worth reporting, how to report it privately |
 | [`CONTRIBUTING.md`](./CONTRIBUTING.md) | Setup, checks to run before a PR, what's on the deployment path |

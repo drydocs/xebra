@@ -12,13 +12,14 @@ import {
  *
  * The product's central claim is that funds cannot hang: once Circle attests a burn, the
  * `(message, attestation)` pair is public and **anyone** can submit `receiveMessage` on Solana to
- * mint to the recipient. The relay sponsors that gas as a convenience.
+ * mint to the recipient. Circle's Forwarding Service normally does that and pays the gas.
  *
- * That was true and unusable. If the relay was down, the receipt told the user to keep their hash
- * and wait for a human to run a script — which is not a self-serve path, and it made our uptime
- * the user's risk rather than their convenience. This closes that.
+ * That was true and unusable. If delivery failed, the receipt told the user to keep their hash and
+ * wait for a human to run a script — which is not a self-serve path, and it made our uptime the
+ * user's risk rather than their convenience. This closes that, and with the relay gone it is the
+ * only path for a forward that fails.
  *
- * # It builds the same instruction the relay builds
+ * # It builds the instruction from the shared package
  *
  * `buildReceiveMessageInstruction` from `@xebra/cctp-solana`, unchanged — the one whose account
  * list was verified against Circle's live mainnet programs. A second, browser-specific
@@ -28,8 +29,8 @@ import {
  * # Who pays
  *
  * The connected wallet: transaction fee, and the 867,621 lamports of permanent `used_nonce` rent,
- * plus token-account rent if the recipient has none. That is the trade — the relay's version is
- * free to the user because we absorb it.
+ * plus token-account rent if the recipient has none. That is the trade — the forwarded version costs the
+ * user nothing extra because Circle's delivery fee, taken from the burn, covers it.
  *
  * The payer does **not** have to be the recipient. `receiveMessage` mints to the address the burn
  * named, whoever submits it, so anyone can rescue anyone's stuck transfer.

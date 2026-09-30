@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { encodeBridgeRequest } from "./cctp-bridge";
 
 /**
- * The encoding contract between this app and `contracts/stellar-cctp-wrapper`.
+ * The encoding contract between this app and `contracts/stellar-cctp-wrapper-v2`.
  *
  * These assertions exist because `nativeToScVal` guesses when it is not told, and a wrong guess
  * fails as `Error(Value, UnexpectedType)` out of `map_unpack_to_linear_memory` — an error that
@@ -17,9 +17,10 @@ const REQUEST = {
   amount: 100_000_000n,
   destinationDomain: 5,
   mintRecipient: new Uint8Array(32).fill(7),
-  maxFee: 0n,
-  minFinalityThreshold: 1000,
+  maxFee: 1_770_000n,
+  minFinalityThreshold: 2000,
   recipientNeedsAccount: false,
+  recipientOwner: new Uint8Array(32),
   approvalExpirationLedger: 64_352_174,
   maxWrapperFee: 3_000_000n,
   deadline: 1_788_985_381n,
@@ -34,6 +35,7 @@ const EXPECTED: Record<string, string> = {
   max_fee: "scvI128",
   min_finality_threshold: "scvU32",
   recipient_needs_account: "scvBool",
+  recipient_owner: "scvBytes",
   approval_expiration_ledger: "scvU32",
   max_wrapper_fee: "scvI128",
   deadline: "scvU64",
@@ -67,7 +69,7 @@ describe("encodeBridgeRequest", () => {
     }
   });
 
-  it("sends all ten fields and no others", () => {
+  it("sends all eleven fields and no others", () => {
     const names = entries(encodeBridgeRequest(REQUEST))
       .map((e) => e.name)
       .sort();
@@ -100,5 +102,16 @@ describe("encodeBridgeRequest", () => {
       (e) => e.key().sym().toString() === "mint_recipient",
     );
     expect(found?.val().bytes()).toHaveLength(32);
+  });
+
+  it("sends the recipient owner as 32 bytes, zeroes when there is none", () => {
+    const owner = (o: Uint8Array) =>
+      (encodeBridgeRequest({ ...REQUEST, recipientOwner: o }).map() ?? [])
+        .find((e) => e.key().sym().toString() === "recipient_owner")
+        ?.val()
+        .bytes();
+    const arr = (b?: Uint8Array) => Array.from(b ?? []);
+    expect(arr(owner(new Uint8Array(32)))).toEqual(new Array(32).fill(0));
+    expect(arr(owner(new Uint8Array(32).fill(9)))).toEqual(new Array(32).fill(9));
   });
 });
