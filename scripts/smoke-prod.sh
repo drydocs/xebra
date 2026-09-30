@@ -70,10 +70,12 @@ FOUND_V2=0; FOUND_V1=0
 for c in $CHUNKS; do
   js="$(curl -s ${H[@]+"${H[@]}"} -m 40 "$BASE_URL$c")"
   echo "$js" | grep -q "$V2" && FOUND_V2=1
-  echo "$js" | grep -q "$V1" && FOUND_V1=1
+  # Only the bridge's own id counts. v1 may legitimately appear as the LEGACY id, which the admin
+  # panel reads to show v1's rent and nothing else uses.
+  echo "$js" | grep -q "NEXT_PUBLIC_STELLAR_CCTP_WRAPPER_CONTRACT_ID:\"$V1\"" && FOUND_V1=1
 done
 [ "$FOUND_V2" = 1 ] && pass "v2 contract id is in the client bundle" || fail "v2 contract id is NOT in the client bundle (NEXT_PUBLIC_STELLAR_CCTP_WRAPPER_CONTRACT_ID wrong at build time?)"
-[ "$FOUND_V1" = 0 ] && pass "v1 contract id is not in the client bundle" || fail "v1 contract id is still in the client bundle"
+[ "$FOUND_V1" = 0 ] && pass "the bridge does not point at v1" || fail "the bridge still points at v1"
 
 echo "Circle pre-flight (live Circle calls)"
 check "solana, existing account"  "/api/circle-health?dest=solana"               200 "b['status'] in ('ok','degraded') and 0 < b['quote']['high'] < 2000000 and b['quote']['high'] >= b['quote']['low']"
