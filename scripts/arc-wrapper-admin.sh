@@ -72,7 +72,7 @@ send() {
     read -r -p "type yes to send: " answer
     [ "$answer" = yes ] || { echo "not sent"; exit 1; }
   fi
-  cast send "$W" "$@" "${signer[@]}" --rpc-url "$RPC" | grep -E 'status|transactionHash'
+  cast send "$W" "$@" "${signer[@]}" --rpc-url "$RPC" | grep -E '^(status|transactionHash) '
 }
 
 cmd="${1:-status}"; shift || true
