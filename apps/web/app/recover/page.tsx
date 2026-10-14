@@ -2,8 +2,9 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Notice } from "../../components/ui/notice";
-import { env } from "../../lib/env";
+import { browserConnection } from "../../lib/claim";
 import { formatError, reportError } from "../../lib/format-error";
+import { waitForSignature } from "../../lib/solana-confirm";
 
 /**
  * Countersigns a recovery transaction for a CCTP transfer that was burned to a wallet address
@@ -73,7 +74,7 @@ export default function RecoverPage() {
     setError(null);
     setSignature(null);
     try {
-      const { Transaction, Connection } = await import("@solana/web3.js");
+      const { Transaction } = await import("@solana/web3.js");
       const raw = Buffer.from(payload.trim(), "base64");
       const tx = Transaction.from(raw);
 
@@ -82,9 +83,10 @@ export default function RecoverPage() {
       // blind is exactly the kind of thing a wallet prompt does not make legible.
       const signed = await provider.signTransaction(tx);
 
-      const connection = new Connection(env.solanaRpcUrl, "confirmed");
+      // Through the same-origin proxy: the public RPC refuses a request that carries an Origin.
+      const connection = browserConnection();
       const sig = await connection.sendRawTransaction(signed.serialize());
-      await connection.confirmTransaction(sig, "confirmed");
+      await waitForSignature(connection, sig);
       setSignature(sig);
     } catch (err) {
       setError(reportError("recovery signing failed", err));

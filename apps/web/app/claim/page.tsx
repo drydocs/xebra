@@ -1,12 +1,14 @@
 "use client";
 
+import type { Transaction } from "@solana/web3.js";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useState } from "react";
 import { Notice } from "../../components/ui/notice";
-import { browserConnection, prepareClaim } from "../../lib/claim";
+import { browserConnection, buildMintTransaction, prepareClaim } from "../../lib/claim";
 import { EVM_CHAINS, evmChainForDomain } from "../../lib/evm-chains";
 import type { EvmClaimTarget } from "../../lib/evm-claim";
 import { reportError } from "../../lib/format-error";
+import { waitForSignature } from "../../lib/solana-confirm";
 import { EvmClaim } from "./evm-claim";
 
 /**
@@ -36,16 +38,19 @@ import { EvmClaim } from "./evm-claim";
  *
  * (An EVM claim is the destination chain's gas, and nothing else: `evm-claim.tsx`.)
  *
- * The transaction fee plus 867,621 lamports of permanent `used_nonce` rent — about 0.0009 SOL —
- * and roughly 0.002 SOL more if the recipient has no USDC account yet. None of it is recoverable
+ * The transaction fee plus 695,960 lamports of permanent `used_nonce` rent — about 0.0007 SOL —
+ * and roughly 0.0015 SOL more if the recipient has no USDC account yet. None of it is recoverable
  * by anyone. That is what Circle's delivery fee normally covers, stated rather than hidden, because
  * the person paying it is about to approve it in a wallet prompt that will not explain it.
+ *
+ * A recipient with no USDC account takes two wallet prompts, opening the account and then the
+ * mint, because the two do not fit in one Solana transaction (`lib/claim.ts`).
  */
 
 type PhantomProvider = {
   isPhantom?: boolean;
   connect(): Promise<{ publicKey: { toBase58(): string } }>;
-  signTransaction<T>(tx: T): Promise<T>;
+  signTransaction(tx: Transaction): Promise<Transaction>;
 };
 
 function getPhantom(): PhantomProvider | null {
@@ -113,6 +118,7 @@ function Claim() {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [signature, setSignature] = useState<string | null>(null);
+  const [alreadyMinted, setAlreadyMinted] = useState(false);
 
   useEffect(() => setProvider(getPhantom()), []);
 
@@ -158,6 +164,7 @@ function Claim() {
     setError(null);
     setAttestation(null);
     setNeedsOwner(null);
+    setAlreadyMinted(false);
     try {
       const query = new URLSearchParams({ tx: hash });
       if (!onStellar) query.set("src", source);
@@ -176,29 +183,41 @@ function Claim() {
     setError(null);
     try {
       const connection = browserConnection();
-      const prepared = await prepareClaim(connection, {
+      const input = {
         message: attestation.message,
         attestation: attestation.attestation,
         usdcMint: attestation.usdcMint,
         sourceDomainId: attestation.sourceDomainId,
         payer: wallet,
         ...(recipientOwner.trim() ? { recipientOwner: recipientOwner.trim() } : {}),
-      });
+      };
+      const prepared = await prepareClaim(connection, input);
 
+      if (prepared.status === "already-minted") {
+        setAlreadyMinted(true);
+        return;
+      }
       if (prepared.status === "needs-owner") {
         setNeedsOwner(prepared.reason);
         return;
       }
-
       setNeedsOwner(null);
-      setBusy("Confirm in your wallet…");
-      const signed = await provider.signTransaction(prepared.transaction);
-      setBusy("Submitting…");
-      const sig = await connection.sendRawTransaction(
-        (signed as { serialize(): Uint8Array }).serialize(),
-      );
-      await connection.confirmTransaction(sig, "confirmed");
-      setSignature(sig);
+
+      /** Signs, submits and waits, so the next step only starts on a landed transaction. */
+      const submit = async (transaction: Transaction, step: string) => {
+        setBusy(`${step}: confirm in your wallet…`);
+        const signed = await provider.signTransaction(transaction);
+        setBusy(`${step}: submitting…`);
+        const sig = await connection.sendRawTransaction(signed.serialize());
+        setBusy(`${step}: waiting for Solana…`);
+        await waitForSignature(connection, sig);
+        return sig;
+      };
+
+      if (prepared.setup) await submit(prepared.setup, "Opening the USDC account (1 of 2)");
+      setBusy("Building the mint…");
+      const mint = await buildMintTransaction(connection, input);
+      setSignature(await submit(mint, prepared.setup ? "Minting (2 of 2)" : "Minting"));
     } catch (err) {
       setError(reportError("claim failed", err));
     } finally {
@@ -305,63 +324,75 @@ function Claim() {
           </Notice>
         )}
 
-      {attestation?.status === "complete" && isSolanaBound(attestation) && !signature && (
-        <>
-          <Notice tone="signal" title="Attested and claimable">
-            The funds are waiting. Submitting the mint costs you the Solana fee and about 0.0009 SOL
-            of account rent, which nobody can reclaim — this is the cost Circle&rsquo;s delivery fee
-            normally covers.
-          </Notice>
-
-          <section className="rounded-tray bg-bone/[0.03] px-4 py-4">
-            <div className="flex items-center justify-between gap-4">
-              <span className="text-xs font-medium uppercase tracking-wider text-bone/40">
-                Paying wallet
-              </span>
-              {wallet ? (
-                <span className="break-all font-mono text-xs text-signal">{wallet}</span>
-              ) : (
-                <button
-                  type="button"
-                  onClick={connect}
-                  disabled={!provider}
-                  className="rounded-lg px-3 py-1.5 text-sm font-medium text-bone ring-1 ring-inset ring-bone/20 transition-colors duration-200 hover:bg-bone/5 disabled:opacity-40"
-                >
-                  {provider ? "Connect Phantom" : "Phantom not detected"}
-                </button>
-              )}
-            </div>
-            <p className="mt-2 text-xs leading-relaxed text-bone/35">
-              This wallet pays the gas. The USDC goes to whoever the burn named, which may be
-              someone else entirely — that is how a stuck transfer can be rescued by a third party.
-            </p>
-          </section>
-
-          {needsOwner && (
-            <section>
-              <Notice tone="info" title="Who receives this?" className="mb-2.5">
-                {needsOwner}. The address is checked against the burn before anything is signed.
-              </Notice>
-              <input
-                spellCheck={false}
-                value={recipientOwner}
-                onChange={(e) => setRecipientOwner(e.target.value)}
-                placeholder="Destination Solana wallet"
-                className="w-full rounded-tray bg-obsidian-sunken px-3 py-2.5 font-mono text-xs text-bone/80 ring-1 ring-inset ring-bone/10 transition-colors duration-200 placeholder:font-sans placeholder:text-bone/25 focus:outline-none focus:ring-bone/30"
-              />
-            </section>
-          )}
-
-          <button
-            type="button"
-            onClick={claim}
-            disabled={!wallet || Boolean(busy)}
-            className="w-full rounded-tray bg-bone px-4 py-3 font-semibold text-obsidian transition-all duration-200 ease-haptic hover:bg-bone/90 active:scale-[0.99] disabled:cursor-not-allowed disabled:bg-bone/10 disabled:text-bone/30"
-          >
-            {busy ?? "Claim it"}
-          </button>
-        </>
+      {attestation?.status === "complete" && isSolanaBound(attestation) && alreadyMinted && (
+        <Notice tone="signal" title="Already minted">
+          Circle has already delivered this transfer — most likely its forwarding service got there
+          first. Nothing is owed and there is nothing to claim.
+        </Notice>
       )}
+
+      {attestation?.status === "complete" &&
+        isSolanaBound(attestation) &&
+        !signature &&
+        !alreadyMinted && (
+          <>
+            <Notice tone="signal" title="Attested and claimable">
+              The funds are waiting. Submitting the mint costs you the Solana fee and about 0.0007
+              SOL of account rent, which nobody can reclaim — this is the cost Circle&rsquo;s
+              delivery fee normally covers. If the recipient has no USDC account yet, opening one is
+              a separate wallet prompt first and about 0.0015 SOL more.
+            </Notice>
+
+            <section className="rounded-tray bg-bone/[0.03] px-4 py-4">
+              <div className="flex items-center justify-between gap-4">
+                <span className="text-xs font-medium uppercase tracking-wider text-bone/40">
+                  Paying wallet
+                </span>
+                {wallet ? (
+                  <span className="break-all font-mono text-xs text-signal">{wallet}</span>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={connect}
+                    disabled={!provider}
+                    className="rounded-lg px-3 py-1.5 text-sm font-medium text-bone ring-1 ring-inset ring-bone/20 transition-colors duration-200 hover:bg-bone/5 disabled:opacity-40"
+                  >
+                    {provider ? "Connect Phantom" : "Phantom not detected"}
+                  </button>
+                )}
+              </div>
+              <p className="mt-2 text-xs leading-relaxed text-bone/35">
+                This wallet pays the gas. The USDC goes to whoever the burn named, which may be
+                someone else entirely — that is how a stuck transfer can be rescued by a third
+                party.
+              </p>
+            </section>
+
+            {needsOwner && (
+              <section>
+                <Notice tone="info" title="Who receives this?" className="mb-2.5">
+                  {needsOwner}. The address is checked against the burn before anything is signed.
+                </Notice>
+                <input
+                  spellCheck={false}
+                  value={recipientOwner}
+                  onChange={(e) => setRecipientOwner(e.target.value)}
+                  placeholder="Destination Solana wallet"
+                  className="w-full rounded-tray bg-obsidian-sunken px-3 py-2.5 font-mono text-xs text-bone/80 ring-1 ring-inset ring-bone/10 transition-colors duration-200 placeholder:font-sans placeholder:text-bone/25 focus:outline-none focus:ring-bone/30"
+                />
+              </section>
+            )}
+
+            <button
+              type="button"
+              onClick={claim}
+              disabled={!wallet || Boolean(busy)}
+              className="w-full rounded-tray bg-bone px-4 py-3 font-semibold text-obsidian transition-all duration-200 ease-haptic hover:bg-bone/90 active:scale-[0.99] disabled:cursor-not-allowed disabled:bg-bone/10 disabled:text-bone/30"
+            >
+              {busy ?? "Claim it"}
+            </button>
+          </>
+        )}
 
       {error && (
         <Notice tone="alarm" title="That did not go through">

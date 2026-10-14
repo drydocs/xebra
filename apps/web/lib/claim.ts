@@ -2,7 +2,9 @@ import { Connection, PublicKey, Transaction } from "@solana/web3.js";
 import {
   associatedTokenAddress,
   buildReceiveMessageInstruction,
+  ensureRecipientTokenAccount,
   readMintRecipient,
+  usedNonceAddress,
 } from "@xebra/cctp-solana";
 
 /**
@@ -26,11 +28,19 @@ import {
  * implementation is how the two quietly diverge, and the divergence would only show up as a
  * failed mainnet transaction.
  *
+ * # Two transactions when the recipient has no USDC account
+ *
+ * `receiveMessage` alone is 1,224 of Solana's 1,232 permitted bytes, so opening the account cannot
+ * ride along: together they came to 1,330 and every such claim failed before reaching the chain.
+ * The account is opened first, on its own, and the mint is built only once that has confirmed.
+ * Opening is idempotent, so a claim interrupted between the two is finished by claiming again.
+ *
  * # Who pays
  *
- * The connected wallet: transaction fee, and the 867,621 lamports of permanent `used_nonce` rent,
- * plus token-account rent if the recipient has none. That is the trade — the forwarded version costs the
- * user nothing extra because Circle's delivery fee, taken from the burn, covers it.
+ * The connected wallet: transaction fees, and the 695,960 lamports of permanent `used_nonce` rent,
+ * plus 1,488,440 lamports of token-account rent if the recipient has none (both read from mainnet
+ * on 2026-10-14). That is the trade — the forwarded version costs the user nothing extra because
+ * Circle's delivery fee, taken from the burn, covers it.
  *
  * The payer does **not** have to be the recipient. `receiveMessage` mints to the address the burn
  * named, whoever submits it, so anyone can rescue anyone's stuck transfer.
@@ -41,15 +51,20 @@ export type ClaimPreparation =
       status: "ready";
       /** The token account the mint lands in — fixed by the burn, not by the payer. */
       recipientTokenAccount: string;
-      transaction: Transaction;
-      /** True when the transaction also creates the recipient's token account, which costs the
-       *  payer about 0.002 SOL that nobody can ever reclaim. */
-      createsTokenAccount: boolean;
+      /** Opens the recipient's USDC account. Present only when it does not exist yet; it costs the
+       *  payer about 0.0015 SOL that nobody can ever reclaim, and must confirm before
+       *  `buildMintTransaction` is called. */
+      setup: Transaction | null;
     }
   | {
       status: "needs-owner";
       recipientTokenAccount: string;
       reason: string;
+    }
+  | {
+      /** Someone has already minted this transfer: the `used_nonce` account exists. */
+      status: "already-minted";
+      recipientTokenAccount: string;
     };
 
 export interface ClaimInput {
@@ -79,6 +94,7 @@ export function browserConnection(): Connection {
   });
 }
 
+/** Decides what a claim needs, and builds the account-opening transaction if it needs one. */
 export async function prepareClaim(
   connection: Connection,
   input: ClaimInput,
@@ -86,81 +102,77 @@ export async function prepareClaim(
   const payer = new PublicKey(input.payer);
   const mint = new PublicKey(input.usdcMint);
   const recipientTokenAccount = readMintRecipient(input.message);
+  const recipient = recipientTokenAccount.toBase58();
 
-  const existing = await connection.getAccountInfo(recipientTokenAccount);
-  const transaction = new Transaction();
-  let createsTokenAccount = false;
-
-  if (!existing) {
-    if (!input.recipientOwner) {
-      return {
-        status: "needs-owner",
-        recipientTokenAccount: recipientTokenAccount.toBase58(),
-        reason:
-          "the recipient has no USDC account on Solana yet, and creating one needs the wallet " +
-          "address it belongs to",
-      };
-    }
-
-    const owner = new PublicKey(input.recipientOwner);
-    const derived = associatedTokenAddress(owner, mint);
-    if (!derived.equals(recipientTokenAccount)) {
-      // Refusing rather than creating what was asked for: creating the wrong account spends the
-      // payer's rent on something unusable and still leaves the mint impossible.
-      return {
-        status: "needs-owner",
-        recipientTokenAccount: recipientTokenAccount.toBase58(),
-        reason: `that wallet's USDC account is ${derived.toBase58()}, which is not the account this burn names`,
-      };
-    }
-
-    transaction.add(createAssociatedTokenAccountInstruction(payer, derived, owner, mint));
-    createsTokenAccount = true;
+  // Checked first so nobody pays to open an account for a transfer that has already landed.
+  if (await connection.getAccountInfo(usedNonceAddress(input.message))) {
+    return { status: "already-minted", recipientTokenAccount: recipient };
   }
 
-  transaction.add(
-    await buildReceiveMessageInstruction(connection, payer, input.message, input.attestation, {
-      usdcMint: mint,
-      sourceDomain: input.sourceDomainId,
-    }),
-  );
+  if (await connection.getAccountInfo(recipientTokenAccount)) {
+    return { status: "ready", recipientTokenAccount: recipient, setup: null };
+  }
 
-  const { blockhash } = await connection.getLatestBlockhash("confirmed");
-  transaction.feePayer = payer;
-  transaction.recentBlockhash = blockhash;
+  if (!input.recipientOwner) {
+    return {
+      status: "needs-owner",
+      recipientTokenAccount: recipient,
+      reason:
+        "the recipient has no USDC account on Solana yet, and creating one needs the wallet " +
+        "address it belongs to",
+    };
+  }
+
+  const owner = new PublicKey(input.recipientOwner);
+  const derived = associatedTokenAddress(owner, mint);
+  if (!derived.equals(recipientTokenAccount)) {
+    // Refusing rather than creating what was asked for: creating the wrong account spends the
+    // payer's rent on something unusable and still leaves the mint impossible.
+    return {
+      status: "needs-owner",
+      recipientTokenAccount: recipient,
+      reason: `that wallet's USDC account is ${derived.toBase58()}, which is not the account this burn names`,
+    };
+  }
+
+  const { instruction } = await ensureRecipientTokenAccount(connection, payer, owner, mint);
+  // No instruction means the account appeared between the two reads: nothing left to open.
+  if (!instruction) return { status: "ready", recipientTokenAccount: recipient, setup: null };
 
   return {
     status: "ready",
-    recipientTokenAccount: recipientTokenAccount.toBase58(),
-    transaction,
-    createsTokenAccount,
+    recipientTokenAccount: recipient,
+    setup: await withBlockhash(connection, new Transaction().add(instruction), payer),
   };
 }
 
-/** Built here rather than pulled from `@solana/spl-token`, which is a large dependency this app
- *  otherwise does not have, for one instruction with no data and a fixed account list. */
-function createAssociatedTokenAccountInstruction(
-  payer: PublicKey,
-  associatedToken: PublicKey,
-  owner: PublicKey,
-  mint: PublicKey,
-) {
-  const TOKEN_PROGRAM = new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
-  const ASSOCIATED_TOKEN_PROGRAM = new PublicKey("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL");
-  const SYSTEM_PROGRAM = new PublicKey("11111111111111111111111111111111");
+/**
+ * The mint itself. Built after any setup transaction has confirmed, never alongside it: the
+ * blockhash has to be fresh by then, and the wallet's own simulation of the mint fails while the
+ * account it mints into does not exist yet.
+ */
+export async function buildMintTransaction(
+  connection: Connection,
+  input: ClaimInput,
+): Promise<Transaction> {
+  const payer = new PublicKey(input.payer);
+  const instruction = await buildReceiveMessageInstruction(
+    connection,
+    payer,
+    input.message,
+    input.attestation,
+    { usdcMint: new PublicKey(input.usdcMint), sourceDomain: input.sourceDomainId },
+  );
+  return withBlockhash(connection, new Transaction().add(instruction), payer);
+}
 
-  return {
-    programId: ASSOCIATED_TOKEN_PROGRAM,
-    keys: [
-      { pubkey: payer, isSigner: true, isWritable: true },
-      { pubkey: associatedToken, isSigner: false, isWritable: true },
-      // The owner never signs. Creating someone's token account is permissionless — only the
-      // payer signs — which is what makes claiming on behalf of another wallet possible at all.
-      { pubkey: owner, isSigner: false, isWritable: false },
-      { pubkey: mint, isSigner: false, isWritable: false },
-      { pubkey: SYSTEM_PROGRAM, isSigner: false, isWritable: false },
-      { pubkey: TOKEN_PROGRAM, isSigner: false, isWritable: false },
-    ],
-    data: Buffer.from([1]),
-  };
+async function withBlockhash(
+  connection: Connection,
+  transaction: Transaction,
+  payer: PublicKey,
+): Promise<Transaction> {
+  const { blockhash } = await connection.getLatestBlockhash("confirmed");
+  transaction.feePayer = payer;
+  transaction.recentBlockhash = blockhash;
+  return transaction;
 }

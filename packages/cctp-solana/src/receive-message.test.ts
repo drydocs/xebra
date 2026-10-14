@@ -1,12 +1,14 @@
-import { PublicKey } from "@solana/web3.js";
+import { type Connection, PublicKey } from "@solana/web3.js";
 import { describe, expect, it } from "vitest";
 import {
   MESSAGE_TRANSMITTER_V2,
   RECEIVE_MESSAGE_DISCRIMINATOR,
   TOKEN_MESSENGER_MINTER_V2,
   associatedTokenAddress,
+  buildReceiveMessageInstruction,
   readMintRecipient,
   readNonce,
+  usedNonceAddress,
 } from "./receive-message.js";
 
 /**
@@ -42,6 +44,27 @@ describe("message parsing", () => {
     const nonce = readNonce(fakeMessage(REAL_MESSAGE_NONCE, recipient));
     expect(nonce.toString("hex")).toBe(REAL_MESSAGE_NONCE);
     expect(nonce).toHaveLength(32);
+  });
+
+  it("names the same used_nonce account the instruction writes", async () => {
+    // On three real receiveMessage transactions read on 2026-10-14, the account at index 4 had
+    // this derivation and existed after the mint. Its existence is how /claim tells a transfer
+    // that has already been delivered, so it must be the account the instruction marks.
+    const msg = fakeMessage(REAL_MESSAGE_NONCE, PublicKey.default);
+    const [tokenMessenger] = PublicKey.findProgramAddressSync(
+      [Buffer.from("token_messenger")],
+      TOKEN_MESSENGER_MINTER_V2,
+    );
+    const connection = {
+      getAccountInfo: async (key: PublicKey) =>
+        key.equals(tokenMessenger) ? { data: Buffer.alloc(200) } : null,
+    } as unknown as Connection;
+    const ix = await buildReceiveMessageInstruction(connection, PublicKey.default, msg, "0x", {
+      usdcMint: PublicKey.default,
+      sourceDomain: 27,
+    });
+    expect(ix.keys[4]?.pubkey.equals(usedNonceAddress(msg))).toBe(true);
+    expect(ix.keys[4]?.isWritable).toBe(true);
   });
 
   it("reads mintRecipient from the burn body", () => {

@@ -125,7 +125,7 @@ export interface ReceiveMessageConfig {
  *
  * Creating an ATA is permissionless: the owner never signs, only the payer does. That is what
  * makes it possible to deliver to an exchange deposit address whose key nobody here will ever
- * have. The ~0.002 SOL rent is **not recoverable** by the payer — `CloseAccount` requires the
+ * have. The ~0.0015 SOL rent is **not recoverable** by the payer — `CloseAccount` requires the
  * owner's signature, and an ATA has no close authority — so it is a permanent, once-per-recipient
  * cost to whoever pays.
  */
@@ -179,7 +179,6 @@ export async function buildReceiveMessageInstruction(
 ): Promise<TransactionInstruction> {
   const message = hexToBuffer(messageHex);
   const attestation = hexToBuffer(attestationHex);
-  const nonce = message.subarray(NONCE_START, NONCE_END);
   const burnToken = message.subarray(BURN_TOKEN_START, BURN_TOKEN_END);
   const mintRecipient = new PublicKey(message.subarray(BODY_START + 36, BODY_START + 68));
 
@@ -191,7 +190,7 @@ export async function buildReceiveMessageInstruction(
     [utf8("message_transmitter_authority"), TOKEN_MESSENGER_MINTER_V2.toBuffer()],
     MESSAGE_TRANSMITTER_V2,
   );
-  const usedNonce = pda([utf8("used_nonce"), nonce], MESSAGE_TRANSMITTER_V2);
+  const usedNonce = usedNonceAddress(messageHex);
   const mtEventAuthority = pda([utf8("__event_authority")], MESSAGE_TRANSMITTER_V2);
 
   const tokenMessenger = pda([utf8("token_messenger")], TOKEN_MESSENGER_MINTER_V2);
@@ -253,4 +252,12 @@ export function readMintRecipient(messageHex: string): PublicKey {
 /** The 32-byte nonce, which seeds `used_nonce` and uniquely identifies the transfer. */
 export function readNonce(messageHex: string): Buffer {
   return hexToBuffer(messageHex).subarray(NONCE_START, NONCE_END);
+}
+
+/**
+ * The account `receiveMessage` creates to mark this message spent. It exists once the transfer
+ * has been minted, by anyone, so its presence is how a claim learns there is nothing left to do.
+ */
+export function usedNonceAddress(messageHex: string): PublicKey {
+  return pda([utf8("used_nonce"), readNonce(messageHex)], MESSAGE_TRANSMITTER_V2);
 }
