@@ -94,11 +94,8 @@ export interface BridgeChainConfig {
   /** Horizon base URL, used only for confirmation polling. */
   horizonUrl: string;
   /**
-   * Xebra's fee wrapper. Optional: when it is not deployed the app bridges **directly**
-   * through Circle's TokenMessengerMinter, which is already live on mainnet. That path takes
-   * no fee, but it is a real bridge — and it exercises every risky part of the flow (the
-   * wallet auth tree, mint_recipient encoding, Circle's max_fee handling) without anything
-   * of ours needing to exist on chain first.
+   * Xebra's fee wrapper (v2 on mainnet). Null when a build has none configured, and then nothing
+   * can be sent: there is no direct path around the wrapper on the Stellar route (see the header).
    */
   wrapperContractId: string | null;
   cctpTokenMessengerId: string;
@@ -502,8 +499,41 @@ export async function submitSigned(
         `The network declined to queue the ${what} right now (TRY_AGAIN_LATER). Nothing has moved. Wait a few seconds and try again.`,
       );
     default:
-      throw new Error(`The ${what} was rejected: ${formatError(result)}`);
+      throw new Error(describeRejectedTransaction(result, what));
   }
+}
+
+/** What each transaction-level failure means to a person, keyed by the XDR result code name.
+ *  None of these cost the user USDC — only a network fee at most. */
+const TX_RESULT_MESSAGES: Record<string, string> = {
+  txTooLate:
+    "The signing window expired before the network accepted it, so the transfer did not go through. No USDC has moved. Please try again and approve in your wallet promptly.",
+  txTooEarly: "The transfer was submitted too early. No USDC has moved. Please try again.",
+  txBadSeq:
+    "Your wallet sent another transaction in the meantime. No USDC has moved. Please try again.",
+  txInsufficientFee:
+    "The network is busy and the fee was too low. No USDC has moved. Please try again.",
+  txInsufficientBalance:
+    "Your wallet does not have enough XLM to cover the network fee. Add some XLM and try again.",
+  txNoAccount: "This Stellar account is not funded yet. Add some XLM and try again.",
+  txBadAuth: "Your wallet signature was not accepted. Please try again.",
+  txBadAuthExtra: "Your wallet signature was not accepted. Please try again.",
+  txFailed: "The transaction failed on the network. No USDC has moved.",
+};
+
+/** The `status: ERROR` reply carries an XDR result; read its code name rather than dumping it. */
+export function describeRejectedTransaction(result: unknown, what: string): string {
+  let code: string | undefined;
+  try {
+    const errorResult = (result as { errorResult?: { result(): { switch(): { name: string } } } })
+      .errorResult;
+    code = errorResult?.result().switch().name;
+  } catch {
+    code = undefined;
+  }
+  const known = code ? TX_RESULT_MESSAGES[code] : undefined;
+  if (known) return known;
+  return `The network rejected the ${what}${code ? ` (${code})` : ""}. No USDC has moved. Please try again.`;
 }
 
 /**
@@ -577,7 +607,7 @@ const CONTRACT_ERRORS: Record<number, string> = {
   5: "This quote expired. Refresh and try again.",
   7: "That destination chain is not supported yet.",
   8: "The destination address cannot be all zeroes.",
-  9: "That looks like an Ethereum address, not a Solana one.",
+  9: "That address is the wrong kind for this destination chain. Check it and try again.",
   10: "The transfer speed was not accepted. Refresh and try again.",
   11: "Enter an amount greater than zero.",
   12: "That amount is below the minimum for this bridge.",

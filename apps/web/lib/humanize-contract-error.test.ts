@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { humanizeContractError } from "./cctp-bridge";
 
+/** Wrapper v1 (retired): the traces below are real mainnet traces from it. v2 reports errors the same way. */
 const WRAPPER = "CCNWLGFMILJU476RZHDA2PSUH2WH3LIPERHS6BYPCRVDDYYNNUIKZMTJ";
 const USDC = "CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75";
 
@@ -57,8 +58,11 @@ describe("humanizeContractError", () => {
 
   it("covers every code the contract can return on the bridge path", () => {
     // An unmapped code falls back to a number, which tells the user nothing. These are the
-    // variants reachable from `bridge()`.
-    for (const code of [2, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 36, 37]) {
+    // variants reachable from v2's `bridge()`, the forwarding checks (39-41) and the account
+    // owner checks (43-45) included.
+    for (const code of [
+      2, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 36, 37, 39, 40, 41, 43, 44, 45,
+    ]) {
       const raw = `HostError: Error(Contract, #${code})\n   0: [Diagnostic Event] contract:${WRAPPER}, topics:[error, Error(Contract, #${code})]`;
       expect(humanizeContractError(raw, WRAPPER), `code ${code}`).not.toMatch(/code \d+/);
     }
@@ -72,5 +76,23 @@ describe("humanizeContractError", () => {
 
   it("works without a wrapper id, for callers that do not have one", () => {
     expect(humanizeContractError(EMPTY_WALLET)).toMatch(/balance is too low/i);
+  });
+});
+
+describe("describeRejectedTransaction", () => {
+  const failure = (name: string) => ({
+    errorResult: { result: () => ({ switch: () => ({ name }) }) },
+  });
+
+  it("explains txTooLate in plain words", async () => {
+    const { describeRejectedTransaction } = await import("./cctp-bridge");
+    const msg = describeRejectedTransaction(failure("txTooLate"), "bridge transaction");
+    expect(msg).toMatch(/expired/i);
+    expect(msg).not.toMatch(/_switch|_attributes|txTooLate/);
+  });
+
+  it("never dumps raw objects for unknown codes", async () => {
+    const { describeRejectedTransaction } = await import("./cctp-bridge");
+    expect(describeRejectedTransaction({}, "bridge transaction")).not.toMatch(/[{}]/);
   });
 });
