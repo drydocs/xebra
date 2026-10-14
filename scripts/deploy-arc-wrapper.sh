@@ -23,7 +23,7 @@
 # Usage:
 #   NETWORK=testnet ACCOUNT=<cast keystore> ADMIN=0x… PAUSER=0x… FEE_RECIPIENT=0x… \
 #     scripts/deploy-arc-wrapper.sh
-#   PRIVATE_KEY_FILE=… may stand in for ACCOUNT on testnet only.
+#   PRIVATE_KEY_FILE=… (a file holding the key, readable by you only) may stand in for ACCOUNT.
 
 set -euo pipefail
 export PATH="$HOME/.foundry/bin:$PATH"
@@ -56,7 +56,6 @@ USDC=0x3600000000000000000000000000000000000000
 : "${PAUSER:?set PAUSER, the address that can pause and veto}"
 : "${FEE_RECIPIENT:?set FEE_RECIPIENT, where withdrawn fees go}"
 if [ "$NETWORK" = mainnet ]; then
-  [ -n "${ACCOUNT:-}" ] || die "mainnet signs with a cast keystore: set ACCOUNT"
   [ "$(echo "$ADMIN" | tr A-F a-f)" != "$(echo "$PAUSER" | tr A-F a-f)" ] \
     || die "admin and pauser are the same address; docs/go-live.md wants two people"
 fi
@@ -67,7 +66,7 @@ elif [ -n "${PRIVATE_KEY_FILE:-}" ]; then
   SIGNER=(--private-key "$(cat "$PRIVATE_KEY_FILE")")
   DEPLOYER="$(cast wallet address --private-key "$(cat "$PRIVATE_KEY_FILE")")"
 else
-  die "set ACCOUNT (a cast keystore) or, on testnet, PRIVATE_KEY_FILE"
+  die "set ACCOUNT (a cast keystore) or PRIVATE_KEY_FILE"
 fi
 
 # ---- parameters, in USDC units (6 decimals) ---------------------------------------------------

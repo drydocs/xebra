@@ -20,7 +20,7 @@
 #   … propose-admin <addr> | accept-admin | propose-pauser <addr> | commit-pauser
 #   … propose-fee-recipient <addr> | commit-fee-recipient
 # Amounts are USDC units (6 decimals): 250000 is 0.25 USDC.
-# PRIVATE_KEY_FILE may stand in for ACCOUNT on testnet only.
+# PRIVATE_KEY_FILE (a file holding the key, readable by you only) may stand in for ACCOUNT.
 
 set -euo pipefail
 export PATH="$HOME/.foundry/bin:$PATH"
@@ -62,10 +62,10 @@ send() {
   local signer
   if [ -n "${ACCOUNT:-}" ]; then
     signer=(--account "$ACCOUNT")
-  elif [ -n "${PRIVATE_KEY_FILE:-}" ] && [ "$NETWORK" = testnet ]; then
+  elif [ -n "${PRIVATE_KEY_FILE:-}" ]; then
     signer=(--private-key "$(cat "$PRIVATE_KEY_FILE")")
   else
-    echo "set ACCOUNT, the cast keystore of the admin or pauser" >&2; exit 1
+    echo "set ACCOUNT (a cast keystore) or PRIVATE_KEY_FILE, for the admin or pauser" >&2; exit 1
   fi
   echo "about to send on $NETWORK: $W $*"
   if [ "${YES:-}" != 1 ]; then
