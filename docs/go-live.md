@@ -161,7 +161,10 @@ Known gaps, none of which lose money silently but all worth knowing:
 
 Transfers out of Arc are free today: the page calls Circle directly. `XebraCctpWrapper.sol`
 (`contracts/arc-evm`) takes Stellar's fee on them (0.10%, 0.30 USDC floor, Circle's delivery fee paid
-out of it) and is built and tested, but **not deployed on mainnet**.
+out of it). **Deployed on Arc mainnet** on 2026-10-15 at `0x11b30470DAE40B2Fc27b7AA90dc58e6B4fE9f4c3`
+(`deployments/mainnet.json`) and pinned in `XEBRA_WRAPPERS`; steps 1–4 below are done, the page does
+not use it until step 6, and no mainnet transfer has gone through it yet. Its keys are files in
+`~/.xebra-mainnet` on the maintainer's machine, like the Stellar admin and pauser identities.
 
 What is proven: the Foundry suite (unit, fuzz, and a deploy against Circle's real Arc testnet
 contracts in a fork), and on 2026-10-14 a deployment on Arc testnet

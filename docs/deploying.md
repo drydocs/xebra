@@ -154,5 +154,6 @@ watch is Circle and the deployment itself:
 
 No mainnet transfer has gone through the routes between Arc and the EVM chains yet; they were proven
 on testnet on 2026-10-14. They call Circle directly and charge no fee of ours: the EVM fee wrapper is
-proven on Arc testnet but not deployed on mainnet ([`go-live.md`](./go-live.md#turning-on-the-arc-wrapper)). EVM chains → Arc is off in production (`NEXT_PUBLIC_ARC_RECEIVES_FROM`
+deployed on Arc mainnet but not switched on (`NEXT_PUBLIC_ARC_USE_WRAPPER`,
+[`go-live.md`](./go-live.md#turning-on-the-arc-wrapper)). EVM chains → Arc is off in production (`NEXT_PUBLIC_ARC_RECEIVES_FROM`
 unset).

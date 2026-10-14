@@ -313,7 +313,10 @@ export const SOLANA_FROM_ARC = {
  * for the whole amount, so it is never configurable at run time; `NEXT_PUBLIC_ARC_USE_WRAPPER` only
  * chooses whether a pinned one is used.
  */
-export const XEBRA_WRAPPERS: Partial<Record<EvmChainId, string>> = {};
+export const XEBRA_WRAPPERS: Partial<Record<EvmChainId, string>> = {
+  // Deployed 2026-10-15, tx 0x5a3855c72d0025f0e7848e538862abf4b4fb2888434e58db79379487e212719d.
+  arc: "0x11b30470DAE40B2Fc27b7AA90dc58e6B4fE9f4c3",
+};
 
 /** The wrapper a transfer from `chain` goes through in this build, or null to call Circle directly. */
 export function wrapperFor(chain: EvmChain, useWrapper: boolean): string | null {

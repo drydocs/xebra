@@ -42,8 +42,10 @@ PRIVATE_KEY_FILE=… DEST=base ../../scripts/test-arc-wrapper-testnet.sh
 NETWORK=testnet ../../scripts/arc-wrapper-admin.sh status
 ```
 
-Deployed on Arc testnet at `0xEdf6867df28F6A5EdE4c3B701c9E9e5091FDef75` (2026-10-14,
-[`deployments/testnet.json`](../../deployments/testnet.json)). Not on mainnet yet: see
+Deployed on Arc mainnet at `0x11b30470DAE40B2Fc27b7AA90dc58e6B4fE9f4c3` (2026-10-15,
+[`deployments/mainnet.json`](../../deployments/mainnet.json)) and on Arc testnet at
+`0xEdf6867df28F6A5EdE4c3B701c9E9e5091FDef75` (2026-10-14,
+[`deployments/testnet.json`](../../deployments/testnet.json)). What is left before the page uses it:
 [`docs/go-live.md`](../../docs/go-live.md#turning-on-the-arc-wrapper).
 
 ## XebraEscrow
