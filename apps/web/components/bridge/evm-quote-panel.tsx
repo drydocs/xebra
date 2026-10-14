@@ -10,13 +10,14 @@ import { StripeRule } from "../ui/stripe-rule";
 /**
  * What a transfer from an EVM chain costs and what arrives.
  *
- * The Stellar panel reads its figures from the wrapper contract. There is no contract on this
- * route, so these come from Circle's own quote (`lib/evm-forward-fee.ts`), and for the same reason
- * there is no wallet to wait for: the price is the same for everyone, and is shown before anyone
- * connects.
+ * The figures come from Circle's own quote (`lib/evm-forward-fee.ts`) and, where the transfer goes
+ * through Xebra's wrapper, the wrapper's live settings. Neither needs a wallet: the price is the
+ * same for everyone, and is shown before anyone connects.
  *
  * Fees are taken out of the amount, not added to it. The wallet is debited exactly "Amount" and
- * the recipient is minted "Recipient gets"; Circle keeps the difference.
+ * the recipient is minted "Recipient gets"; Circle, and Xebra through the wrapper, keep the
+ * difference. Xebra's fee is a floor that Circle's is paid out of, so it shows only what Xebra keeps
+ * beyond Circle's, and nothing when Circle's is the larger.
  */
 export function EvmQuotePanel({
   amount,
@@ -70,6 +71,13 @@ export function EvmQuotePanel({
             label="Fast transfer"
             value={`−${formatUsdc6(plan.speedFee)} USDC`}
             hint={`Circle's fee for not waiting on ${sourceName} to finalise.`}
+          />
+        )}
+        {plan.xebraFee > 0n && (
+          <DataRow
+            label="Xebra fee"
+            value={`−${formatUsdc6(plan.xebraFee)} USDC`}
+            hint="Ours, kept by our contract on the way through. Circle's fees above are paid out of it."
           />
         )}
         <div className="pt-3">
