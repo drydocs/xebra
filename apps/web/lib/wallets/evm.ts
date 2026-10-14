@@ -8,9 +8,9 @@ import type { Connection, Eip1193Provider, WalletEntry } from "./types";
  * wallet announce itself, with a name and icon, and lets the page pick. `window.ethereum` stays as
  * a fallback for a wallet that predates the standard, listed only when nothing announced.
  *
- * No wagmi: this app connects, reads an address and, on /claim, sends one transaction. A connector
- * framework would be more code and more failure modes than the job (the previous wagmi setup was
- * removed for exactly that; see providers.tsx).
+ * No wagmi: this app connects, reads an address and a network, and sends a transaction or two
+ * (`lib/evm-rpc.ts`). A connector framework would be more code and more failure modes than the job
+ * (the previous wagmi setup was removed for exactly that; see providers.tsx).
  */
 
 export interface Eip6963Info {
@@ -91,14 +91,53 @@ export function watchEvmWallets(onChange: (m: Map<string, Eip6963Detail>) => voi
   return () => window.removeEventListener("eip6963:announceProvider", handler);
 }
 
+const ADDRESS = /^0x[0-9a-fA-F]{40}$/;
+
+/** A chain id as wallets report it: a hex string from `eth_chainId` and `chainChanged`. */
+export function parseChainId(value: unknown): number | undefined {
+  if (typeof value !== "string" || !/^0x[0-9a-fA-F]+$/.test(value)) return undefined;
+  const id = Number.parseInt(value, 16);
+  return Number.isSafeInteger(id) && id > 0 ? id : undefined;
+}
+
 export async function connectEvm(
   entry: WalletEntry,
   provider: Eip1193Provider,
 ): Promise<Connection> {
   const accounts = (await provider.request({ method: "eth_requestAccounts" })) as unknown;
   const first = Array.isArray(accounts) ? accounts[0] : undefined;
-  if (typeof first !== "string" || !/^0x[0-9a-fA-F]{40}$/.test(first)) {
+  if (typeof first !== "string" || !ADDRESS.test(first)) {
     throw new Error("The wallet did not return an address.");
   }
-  return { family: "evm", walletKey: entry.key, walletName: entry.name, address: first, provider };
+  // Not knowing the network is survivable (it is asked again before anything is sent), so a
+  // wallet that will not answer still connects.
+  const chainId = parseChainId(
+    await provider.request({ method: "eth_chainId" }).catch(() => undefined),
+  );
+  return {
+    family: "evm",
+    walletKey: entry.key,
+    walletName: entry.name,
+    address: first,
+    provider,
+    chainId,
+  };
+}
+
+export type EvmEvent =
+  | { type: "accountsChanged"; accounts: unknown }
+  | { type: "chainChanged"; chainId: unknown };
+
+/**
+ * The connection after the wallet reports a change, or null when it no longer has an account for
+ * us. Pure, and applied to the *current* connection: an account switch must not undo a network
+ * switch that happened before it, which is what updating from the connect-time value would do.
+ */
+export function applyEvmEvent(current: Connection | null, event: EvmEvent): Connection | null {
+  if (!current) return null;
+  if (event.type === "accountsChanged") {
+    const first = Array.isArray(event.accounts) ? event.accounts[0] : undefined;
+    return typeof first === "string" && ADDRESS.test(first) ? { ...current, address: first } : null;
+  }
+  return { ...current, chainId: parseChainId(event.chainId) };
 }

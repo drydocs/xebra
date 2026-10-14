@@ -15,9 +15,15 @@ export type DeliveryView =
   /** Could not ask. Deliberately not "waiting" — an unanswerable question is not progress. */
   | { status: "unknown"; reason: string };
 
-export async function getDelivery(txHash: string): Promise<DeliveryView> {
+/**
+ * `sourceDomain` names the chain the burn was made on. Omitted for a Stellar burn, which is what a
+ * bare hash has always meant.
+ */
+export async function getDelivery(txHash: string, sourceDomain?: number): Promise<DeliveryView> {
   try {
-    const res = await fetch(`/api/delivery?tx=${encodeURIComponent(txHash)}`);
+    const q = new URLSearchParams({ tx: txHash });
+    if (sourceDomain !== undefined) q.set("src", String(sourceDomain));
+    const res = await fetch(`/api/delivery?${q}`);
     if (!res.ok) return { status: "unknown", reason: `status returned ${res.status}` };
     const body = (await res.json()) as DeliveryView;
     if (body.status === "known" && typeof body.state === "string") return body;
@@ -49,5 +55,53 @@ export async function getCircleHealth(
       : null;
   } catch {
     return null;
+  }
+}
+
+/**
+ * The same question for a route that calls Circle directly, named by its two CCTP domains. The
+ * answer carries both speeds (`tiers`), each with its own fee.
+ */
+export async function getRouteHealth(
+  sourceDomain: number,
+  destinationDomain: number,
+  /** Solana only: price Circle opening the recipient's USDC account as well. */
+  newAccount = false,
+): Promise<CircleHealth | null> {
+  try {
+    const q = new URLSearchParams({ src: String(sourceDomain), dst: String(destinationDomain) });
+    if (newAccount) q.set("newAccount", "1");
+    const res = await fetch(`/api/circle-health?${q}`);
+    if (!res.ok) return null;
+    const body = (await res.json()) as CircleHealth;
+    return body.status === "ok" || body.status === "degraded" || body.status === "down"
+      ? body
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Asks Circle, through our server, to attest an expired message again. Never throws: the answer is
+ * either that it was asked, or a sentence about why not.
+ */
+export async function requestReattest(
+  nonce: string,
+): Promise<{ ok: true } | { ok: false; reason: string }> {
+  try {
+    const res = await fetch("/api/reattest", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ nonce }),
+    });
+    const body = (await res.json().catch(() => null)) as { reason?: unknown } | null;
+    if (res.ok) return { ok: true };
+    return {
+      ok: false,
+      reason: typeof body?.reason === "string" ? body.reason : `the request returned ${res.status}`,
+    };
+  } catch {
+    return { ok: false, reason: "could not reach the server" };
   }
 }

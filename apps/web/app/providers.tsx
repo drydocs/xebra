@@ -11,9 +11,10 @@ import { trpc } from "../lib/trpc";
 /**
  * `WagmiProvider` used to wrap this tree. It has been removed.
  *
- * Wagmi existed solely for corridor 1 (Arc, an EVM chain), which is not in scope: the product
- * is a USDC bridge over CCTP, Stellar → Solana. The Stellar flow uses Stellar Wallets Kit and
- * never touched wagmi.
+ * Wagmi existed solely for corridor 1 (Arc, an EVM chain) at a time when the product was a USDC
+ * bridge from Stellar to Solana alone. The Stellar flow uses Stellar Wallets Kit and never
+ * touched wagmi. EVM chains are sources now, and still without it: `lib/evm-rpc.ts` is the few
+ * JSON-RPC calls that takes, made on the wallet's own EIP-1193 provider.
  *
  * Keeping it was actively harmful. Wagmi requires at least one chain, and with the Arc
  * variables unset the config fell back to a fabricated chain with `rpcUrls.default.http: []`

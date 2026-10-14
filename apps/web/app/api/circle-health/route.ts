@@ -1,6 +1,12 @@
 import { type CircleHealth, checkCircle } from "@xebra/cctp-client";
-import { CCTP_DOMAIN } from "@xebra/network-config";
+import {
+  CCTP_DOMAIN,
+  SOLANA_FROM_ARC,
+  evmChainForDomain,
+  isArcToSolana,
+} from "@xebra/network-config";
 import { irisBaseUrl, irisBudget, irisFetch, stellarDomainId } from "../../../lib/server/iris";
+import { isOfferedRoute, readDomain } from "../../../lib/server/routes";
 import { createTtlCache } from "../../../lib/server/ttl-cache";
 
 /**
@@ -14,6 +20,11 @@ import { createTtlCache } from "../../../lib/server/ttl-cache";
  * or our own rate limit is holding back status reads). See `checkCircle` for what is probed, what
  * deliberately is not, and the one failure no pre-flight can see.
  *
+ * Two ways to name a route. `?dest=solana|arc` is the Stellar screen's, unchanged. `?src=&dst=`
+ * (CCTP domains) is for the routes that call Circle directly from an EVM chain; only the pairs this
+ * product offers are answered, and a delivery fee is judged against the destination chain's own
+ * ceiling, because delivering to Ethereum honestly costs fifty times what delivering to Arc does.
+ *
  * Public and unauthenticated: it reports public facts about Circle's API. Answers are cached for
  * thirty seconds per route, so page loads do not become Iris calls.
  */
@@ -25,8 +36,49 @@ type Destination = keyof typeof DESTINATIONS;
 
 const cached = createTtlCache<CircleHealth>(30_000);
 
+function withBudget(health: CircleHealth): Response {
+  // Which counter is actually in use. `shared` is the intended state; `local` means the shared store is
+  // unreachable or its secret does not match Convex's, and each instance is counting alone. The
+  // smoke test (`scripts/smoke-prod.sh`) fails on it.
+  const budgetBackend = irisBudget().backend?.() ?? "local";
+  return Response.json({ ...health, budgetBackend }, { headers: { "cache-control": "no-store" } });
+}
+
 export async function GET(request: Request): Promise<Response> {
   const params = new URL(request.url).searchParams;
+
+  if (params.has("src") || params.has("dst")) {
+    const src = readDomain(params.get("src"));
+    const dst = readDomain(params.get("dst"));
+    if (src === null || dst === null || !isOfferedRoute(src, dst, stellarDomainId())) {
+      return Response.json({ error: "src and dst must name a route we offer" }, { status: 400 });
+    }
+    // Arc to Solana is the one destination here that is not an EVM chain. Circle prices opening
+    // the recipient's USDC account separately, and that price has its own ceiling.
+    const toSolana = isArcToSolana(src, dst);
+    const newAccount = toSolana && params.get("newAccount") === "1";
+    const maxFeeUnits = toSolana
+      ? newAccount
+        ? SOLANA_FROM_ARC.maxForwardFeeNewAccountUnits
+        : SOLANA_FROM_ARC.maxForwardFeeUnits
+      : evmChainForDomain(dst)?.maxForwardFeeUnits;
+    if (maxFeeUnits === undefined) {
+      return Response.json({ error: "src and dst must name a route we offer" }, { status: 400 });
+    }
+    const health = await cached(`${src}>${dst}:${newAccount}`, () =>
+      checkCircle({
+        baseUrl: irisBaseUrl(),
+        sourceDomain: src,
+        destDomain: dst,
+        includeRecipientSetup: newAccount,
+        fetch: irisFetch,
+        store: irisBudget(),
+        maxFeeUnits,
+      }),
+    );
+    return withBudget(health);
+  }
+
   const dest = params.get("dest");
   if (dest !== "solana" && dest !== "arc") {
     return Response.json({ error: "dest must be one of: solana, arc" }, { status: 400 });
@@ -46,10 +98,5 @@ export async function GET(request: Request): Promise<Response> {
     }),
   );
 
-  // Which counter is actually in use. `shared` is the intended state; `local` means the shared store is
-  // unreachable or its secret does not match Convex's, and each instance is counting alone. The
-  // smoke test (`scripts/smoke-prod.sh`) fails on it.
-  const budgetBackend = irisBudget().backend?.() ?? "local";
-
-  return Response.json({ ...health, budgetBackend }, { headers: { "cache-control": "no-store" } });
+  return withBudget(health);
 }

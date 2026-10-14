@@ -4,9 +4,10 @@ import { useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useState } from "react";
 import { Notice } from "../../components/ui/notice";
 import { browserConnection, prepareClaim } from "../../lib/claim";
-import type { ArcClaimTarget } from "../../lib/claim-arc";
+import { EVM_CHAINS, evmChainForDomain } from "../../lib/evm-chains";
+import type { EvmClaimTarget } from "../../lib/evm-claim";
 import { reportError } from "../../lib/format-error";
-import { ArcClaim } from "./arc-claim";
+import { EvmClaim } from "./evm-claim";
 
 /**
  * Completes a transfer from the user's own wallet, when Circle's forwarding did not.
@@ -22,6 +23,13 @@ import { ArcClaim } from "./arc-claim";
  * Distinct from `/recover`, which countersigns a transaction the relayer partly signed, for a burn
  * addressed to a wallet instead of a token account. That is a rescue from a specific past bug.
  * This is the path when a forward failed or was never requested.
+ *
+ * # Which chain the burn was on
+ *
+ * A burn made on Stellar is found by its hash alone, as it always was. One made on an EVM chain
+ * has to say which, because the same hash could be a transaction on any of them; a link from a
+ * receipt carries it (`&src=`), and someone arriving with only a hash picks it from the list.
+ * Where the mint is submitted is not asked: it is read from Circle's attested message.
  *
  * # What it costs the person clicking
  *
@@ -55,13 +63,32 @@ type Attestation =
       sourceDomainId: number;
       /** Read from the message itself, so it is the destination Circle will enforce. */
       destinationDomain: number;
-      /** Present only for an Arc-bound message. */
-      arc?: ArcClaimTarget;
+      /** What a fresh attestation is requested by, should this one have run out. */
+      eventNonce?: string | null;
+      /** Present for a message bound for any EVM chain: where to submit the mint. */
+      evm?: EvmClaimTarget;
     }
   | { status: "pending" }
   | { status: "unknown"; reason?: string };
 
-const TX_HASH = /^[0-9a-f]{64}$/;
+const STELLAR_HASH = /^[0-9a-f]{64}$/;
+const EVM_HASH = /^0x[0-9a-f]{64}$/;
+/** Solana's CCTP domain. The one destination claimed with a Solana wallet instead of an EVM one. */
+const SOLANA_DOMAIN = 5;
+
+/** Where the burn was made: "stellar", or an EVM chain's CCTP domain as a string. */
+type Source = string;
+const STELLAR: Source = "stellar";
+
+const SOURCES: Array<{ value: Source; label: string }> = [
+  { value: STELLAR, label: "Stellar" },
+  ...Object.values(EVM_CHAINS).map((c) => ({ value: String(c.cctpDomainId), label: c.name })),
+];
+
+/** A Solana-bound message is the only kind the Phantom flow below can submit. */
+function isSolanaBound(a: { destinationDomain: number; evm?: EvmClaimTarget }): boolean {
+  return !a.evm && a.destinationDomain === SOLANA_DOMAIN;
+}
 
 export default function ClaimPage() {
   return (
@@ -74,6 +101,7 @@ export default function ClaimPage() {
 function Claim() {
   const params = useSearchParams();
   const [txHash, setTxHash] = useState("");
+  const [source, setSource] = useState<Source>(STELLAR);
   const [provider, setProvider] = useState<PhantomProvider | null>(null);
   const [wallet, setWallet] = useState<string | null>(null);
   const [attestation, setAttestation] = useState<Attestation | null>(null);
@@ -89,7 +117,14 @@ function Claim() {
   // copy-paste of 64 characters.
   useEffect(() => {
     const fromLink = params.get("tx")?.trim().toLowerCase();
-    if (fromLink && TX_HASH.test(fromLink)) setTxHash(fromLink);
+    const src = params.get("src");
+    const chain = src !== null && /^\d+$/.test(src) ? evmChainForDomain(Number(src)) : null;
+    if (chain) {
+      setSource(String(chain.cctpDomainId));
+      if (fromLink && EVM_HASH.test(fromLink)) setTxHash(fromLink);
+    } else if (fromLink && STELLAR_HASH.test(fromLink)) {
+      setTxHash(fromLink);
+    }
   }, [params]);
 
   const connect = useCallback(async () => {
@@ -105,8 +140,15 @@ function Claim() {
 
   async function lookUp() {
     const hash = txHash.trim().toLowerCase();
-    if (!TX_HASH.test(hash)) {
-      setError("That is not a Stellar transaction hash — expected 64 hex characters.");
+    const onStellar = source === STELLAR;
+    if (!(onStellar ? STELLAR_HASH : EVM_HASH).test(hash)) {
+      setError(
+        onStellar
+          ? EVM_HASH.test(hash)
+            ? "That looks like a transaction on an EVM chain. Choose the chain it was burned on above."
+            : "That is not a Stellar transaction hash — expected 64 hex characters."
+          : `That is not a ${SOURCES.find((s) => s.value === source)?.label ?? "chain"} transaction hash — expected 0x followed by 64 hex characters.`,
+      );
       return;
     }
     setBusy("Asking Circle for the attestation…");
@@ -114,7 +156,9 @@ function Claim() {
     setAttestation(null);
     setNeedsOwner(null);
     try {
-      const res = await fetch(`/api/attestation?tx=${hash}`);
+      const query = new URLSearchParams({ tx: hash });
+      if (!onStellar) query.set("src", source);
+      const res = await fetch(`/api/attestation?${query}`);
       setAttestation((await res.json()) as Attestation);
     } catch (err) {
       setError(reportError("could not reach Circle", err));
@@ -166,18 +210,41 @@ function Claim() {
           Claim a transfer yourself
         </h1>
         <p className="mt-3 text-[0.8125rem] leading-relaxed text-bone/50">
-          Circle&rsquo;s attestation for a burn is public and never expires, so anyone holding it
-          can complete the mint — including you, and including transfers that are not yours. Use
-          this when Circle&rsquo;s automatic delivery failed.
+          Circle&rsquo;s attestation for a burn is public, so anyone holding it can complete the
+          mint — including you, and including transfers that are not yours. Use this when
+          Circle&rsquo;s automatic delivery failed.
         </p>
       </header>
 
       <section>
         <label
+          htmlFor="source"
+          className="mb-2 block text-xs font-medium uppercase tracking-wider text-bone/40"
+        >
+          Burned on
+        </label>
+        <select
+          id="source"
+          value={source}
+          onChange={(e) => {
+            setSource(e.target.value);
+            setAttestation(null);
+            setError(null);
+          }}
+          className="mb-5 w-full appearance-none rounded-tray bg-obsidian-sunken px-3 py-2.5 text-sm text-bone/80 ring-1 ring-inset ring-bone/10 transition-colors duration-200 focus:outline-none focus:ring-bone/30"
+        >
+          {SOURCES.map((s) => (
+            <option key={s.value} value={s.value}>
+              {s.label}
+            </option>
+          ))}
+        </select>
+
+        <label
           htmlFor="tx"
           className="mb-2 block text-xs font-medium uppercase tracking-wider text-bone/40"
         >
-          Stellar burn transaction
+          Burn transaction
         </label>
         <div className="flex gap-2">
           <input
@@ -185,7 +252,7 @@ function Claim() {
             spellCheck={false}
             value={txHash}
             onChange={(e) => setTxHash(e.target.value)}
-            placeholder="64 hex characters"
+            placeholder={source === STELLAR ? "64 hex characters" : "0x and 64 hex characters"}
             className="tabular min-w-0 flex-1 rounded-tray bg-obsidian-sunken px-3 py-2.5 font-mono text-xs text-bone/80 ring-1 ring-inset ring-bone/10 transition-colors duration-200 placeholder:font-sans placeholder:text-bone/25 focus:outline-none focus:ring-bone/30"
           />
           <button
@@ -212,15 +279,29 @@ function Claim() {
         </Notice>
       )}
 
-      {attestation?.status === "complete" && attestation.arc && (
-        <ArcClaim
+      {attestation?.status === "complete" && attestation.evm && (
+        <EvmClaim
+          // A fresh attestation is a different claim: nothing learned about the old one applies.
+          key={attestation.attestation}
           message={attestation.message as `0x${string}`}
           attestation={attestation.attestation as `0x${string}`}
-          target={attestation.arc}
+          target={attestation.evm}
+          eventNonce={attestation.eventNonce ?? null}
+          onReattested={() => setAttestation({ status: "pending" })}
         />
       )}
 
-      {attestation?.status === "complete" && !attestation.arc && !signature && (
+      {attestation?.status === "complete" &&
+        !attestation.evm &&
+        attestation.destinationDomain !== SOLANA_DOMAIN && (
+          <Notice tone="alarm" title="This page cannot claim on that chain">
+            Circle attested this transfer for a destination (CCTP domain{" "}
+            {attestation.destinationDomain}) that this page does not submit to. The attestation is
+            still valid and can be submitted with any CCTP tool.
+          </Notice>
+        )}
+
+      {attestation?.status === "complete" && isSolanaBound(attestation) && !signature && (
         <>
           <Notice tone="signal" title="Attested and claimable">
             The funds are waiting. Submitting the mint costs you the Solana fee and about 0.0009 SOL

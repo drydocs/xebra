@@ -1,8 +1,8 @@
 import type { Wallet, WalletAccount } from "@wallet-standard/base";
 import { describe, expect, it } from "vitest";
-import { connectEvm, evmEntries, reduceAnnouncements } from "./evm";
+import { applyEvmEvent, connectEvm, evmEntries, parseChainId, reduceAnnouncements } from "./evm";
 import { isSolanaWallet, pickSolanaAccount, solanaEntries } from "./solana";
-import type { Eip1193Provider } from "./types";
+import type { Connection, Eip1193Provider } from "./types";
 
 const provider = (accounts: unknown): Eip1193Provider => ({
   request: async () => accounts,
@@ -42,6 +42,60 @@ describe("EIP-6963", () => {
     expect((await connectEvm(entry, provider([good]))).address).toBe(good);
     await expect(connectEvm(entry, provider([]))).rejects.toThrow(/address/);
     await expect(connectEvm(entry, provider(["nope"]))).rejects.toThrow(/address/);
+  });
+});
+
+describe("the EVM wallet's network", () => {
+  const A = "0x28b5a0e9C621a5BadaA536219b3a228C8168cf5d";
+  const B = "0x81D40F21F12A8F0E3252Bccb954D722d4c464B64";
+  const conn: Connection = {
+    family: "evm",
+    walletKey: "evm:a",
+    walletName: "A",
+    address: A,
+    chainId: 1,
+  };
+
+  it("is read at connect, and its absence does not stop the connection", async () => {
+    const entry = evmEntries(reduceAnnouncements(new Map(), detail("a", "A")), null)[0];
+    if (!entry) throw new Error("no entry");
+    const answering: Eip1193Provider = {
+      request: async ({ method }) => (method === "eth_chainId" ? "0x2105" : [A]),
+    };
+    expect((await connectEvm(entry, answering)).chainId).toBe(8453);
+    const silent: Eip1193Provider = {
+      request: async ({ method }) => {
+        if (method === "eth_chainId") throw new Error("unsupported");
+        return [A];
+      },
+    };
+    expect((await connectEvm(entry, silent)).chainId).toBeUndefined();
+  });
+
+  it("follows a network switch", () => {
+    expect(applyEvmEvent(conn, { type: "chainChanged", chainId: "0x13b2" })?.chainId).toBe(5042);
+  });
+
+  it("keeps the network when the account changes, and the account when the network changes", () => {
+    const onArc = applyEvmEvent(conn, { type: "chainChanged", chainId: "0x13b2" });
+    const switched = applyEvmEvent(onArc, { type: "accountsChanged", accounts: [B] });
+    expect(switched).toMatchObject({ address: B, chainId: 5042 });
+    expect(applyEvmEvent(switched, { type: "chainChanged", chainId: "0x1" })).toMatchObject({
+      address: B,
+      chainId: 1,
+    });
+  });
+
+  it("forgets the network when told something that is not one, instead of keeping a stale one", () => {
+    expect(applyEvmEvent(conn, { type: "chainChanged", chainId: 8453 })?.chainId).toBeUndefined();
+    expect(parseChainId("0x0")).toBeUndefined();
+    expect(parseChainId("8453")).toBeUndefined();
+  });
+
+  it("drops the connection when the wallet has no account left for us", () => {
+    expect(applyEvmEvent(conn, { type: "accountsChanged", accounts: [] })).toBeNull();
+    expect(applyEvmEvent(conn, { type: "accountsChanged", accounts: ["nope"] })).toBeNull();
+    expect(applyEvmEvent(null, { type: "chainChanged", chainId: "0x1" })).toBeNull();
   });
 });
 

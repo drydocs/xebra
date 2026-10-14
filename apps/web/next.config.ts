@@ -13,9 +13,9 @@ import type { NextConfig } from "next";
  * A webpack IgnorePlugin rule for /^@x402\// used to live here. It existed only because
  * wagmi's `wagmi/connectors` barrel statically pulled in every connector it ships, including
  * Coinbase Smart Wallet, which transitively imported @coinbase/cdp-sdk's optional x402
- * payments feature and failed the build on peer deps nothing here called. Wagmi is gone —
- * this is a USDC bridge over CCTP (Stellar -> Solana) and never needed an EVM wallet
- * connector — so the workaround went with it.
+ * payments feature and failed the build on peer deps nothing here called. Wagmi is gone — the
+ * EVM routes talk to the wallet's EIP-1193 provider directly (`lib/evm-rpc.ts`) and need no
+ * connector framework — so the workaround went with it.
  */
 const nextConfig: NextConfig = {
   reactStrictMode: true,

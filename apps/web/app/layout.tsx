@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import localFont from "next/font/local";
 import type React from "react";
 import { AmbientBackground } from "../components/site/ambient-background";
+import { env } from "../lib/env";
 import { Providers } from "./providers";
 import "./globals.css";
 
@@ -31,26 +32,36 @@ const geistMono = localFont({
   display: "swap",
 });
 
+// What the site says it does follows what this build offers: the Stellar route alone, or that
+// and the routes between Arc and other EVM chains. Inlined at build time, like the flag itself.
+const MANY_ROUTES = env.evmPeers.length > 0;
+const TITLE = MANY_ROUTES
+  ? "Xebra — native USDC between chains"
+  : "Xebra — USDC from Stellar to Solana";
+const DESCRIPTION = MANY_ROUTES
+  ? "Move native USDC between Stellar, Solana, Arc and other chains over Circle's CCTP. No wrapped assets, no custody."
+  : "Move native USDC from Stellar to Solana over Circle's CCTP. One signature, no wrapped assets, no custody.";
+
 export const metadata: Metadata = {
-  title: { default: "Xebra — USDC from Stellar to Solana", template: "%s · Xebra" },
-  description:
-    "Move native USDC from Stellar to Solana over Circle's CCTP. One signature, no wrapped assets, no custody.",
+  title: { default: TITLE, template: "%s · Xebra" },
+  description: DESCRIPTION,
   applicationName: "Xebra",
   // Served from `public/` rather than as an `app/icon.svg` convention file: Next's static
   // metadata handler tries to register that path as a route and fails page-data collection
   // for it at build time.
   icons: { icon: [{ url: "/icon.svg", type: "image/svg+xml" }] },
   openGraph: {
-    title: "Xebra — USDC from Stellar to Solana",
-    description:
-      "Move native USDC from Stellar to Solana over Circle's CCTP. One signature, no wrapped assets, no custody.",
+    title: TITLE,
+    description: DESCRIPTION,
     siteName: "Xebra",
     type: "website",
   },
   twitter: {
     card: "summary_large_image",
-    title: "Xebra — USDC from Stellar to Solana",
-    description: "Native USDC, Stellar to Solana, over Circle's CCTP.",
+    title: TITLE,
+    description: MANY_ROUTES
+      ? "Native USDC between chains, over Circle's CCTP."
+      : "Native USDC, Stellar to Solana, over Circle's CCTP.",
   },
 };
 

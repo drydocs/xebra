@@ -41,4 +41,10 @@ export interface Connection {
   address: string;
   /** EVM only: the provider the address came from, for signing and network switching. */
   provider?: Eip1193Provider;
+  /**
+   * EVM only: the network the wallet is on, kept current from its `chainChanged` events.
+   * Undefined when the wallet would not say. Circle's contracts have the same addresses on every
+   * chain, so nothing may be read or sent until this matches the chain a transfer starts on.
+   */
+  chainId?: number | undefined;
 }

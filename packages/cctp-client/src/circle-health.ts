@@ -48,6 +48,21 @@ export interface ForwardQuote {
   high: number;
 }
 
+/** Circle's two speeds, named by the finality a burn asks for. */
+export type FinalityThreshold = 1000 | 2000;
+
+/**
+ * One row of Circle's quote: what delivery costs at this speed, and what the speed itself costs.
+ *
+ * `minimumFeePpb` is Circle's transfer fee as parts per billion of the amount. Circle quotes it in
+ * basis points as a JSON float (`0.325`), which is not a number to do money arithmetic on, so it is
+ * converted once, here, to an exact integer: one basis point is 100,000 parts per billion.
+ */
+export interface TierQuote extends ForwardQuote {
+  finalityThreshold: FinalityThreshold;
+  minimumFeePpb: number;
+}
+
 export interface CircleHealth {
   status: HealthStatus;
   /** Plain-language reasons, worst first. Empty when `ok`. */
@@ -55,6 +70,11 @@ export interface CircleHealth {
   checkedAt: number;
   /** The route's forward fee, when readable. */
   quote: ForwardQuote | null;
+  /**
+   * Both speeds, each read from its own row. `standard` is `quote` with its transfer fee; `fast` is
+   * null when Circle is not quoting it, which is never a reason to call the route down.
+   */
+  tiers: { standard: TierQuote | null; fast: TierQuote | null };
   /** How long the slower of the two calls took. */
   slowestMs: number | null;
   budget: BudgetUsage;
@@ -64,27 +84,50 @@ export interface CircleHealth {
 export const MAX_SANE_FORWARD_FEE_UNITS = 2_000_000;
 
 export type QuoteParse = { ok: true; quote: ForwardQuote } | { ok: false; reason: string };
+export type TierParse = { ok: true; tier: TierQuote } | { ok: false; reason: string };
+
+/** One basis point, in parts per billion. */
+const PPB_PER_BPS = 100_000;
+
+/** Highest transfer fee we would accept as sane: 25 basis points. Circle's have been under 2. */
+export const MAX_SANE_MINIMUM_FEE_PPB = 25 * PPB_PER_BPS;
 
 /**
- * Reads Circle's `GET /v2/burn/USDC/fees/{src}/{dst}?forward=true` body. Standard finality (2000) is
- * the only tier Stellar has. The live API names the middle tier `med`; Circle's published spec says
- * `medium`. Both are accepted, because we should not break on either being corrected.
+ * Circle's `minimumFee` (basis points, a float) as exact parts per billion, or null when it cannot
+ * be made exact. Absent means zero: the Standard row has carried no fee and older bodies omit it.
  */
-export function parseForwardQuote(
+function readMinimumFeePpb(value: unknown): number | null {
+  if (value === undefined) return 0;
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) return null;
+  const scaled = value * PPB_PER_BPS;
+  const ppb = Math.round(scaled);
+  // `0.325 * 100000` is 32500.000000000004. That is float noise and is rounded away; a value that
+  // genuinely needs more precision than a part per billion is refused instead of approximated.
+  return Math.abs(scaled - ppb) < 1e-6 ? ppb : null;
+}
+
+/**
+ * Reads one speed's row of Circle's `GET /v2/burn/USDC/fees/{src}/{dst}?forward=true` body.
+ *
+ * The live API names the middle tier `med`; Circle's published spec says `medium`. Both are
+ * accepted, because we should not break on either being corrected.
+ */
+export function parseTierQuote(
   body: unknown,
+  finalityThreshold: FinalityThreshold,
   maxFeeUnits: number = MAX_SANE_FORWARD_FEE_UNITS,
-): QuoteParse {
+): TierParse {
   if (!Array.isArray(body))
     return { ok: false, reason: "Circle's fee service returned an unexpected response" };
-  const standard = body.find(
-    (row): row is Record<string, unknown> =>
-      typeof row === "object" &&
-      row !== null &&
-      (row as { finalityThreshold?: unknown }).finalityThreshold === 2000,
+  const row = body.find(
+    (r): r is Record<string, unknown> =>
+      typeof r === "object" &&
+      r !== null &&
+      (r as { finalityThreshold?: unknown }).finalityThreshold === finalityThreshold,
   );
-  if (!standard)
-    return { ok: false, reason: "Circle is not quoting Standard transfers for this route" };
-  const fee = standard.forwardFee as Record<string, unknown> | undefined;
+  const speed = finalityThreshold === 2000 ? "Standard" : "Fast";
+  if (!row) return { ok: false, reason: `Circle is not quoting ${speed} transfers for this route` };
+  const fee = row.forwardFee as Record<string, unknown> | undefined;
   if (!fee || typeof fee !== "object") {
     return { ok: false, reason: "Circle is not offering delivery on this route right now" };
   }
@@ -111,7 +154,31 @@ export function parseForwardQuote(
       reason: "Circle is quoting an unusually high delivery fee; refusing to send",
     };
   }
-  return { ok: true, quote: q };
+  const minimumFeePpb = readMinimumFeePpb(row.minimumFee);
+  if (minimumFeePpb === null) {
+    return { ok: false, reason: `Circle's ${speed} transfer fee is not a number we can use` };
+  }
+  if (minimumFeePpb > MAX_SANE_MINIMUM_FEE_PPB) {
+    return {
+      ok: false,
+      reason: `Circle is quoting an unusually high ${speed} transfer fee; refusing to send`,
+    };
+  }
+  return { ok: true, tier: { ...q, finalityThreshold, minimumFeePpb } };
+}
+
+/**
+ * The Standard (2000) row's delivery fee. Standard is the only speed Stellar has, and this is the
+ * shape the Stellar screen has always been given; `parseTierQuote` is the general form.
+ */
+export function parseForwardQuote(
+  body: unknown,
+  maxFeeUnits: number = MAX_SANE_FORWARD_FEE_UNITS,
+): QuoteParse {
+  const parsed = parseTierQuote(body, 2000, maxFeeUnits);
+  if (!parsed.ok) return parsed;
+  const { low, med, high } = parsed.tier;
+  return { ok: true, quote: { low, med, high } };
 }
 
 export interface CheckDeps {
@@ -130,6 +197,7 @@ export interface CheckDeps {
   slowMs?: number;
   /** Call the budget degraded above this fraction of the limit. */
   budgetWarnAt?: number;
+  /** The most a delivery may cost on this route, in 6-decimal units. Defaults to 2 USDC. */
   maxFeeUnits?: number;
 }
 
@@ -227,6 +295,7 @@ export async function checkCircle(deps: CheckDeps): Promise<CircleHealth> {
   const down: string[] = [];
   const degraded: string[] = [];
   let quote: ForwardQuote | null = null;
+  const tiers: CircleHealth["tiers"] = { standard: null, fast: null };
   const times: number[] = [];
 
   if (feeRes.kind === "hold") {
@@ -240,9 +309,15 @@ export async function checkCircle(deps: CheckDeps): Promise<CircleHealth> {
     if (feeRes.value.status >= 500) down.push("Circle's fee service is returning errors");
     else if (feeRes.value.status >= 400) down.push("Circle does not currently offer this route");
     else {
-      const parsed = parseForwardQuote(feeRes.value.body, deps.maxFeeUnits);
-      if (parsed.ok) quote = parsed.quote;
-      else down.push(parsed.reason);
+      const parsed = parseTierQuote(feeRes.value.body, 2000, deps.maxFeeUnits);
+      if (parsed.ok) {
+        const { low, med, high } = parsed.tier;
+        quote = { low, med, high };
+        tiers.standard = parsed.tier;
+        // Fast is an extra, not the route: a missing or odd Fast row leaves Standard working.
+        const fast = parseTierQuote(feeRes.value.body, 1000, deps.maxFeeUnits);
+        if (fast.ok) tiers.fast = fast.tier;
+      } else down.push(parsed.reason);
     }
   }
 
@@ -274,6 +349,7 @@ export async function checkCircle(deps: CheckDeps): Promise<CircleHealth> {
     reasons: [...down, ...degraded],
     checkedAt: now(),
     quote,
+    tiers,
     slowestMs: slowest,
     budget,
   };

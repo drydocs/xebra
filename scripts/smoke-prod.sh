@@ -84,9 +84,21 @@ check "arc"                       "/api/circle-health?dest=arc"                 
 check "rejects an unknown destination" "/api/circle-health?dest=btc"              400
 echo "  (a status of 'down' above would mean Circle is unhealthy right now, not that the app is broken: re-run in a minute)"
 
+echo "EVM routes (live Circle calls; served whether or not the build offers them)"
+check "base -> arc, both speeds"       "/api/circle-health?src=6&dst=26"  200 "b['status'] in ('ok','degraded') and 0 < b['tiers']['standard']['high'] <= 100000 and b['tiers']['standard']['minimumFeePpb'] == 0 and b['tiers']['fast']['finalityThreshold'] == 1000"
+check "arc -> ethereum, its own ceiling" "/api/circle-health?src=26&dst=0" 200 "b['status'] in ('ok','degraded') and 0 < b['quote']['high'] <= 5000000"
+check "arc -> solana, opening the account"  "/api/circle-health?src=26&dst=5&newAccount=1" 200 "b['status'] in ('ok','degraded') and 200000 < b['quote']['high'] <= 1000000"
+check "edge -> arc (EDGE's own Circle contracts)" "/api/circle-health?src=28&dst=26" 200 "b['status'] in ('ok','degraded') and b['quote']['high'] > 0"
+check "rejects a route between two peers" "/api/circle-health?src=6&dst=3" 400
+check "rejects solana as a source"        "/api/circle-health?src=5&dst=26" 400
+
 echo "delivery of a real transfer"
 check "delivery reads Circle's verdict" "/api/delivery?tx=$TX" 200 "b['status']=='known' and b['state']=='delivered' and b['forwardTxHash']=='$FORWARD_TX'"
 check "delivery rejects a bad hash"     "/api/delivery?tx=zz"  400
+check "delivery asks Circle about an EVM burn"  "/api/delivery?tx=0x$TX&src=6" 200 "b['status'] in ('known','unknown')"
+check "delivery wants a chain for an EVM hash"  "/api/delivery?tx=0x$TX"       400
+check "delivery refuses a chain we do not burn on" "/api/delivery?tx=$TX&src=5" 400
+check "attestation names the nonce and expiry"  "/api/attestation?tx=$TX" 200 "b['eventNonce'].startswith('0x') and b['expirationBlock'] == '0'"
 check "attestation is served for it"    "/api/attestation?tx=$TX" 200 "b['status']=='complete' and b['destinationDomain']==5 and b['message'].startswith('0x') and b['attestation'].startswith('0x')"
 check "recipient lookup finds its account" "/api/recipient?owner=$RECIPIENT" 200 "b['status']=='exists'"
 

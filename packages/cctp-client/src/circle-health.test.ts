@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
   type CheckDeps,
   MAX_SANE_FORWARD_FEE_UNITS,
+  MAX_SANE_MINIMUM_FEE_PPB,
   checkCircle,
   parseForwardQuote,
+  parseTierQuote,
 } from "./circle-health.js";
 import { createBudgetedFetch, createMemoryBudgetStore } from "./iris-budget.js";
 
@@ -262,5 +264,115 @@ describe("checkCircle", () => {
     const d = deps(fakeIris({}));
     await checkCircle(d);
     expect((await d.store.usage(T0)).perSecond).toBe(2);
+  });
+});
+
+describe("parseTierQuote", () => {
+  // What Iris answered for Base to Arc on 2026-10-09.
+  const BASE_TO_ARC = [
+    {
+      finalityThreshold: 1000,
+      minimumFee: 0.325,
+      forwardFee: { low: 15_513, med: 15_638, high: 16_778 },
+    },
+    {
+      finalityThreshold: 2000,
+      minimumFee: 0,
+      forwardFee: { low: 15_513, med: 15_638, high: 16_778 },
+    },
+  ];
+
+  it("reads the row it is asked for, with that row's own transfer fee", () => {
+    expect(parseTierQuote(BASE_TO_ARC, 1000)).toEqual({
+      ok: true,
+      tier: {
+        low: 15_513,
+        med: 15_638,
+        high: 16_778,
+        finalityThreshold: 1000,
+        minimumFeePpb: 32_500,
+      },
+    });
+    const standard = parseTierQuote(BASE_TO_ARC, 2000);
+    expect(standard.ok && standard.tier.minimumFeePpb).toBe(0);
+  });
+
+  it("turns Circle's fractional basis points into exact parts per billion", () => {
+    const ppb = (minimumFee: unknown) => {
+      const r = parseTierQuote(
+        [{ finalityThreshold: 1000, minimumFee, forwardFee: { low: 1, med: 1, high: 1 } }],
+        1000,
+      );
+      return r.ok ? r.tier.minimumFeePpb : r.reason;
+    };
+    expect(ppb(0.25)).toBe(25_000);
+    expect(ppb(0.325)).toBe(32_500);
+    expect(ppb(0.35)).toBe(35_000);
+    expect(ppb(1)).toBe(100_000);
+    expect(ppb(1.3)).toBe(130_000);
+  });
+
+  it("refuses a transfer fee it cannot make exact, or that is not a fee at all", () => {
+    for (const bad of [0.3333333333, -1, "0.325", null, Number.NaN]) {
+      const r = parseTierQuote(
+        [{ finalityThreshold: 1000, minimumFee: bad, forwardFee: { low: 1, med: 1, high: 1 } }],
+        1000,
+      );
+      expect(r.ok, String(bad)).toBe(false);
+    }
+  });
+
+  it("refuses an absurd transfer fee rather than sign it", () => {
+    const at = (minimumFee: number) =>
+      parseTierQuote(
+        [{ finalityThreshold: 1000, minimumFee, forwardFee: { low: 1, med: 1, high: 1 } }],
+        1000,
+      );
+    expect(at(MAX_SANE_MINIMUM_FEE_PPB / 100_000).ok).toBe(true);
+    const over = at(26);
+    expect(over.ok).toBe(false);
+    if (!over.ok) expect(over.reason).toMatch(/unusually high Fast transfer fee/);
+  });
+
+  it("applies the ceiling it is given, so a costlier destination can be allowed more", () => {
+    const body = [{ finalityThreshold: 2000, forwardFee: { low: 1, med: 2, high: 3_000_000 } }];
+    expect(parseTierQuote(body, 2000).ok).toBe(false);
+    expect(parseTierQuote(body, 2000, 5_000_000).ok).toBe(true);
+  });
+
+  it("says which speed is missing", () => {
+    const r = parseTierQuote([BASE_TO_ARC[1]], 1000);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason).toMatch(/not quoting Fast/);
+  });
+});
+
+describe("checkCircle tiers", () => {
+  it("returns both speeds, each from its own row", async () => {
+    const fees = () =>
+      Response.json([
+        { finalityThreshold: 1000, minimumFee: 0.35, forwardFee: { low: 1, med: 2, high: 3 } },
+        { finalityThreshold: 2000, minimumFee: 0, forwardFee: { low: 4, med: 5, high: 6 } },
+      ]);
+    const h = await checkCircle(deps(fakeIris({ fees })));
+    expect(h.status).toBe("ok");
+    expect(h.quote).toEqual({ low: 4, med: 5, high: 6 });
+    expect(h.tiers.standard).toMatchObject({ high: 6, minimumFeePpb: 0 });
+    expect(h.tiers.fast).toMatchObject({ high: 3, minimumFeePpb: 35_000, finalityThreshold: 1000 });
+  });
+
+  it("stays ok on Standard when Circle is not quoting Fast", async () => {
+    const fees = () =>
+      Response.json([{ finalityThreshold: 2000, forwardFee: { low: 4, med: 5, high: 6 } }]);
+    const h = await checkCircle(deps(fakeIris({ fees })));
+    expect(h.status).toBe("ok");
+    expect(h.tiers.fast).toBeNull();
+    expect(h.tiers.standard?.high).toBe(6);
+  });
+
+  it("has no tiers to offer when the route is down", async () => {
+    const h = await checkCircle(deps(fakeIris({ fees: () => new Response("", { status: 404 }) })));
+    expect(h.status).toBe("down");
+    expect(h.tiers).toEqual({ standard: null, fast: null });
   });
 });

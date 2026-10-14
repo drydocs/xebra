@@ -1,3 +1,5 @@
+import { parseEnabledPeers } from "./evm-chains";
+
 /**
  * The frontend's single source of network truth.
  *
@@ -56,6 +58,7 @@ const RAW = {
   NEXT_PUBLIC_SOLANA_RPC_URL: process.env.NEXT_PUBLIC_SOLANA_RPC_URL,
   NEXT_PUBLIC_SOLANA_USDC_MINT: process.env.NEXT_PUBLIC_SOLANA_USDC_MINT,
   NEXT_PUBLIC_ARC_ENABLED: process.env.NEXT_PUBLIC_ARC_ENABLED,
+  NEXT_PUBLIC_EVM_ROUTES_ENABLED: process.env.NEXT_PUBLIC_EVM_ROUTES_ENABLED,
   NEXT_PUBLIC_STELLAR_ESCROW_CONTRACT_ID: process.env.NEXT_PUBLIC_STELLAR_ESCROW_CONTRACT_ID,
   NEXT_PUBLIC_STELLAR_CCTP_WRAPPER_CONTRACT_ID:
     process.env.NEXT_PUBLIC_STELLAR_CCTP_WRAPPER_CONTRACT_ID,
@@ -127,6 +130,17 @@ export const env = {
    * flag is flipped when both are done, by the person who did them.
    */
   arcEnabled: optional("NEXT_PUBLIC_ARC_ENABLED") === "1",
+  /**
+   * The EVM chains whose routes with Arc are offered, both ways: a comma-separated list
+   * (`base,arbitrum`) or `all`. Absent means none, and the screen is the Stellar one alone.
+   *
+   * A list and not a yes/no because these routes call Circle directly, with no contract of ours
+   * to refuse a bad one, and each is switched on only once a real transfer has gone through it
+   * each way (`scripts/test-evm-arc-forwarding-mainnet.sh`). A name that is not a chain fails
+   * the build. It gates *starting* a transfer only: `/claim` and the status routes serve every
+   * route regardless, so a transfer already made is never stranded by a flag.
+   */
+  evmPeers: parseEnabledPeers(optional("NEXT_PUBLIC_EVM_ROUTES_ENABLED")),
   /**
    * Intent/swap-rail only, which is out of scope: the product is a USDC bridge over CCTP.
    * Optional so a mainnet build is not blocked on deploying an escrow the product does not

@@ -7,7 +7,17 @@ import { StripeRule } from "../ui/stripe-rule";
  * than no footer: on a page that moves money, a dead "how this works" link is the moment a
  * user decides the rest of the screen might be decorative too.
  */
-export function SiteFooter({ wrapperContractId }: { wrapperContractId: string | null }) {
+export function SiteFooter({
+  wrapperContractId,
+  contractLabel = "Contract",
+}: {
+  wrapperContractId: string | null;
+  /**
+   * The wrapper is the Stellar route's contract only. Where other routes are offered, the link
+   * says so, because those call Circle directly and have no contract of ours to point at.
+   */
+  contractLabel?: string;
+}) {
   return (
     <footer className="mx-auto w-full max-w-xl px-1 pb-14 pt-20">
       <StripeRule />
@@ -24,7 +34,7 @@ export function SiteFooter({ wrapperContractId }: { wrapperContractId: string | 
             <FooterLink
               href={`https://stellar.expert/explorer/public/contract/${wrapperContractId}`}
             >
-              Contract
+              {contractLabel}
             </FooterLink>
           )}
           <FooterLink href="https://github.com/drydocs/xebra">Source</FooterLink>

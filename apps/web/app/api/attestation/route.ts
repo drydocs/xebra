@@ -1,7 +1,8 @@
-import { IrisUnavailable, readDestinationDomain } from "@xebra/cctp-client";
-import { CCTP_DOMAIN, PRESETS } from "@xebra/network-config";
+import { IrisUnavailable, readDestinationDomain, readExpirationBlock } from "@xebra/cctp-client";
+import { CCTP_DOMAIN, PRESETS, evmChainForDomain } from "@xebra/network-config";
 import { env } from "../../../lib/env";
 import { irisBaseUrl, irisFetch, stellarDomainId } from "../../../lib/server/iris";
+import { normaliseTxHash, readSource, txHashHint } from "../../../lib/server/routes";
 
 /**
  * Circle's attested `(message, attestation)` pair for a burn.
@@ -24,15 +25,17 @@ import { irisBaseUrl, irisFetch, stellarDomainId } from "../../../lib/server/iri
 
 export const dynamic = "force-dynamic";
 
-const TX_HASH = /^[0-9a-f]{64}$/;
-
 export async function GET(request: Request): Promise<Response> {
-  const tx = new URL(request.url).searchParams.get("tx")?.trim().toLowerCase();
-  if (!tx || !TX_HASH.test(tx)) {
-    return Response.json({ error: "tx must be a 64-character hex string" }, { status: 400 });
+  const params = new URL(request.url).searchParams;
+  // No `src` means a Stellar burn, as it always has. An EVM burn names its chain.
+  const source = readSource(params.get("src"), stellarDomainId());
+  if (!source) {
+    return Response.json({ error: "src is not a chain transfers start from" }, { status: 400 });
   }
+  const tx = normaliseTxHash(source.kind, params.get("tx"));
+  if (!tx) return Response.json({ error: txHashHint(source.kind) }, { status: 400 });
 
-  const domain = String(stellarDomainId());
+  const domain = String(source.domain);
 
   try {
     // Through the shared budget, like every Iris call from here, so a burst of claim lookups
@@ -74,8 +77,10 @@ export async function GET(request: Request): Promise<Response> {
 
     // Read from the message itself — the copy Circle's contracts enforce — so the page can never
     // be told one destination while the message says another.
-    const destinationDomain = readDestinationDomain(first.message as `0x${string}`);
+    const message = first.message as `0x${string}`;
+    const destinationDomain = readDestinationDomain(message);
     const arc = PRESETS.mainnet.arc;
+    const evm = evmChainForDomain(destinationDomain);
 
     return Response.json({
       status: "complete",
@@ -86,8 +91,27 @@ export async function GET(request: Request): Promise<Response> {
       usdcMint: env.usdcSolanaMint,
       sourceDomainId: Number(domain),
       destinationDomain,
-      // Only for an Arc-bound message. Served from the pinned presets rather than a
-      // `NEXT_PUBLIC_*` constant, so the claim page needs no build-time value of its own.
+      // What re-attesting an expired message is keyed on, and the destination block after which
+      // this one expires. Zero for a Standard burn, which never does; a Fast burn's attestation
+      // is good for about a day. A string because a block number is not a safe JSON number
+      // everywhere.
+      eventNonce: first.eventNonce ?? null,
+      expirationBlock: readExpirationBlock(message).toString(),
+      // For any EVM destination: where and how to submit the mint by hand.
+      ...(evm
+        ? {
+            evm: {
+              chainId: evm.chainId,
+              name: evm.name,
+              messageTransmitter: evm.messageTransmitterAddress,
+              rpcUrl: evm.rpcUrl,
+              explorerUrl: evm.explorerUrl,
+              nativeCurrency: evm.nativeCurrency,
+              claimCost: evm.claimCost,
+            },
+          }
+        : {}),
+      // The older, Arc-only form of `evm`, kept for a page that loaded before `evm` existed.
       ...(destinationDomain === CCTP_DOMAIN.arc
         ? {
             arc: {

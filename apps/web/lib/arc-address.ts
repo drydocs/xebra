@@ -1,4 +1,4 @@
-import { isAddress } from "viem";
+import { checkEvmAddress } from "./evm-address";
 import type { AddressCheck } from "./solana-address";
 
 /**
@@ -35,54 +35,7 @@ export const ARC_UNSAFE_RECIPIENTS: Record<string, string> = {
   "0xfd78ee919681417d192449715b2594ab58f5d002": "Circle's TokenMinter contract",
 };
 
-const EVM_HEX = /^0x[0-9a-fA-F]{40}$/;
-/** A Solana pubkey is 32–44 base58 characters. */
-const LOOKS_LIKE_SOLANA = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
-
+/** Arc as a destination. The rules are the same on every EVM chain; see `lib/evm-address.ts`. */
 export function checkArcAddress(input: string): AddressCheck {
-  const address = input.trim();
-  if (address === "") return { ok: false };
-
-  if (!address.startsWith("0x") && LOOKS_LIKE_SOLANA.test(address)) {
-    return { ok: false, error: "That looks like a Solana address, not an Arc one." };
-  }
-  if (!EVM_HEX.test(address)) {
-    return {
-      ok: false,
-      error: "An Arc address is 0x followed by 40 hex characters.",
-    };
-  }
-
-  const body = address.slice(2);
-  const mixedCase = body !== body.toLowerCase() && body !== body.toUpperCase();
-  if (mixedCase && !isAddress(address, { strict: true })) {
-    return {
-      ok: false,
-      error: "The checksum does not match. There is a typo in this address — check it again.",
-    };
-  }
-
-  const lower = address.toLowerCase();
-  const bytes = new Uint8Array(32);
-  for (let i = 0; i < 20; i++) {
-    bytes[12 + i] = Number.parseInt(lower.slice(2 + i * 2, 4 + i * 2), 16);
-  }
-
-  if (bytes.every((b) => b === 0)) {
-    return { ok: false, error: "That is the zero address; nobody controls it." };
-  }
-  // Twelve padding bytes plus six more: an address below 2^112. Precompiles live here, and so
-  // does 0x…dEaD.
-  if (bytes.slice(0, 18).every((b) => b === 0)) {
-    return {
-      ok: false,
-      error: "That is a system or burn address, not a wallet. USDC sent there is gone.",
-    };
-  }
-  const unsafe = ARC_UNSAFE_RECIPIENTS[lower];
-  if (unsafe) {
-    return { ok: false, error: `That is ${unsafe}. USDC minted there could never be recovered.` };
-  }
-
-  return { ok: true, bytes };
+  return checkEvmAddress(input, { chainName: "Arc", unsafe: ARC_UNSAFE_RECIPIENTS });
 }

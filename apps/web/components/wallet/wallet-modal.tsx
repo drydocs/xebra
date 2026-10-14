@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { env } from "../../lib/env";
 import {
   type Connection,
   FAMILY_LABEL,
@@ -9,10 +10,21 @@ import {
 } from "../../lib/wallets/types";
 import { cn } from "../ui/cn";
 
+/**
+ * What each kind of wallet is for. An EVM wallet was only ever a recipient and a way to claim until
+ * the routes between Arc and other EVM chains existed; with those switched on it also pays, and a
+ * Stellar wallet is no longer the only way to send.
+ */
+const EVM_SENDS = env.evmPeers.length > 0;
+
 const BLURB: Record<Family, string> = {
-  stellar: "Pays for the transfer and signs it. Required to send.",
+  stellar: EVM_SENDS
+    ? "Pays for and signs a transfer that starts on Stellar."
+    : "Pays for the transfer and signs it. Required to send.",
   solana: "Fills in your Solana address as the recipient.",
-  evm: "Fills in your Arc address as the recipient, and completes a claim.",
+  evm: EVM_SENDS
+    ? "Pays for and signs a transfer between Arc and another EVM chain, fills in a recipient, and completes a claim."
+    : "Fills in your Arc address as the recipient, and completes a claim.",
 };
 
 /**

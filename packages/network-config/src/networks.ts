@@ -41,9 +41,26 @@ export type Network = (typeof NETWORKS)[number];
 /** CCTP domain ids. A domain identifies a *chain*, not a cluster. */
 export const CCTP_DOMAIN = {
   ethereum: 0,
+  avalanche: 1,
+  optimism: 2,
+  arbitrum: 3,
   solana: 5,
+  base: 6,
+  polygon: 7,
+  unichain: 10,
+  linea: 11,
+  codex: 12,
+  sonic: 13,
+  worldchain: 14,
+  monad: 15,
+  sei: 16,
+  xdc: 18,
+  hyperevm: 19,
+  ink: 21,
+  plume: 22,
   arc: 26,
   stellar: 27,
+  edge: 28,
 } as const;
 
 export interface StellarPreset {

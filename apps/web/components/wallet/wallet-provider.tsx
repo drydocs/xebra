@@ -15,9 +15,12 @@ import { formatError } from "../../lib/format-error";
 import { createStellarWalletKit } from "../../lib/stellar-wallet";
 import {
   type Eip6963Detail,
+  type EvmEvent,
+  applyEvmEvent,
   connectEvm,
   evmEntries,
   legacyProvider,
+  parseChainId,
   watchEvmWallets,
 } from "../../lib/wallets/evm";
 import { connectSolana, solanaEntries, watchSolanaWallets } from "../../lib/wallets/solana";
@@ -39,6 +42,11 @@ interface WalletContextValue {
   /** Opens the modal on the given families (all three when omitted). */
   open: (families?: readonly Family[]) => void;
   disconnect: (family: Family) => Promise<void>;
+  /**
+   * Asks the EVM wallet which network it is on and records the answer. Wallets announce a switch
+   * themselves; this is for after asking one to switch, since not every wallet announces.
+   */
+  syncEvmChain: () => Promise<void>;
 }
 
 const Ctx = createContext<WalletContextValue | null>(null);
@@ -112,6 +120,15 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
+  const applyEvm = useCallback((event: EvmEvent) => {
+    setConnections((prev) => {
+      const evm = applyEvmEvent(prev.evm ?? null, event);
+      if (evm) return { ...prev, evm };
+      const { evm: _gone, ...rest } = prev;
+      return rest;
+    });
+  }, []);
+
   const connect = useCallback(
     async (entry: WalletEntry) => {
       setError(null);
@@ -132,14 +149,19 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
               : (evmMap.get(entry.key.replace("evm:", ""))?.provider ?? null);
           if (!provider) throw new Error("That wallet is no longer available.");
           conn = await connectEvm(entry, provider);
-          // A wallet's account changes under us when the user switches inside the extension.
+          // A wallet's account and network change under us when the user switches inside the
+          // extension. Each is applied to the connection as it is then, not as it was at connect.
           evmCleanup.current?.();
-          const onAccounts = (...args: unknown[]) => {
-            const first = (args[0] as string[] | undefined)?.[0];
-            setConn(first ? { ...conn, address: first } : null, "evm");
-          };
+          const onAccounts = (...args: unknown[]) =>
+            applyEvm({ type: "accountsChanged", accounts: args[0] });
+          const onChain = (...args: unknown[]) =>
+            applyEvm({ type: "chainChanged", chainId: args[0] });
           provider.on?.("accountsChanged", onAccounts);
-          evmCleanup.current = () => provider.removeListener?.("accountsChanged", onAccounts);
+          provider.on?.("chainChanged", onChain);
+          evmCleanup.current = () => {
+            provider.removeListener?.("accountsChanged", onAccounts);
+            provider.removeListener?.("chainChanged", onChain);
+          };
         }
         setConn(conn, entry.family);
       } catch (err) {
@@ -148,7 +170,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
         setPending(null);
       }
     },
-    [kit, solWallets, evmMap, setConn],
+    [kit, solWallets, evmMap, setConn, applyEvm],
   );
 
   const disconnect = useCallback(
@@ -179,9 +201,16 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     [refreshStellar],
   );
 
+  const evmProvider = connections.evm?.provider;
+  const syncEvmChain = useCallback(async () => {
+    if (!evmProvider) return;
+    const chainId = await evmProvider.request({ method: "eth_chainId" }).catch(() => undefined);
+    if (parseChainId(chainId) !== undefined) applyEvm({ type: "chainChanged", chainId });
+  }, [evmProvider, applyEvm]);
+
   const value = useMemo<WalletContextValue>(
-    () => ({ connections, stellarKit: kit, open, disconnect }),
-    [connections, kit, open, disconnect],
+    () => ({ connections, stellarKit: kit, open, disconnect, syncEvmChain }),
+    [connections, kit, open, disconnect, syncEvmChain],
   );
 
   return (

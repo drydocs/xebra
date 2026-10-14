@@ -23,7 +23,8 @@
     "db:migrate": "node scripts/with-env.mjs .env.production pnpm --filter @xebra/db migrate",
     "check:env": "scripts/check-env-files.sh",
     "check:cctp": "scripts/check-cctp-interface.sh",
-    "check:arc": "scripts/check-arc-cctp.sh"
+    "check:arc": "scripts/check-arc-cctp.sh",
+    "check:evm": "scripts/check-evm-cctp.sh"
   },
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",

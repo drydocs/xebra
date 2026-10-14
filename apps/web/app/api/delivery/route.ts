@@ -1,5 +1,6 @@
 import { type Delivery, IrisUnavailable, readDelivery } from "@xebra/cctp-client";
 import { irisBaseUrl, irisFetch, stellarDomainId } from "../../../lib/server/iris";
+import { normaliseTxHash, readSource, txHashHint } from "../../../lib/server/routes";
 import { createTtlCache } from "../../../lib/server/ttl-cache";
 
 /**
@@ -14,27 +15,31 @@ import { createTtlCache } from "../../../lib/server/ttl-cache";
  * is deliberately not `waiting`: an unanswerable question is not progress, and the page must not
  * imply the transfer is fine or failed on the strength of it.
  *
+ * A burn made on an EVM chain names it with `&src=<CCTP domain>`; with no `src` the burn is a
+ * Stellar one, as every link sent before EVM sources existed assumes.
+ *
  * Read-only and public: it answers only about a burn hash the caller already holds.
  */
 
 export const dynamic = "force-dynamic";
-
-const TX_HASH = /^[0-9a-f]{64}$/;
 
 type Answer = { status: "known"; delivery: Delivery } | { status: "unknown"; reason: string };
 
 const cached = createTtlCache<Answer>(5_000);
 
 export async function GET(request: Request): Promise<Response> {
-  const tx = new URL(request.url).searchParams.get("tx")?.trim().toLowerCase();
-  if (!tx || !TX_HASH.test(tx)) {
-    return Response.json({ error: "tx must be a 64-character hex string" }, { status: 400 });
+  const params = new URL(request.url).searchParams;
+  const source = readSource(params.get("src"), stellarDomainId());
+  if (!source) {
+    return Response.json({ error: "src is not a chain transfers start from" }, { status: 400 });
   }
+  const tx = normaliseTxHash(source.kind, params.get("tx"));
+  if (!tx) return Response.json({ error: txHashHint(source.kind) }, { status: 400 });
 
-  const answer = await cached(tx, async (): Promise<Answer> => {
+  const answer = await cached(`${source.domain}:${tx}`, async (): Promise<Answer> => {
     try {
       const res = await irisFetch(
-        `${irisBaseUrl()}/v2/messages/${stellarDomainId()}?transactionHash=${tx}`,
+        `${irisBaseUrl()}/v2/messages/${source.domain}?transactionHash=${tx}`,
         { cache: "no-store", signal: AbortSignal.timeout(6_000) },
       );
       // 404 is "not indexed yet", which is just waiting; anything else that is not OK is a
