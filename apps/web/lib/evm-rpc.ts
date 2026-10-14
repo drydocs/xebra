@@ -175,3 +175,19 @@ export async function readBlockNumber(provider: Eip1193Provider): Promise<bigint
   }
   return BigInt(raw);
 }
+
+/**
+ * The latest block's timestamp on the wallet's current chain, in Unix seconds. What a contract's
+ * `block.timestamp` will be near, so a deadline is measured against the chain and not against a
+ * computer clock that may be minutes out.
+ */
+export async function readBlockTimestamp(provider: Eip1193Provider): Promise<bigint> {
+  const block = (await request(provider, "eth_getBlockByNumber", ["latest", false])) as {
+    timestamp?: unknown;
+  } | null;
+  const raw = block?.timestamp;
+  if (typeof raw !== "string" || !/^0x[0-9a-fA-F]+$/.test(raw)) {
+    throw new Error("The wallet's network did not return the latest block.");
+  }
+  return BigInt(raw);
+}

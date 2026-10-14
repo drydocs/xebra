@@ -1,4 +1,4 @@
-import { FINALITY, tokenMessengerAbi } from "@xebra/cctp-evm";
+import { FINALITY, tokenMessengerAbi, xebraWrapperAbi } from "@xebra/cctp-evm";
 import { decodeFunctionData } from "viem";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -16,6 +16,10 @@ const FROM = "0x1111111111111111111111111111111111111111";
 const RECIPIENT = "0x2222222222222222222222222222222222222222";
 const APPROVAL_HASH = `0x${"a1".repeat(32)}`;
 const BURN_HASH = `0x${"b2".repeat(32)}`;
+
+/** The latest block's timestamp in this scripted chain. */
+const CHAIN_NOW = 1_800_000_000n;
+const WRAPPER = "0x3333333333333333333333333333333333333333";
 
 const word = (n: bigint) => `0x${n.toString(16).padStart(64, "0")}`;
 
@@ -63,7 +67,7 @@ function chain(
           const selector = arg?.data?.slice(0, 10);
           if (selector === "0x70a08231") return word(state.balance);
           if (selector === "0xdd62ed3e") return word(state.allowance);
-          if (selector === "0x779b432d") return state.simulation();
+          if (selector === "0x779b432d" || selector === "0x132519fe") return state.simulation();
           throw new Error(`unexpected eth_call ${selector}`);
         }
         case "eth_sendTransaction": {
@@ -77,6 +81,8 @@ function chain(
         }
         case "eth_getTransactionReceipt":
           return { status: state.approvalStatus };
+        case "eth_getBlockByNumber":
+          return { timestamp: `0x${CHAIN_NOW.toString(16)}` };
         default:
           throw new Error(`unexpected ${call.method}`);
       }
@@ -102,6 +108,60 @@ beforeEach(() => {
 });
 afterEach(() => {
   vi.useRealTimers();
+});
+
+describe("submitEvmBridge through Xebra's wrapper", () => {
+  it("approves the wrapper, not Circle, and calls its bridge with a deadline from the chain", async () => {
+    const c = chain({ chainId: arc.chainId });
+    const result = await submitEvmBridge(
+      request(c, {
+        source: arc,
+        destination: base,
+        maxFee: 54_099n,
+        via: { address: WRAPPER, maxWrapperFee: 300_000n },
+      }),
+    );
+    expect(result).toEqual({ txHash: BURN_HASH, approvalTxHash: APPROVAL_HASH });
+
+    const [approval, burn] = c.sent;
+    expect(approval?.to).toBe(arc.usdcAddress);
+    expect(approval?.data).toContain(WRAPPER.slice(2));
+    expect(approval?.data).not.toContain(arc.tokenMessengerAddress.slice(2).toLowerCase());
+    expect(burn?.to).toBe(WRAPPER);
+
+    const { functionName, args } = decodeFunctionData({
+      abi: xebraWrapperAbi,
+      data: burn?.data as `0x${string}`,
+    });
+    expect(functionName).toBe("bridge");
+    const [req] = args as unknown as [Record<string, unknown>];
+    expect(req.amount).toBe(5_000_000n);
+    expect(req.destinationDomain).toBe(base.cctpDomainId);
+    expect(req.maxFee).toBe(54_099n);
+    expect(req.maxWrapperFee).toBe(300_000n);
+    // Ten minutes from the chain's own clock, not the computer's.
+    expect(req.deadline).toBe(CHAIN_NOW + 600n);
+  });
+
+  it("simulates the wrapper's bridge before asking for the burn", async () => {
+    const c = chain({
+      chainId: arc.chainId,
+      allowance: 5_000_000n,
+      simulation: () => {
+        throw new Error("execution reverted: WrapperFeeAboveUserCap()");
+      },
+    });
+    await expect(
+      submitEvmBridge(
+        request(c, {
+          source: arc,
+          destination: base,
+          via: { address: WRAPPER, maxWrapperFee: 300_000n },
+        }),
+      ),
+    ).rejects.toThrow(/WrapperFeeAboveUserCap[\s\S]*Nothing was burned/);
+    expect(c.sent).toHaveLength(0);
+  });
 });
 
 describe("submitEvmBridge", () => {
