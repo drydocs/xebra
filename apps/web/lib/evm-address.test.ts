@@ -19,8 +19,8 @@ describe("checkAddressOn", () => {
     expect(checkAddressOn(EVM_CHAINS.base, "0x1234").error).toBe(
       "A Base address is 0x followed by 40 hex characters.",
     );
-    expect(checkAddressOn(EVM_CHAINS.ethereum, "0x1234").error).toBe(
-      "An Ethereum address is 0x followed by 40 hex characters.",
+    expect(checkAddressOn(EVM_CHAINS.arbitrum, "0x1234").error).toBe(
+      "An Arbitrum address is 0x followed by 40 hex characters.",
     );
     expect(
       checkAddressOn(EVM_CHAINS.polygon, "343zLQT4rL96rh6uNas2vm7gDSiv9CQ8dAFa8qvw2di5").error,

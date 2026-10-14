@@ -49,7 +49,7 @@ describe("which routes a build offers", () => {
     expect(evmSources(["base"])).toEqual(["base", "arc"]);
     expect(evmDestinationsFrom("base", ["base"])).toEqual(["arc"]);
     expect(evmDestinationsFrom("arc", ["base"])).toEqual(["base"]);
-    expect(evmDestinationsFrom("ethereum", ["base"])).toEqual([]);
+    expect(evmDestinationsFrom("polygon", ["base"])).toEqual([]);
   });
 
   it("never offers a peer to a peer", () => {
@@ -68,12 +68,15 @@ describe("parseEnabledPeers", () => {
 
   it("reads a list, in the table's order, forgiving spaces", () => {
     expect(parseEnabledPeers("base, arbitrum")).toEqual(["arbitrum", "base"]);
-    expect(parseEnabledPeers("solana,linea")).toEqual(["linea", "solana"]);
+    expect(parseEnabledPeers("solana,unichain")).toEqual(["unichain", "solana"]);
     expect(parseEnabledPeers("all")).toEqual(ARC_PEERS);
-    expect(ARC_PEERS).toHaveLength(19);
+    expect(ARC_PEERS).toHaveLength(15);
   });
 
-  it("fails loudly on a name it does not know, and on Arc, which is not a peer", () => {
+  it("fails loudly on a name it does not know, on Arc, and on the chains left out", () => {
+    for (const left of ["ethereum", "linea", "plume", "edge"]) {
+      expect(() => parseEnabledPeers(left)).toThrow(`names "${left}"`);
+    }
     expect(() => parseEnabledPeers("base,bsae")).toThrow('names "bsae"');
     expect(() => parseEnabledPeers("arc")).toThrow('names "arc"');
     expect(() => parseEnabledPeers("1")).toThrow('names "1"');

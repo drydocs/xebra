@@ -11,22 +11,29 @@ import { CCTP_DOMAIN, PRESETS } from "./networks.js";
  *
  * # Which chains
  *
- * Every chain Circle's Forwarding Service delivers to from Arc, as Iris answered on 2026-10-14:
- * `GET /v2/burn/USDC/fees/26/{d}?forward=true` returns a forwarding fee for domains 0, 1, 2, 3, 5,
- * 6, 7, 10, 11, 12, 13, 14, 15, 16, 18, 19, 21, 22 and 28, and refuses every other domain. Each of
- * the EVM ones also forwards *into* Arc, so they are offered both ways. Solana is a destination
- * only: sending from Solana needs a Solana signer, which these routes do not have.
+ * Circle's Forwarding Service delivers from Arc to domains 0, 1, 2, 3, 5, 6, 7, 10, 11, 12, 13, 14,
+ * 15, 16, 18, 19, 21, 22 and 28, as Iris answered on 2026-10-14
+ * (`GET /v2/burn/USDC/fees/26/{d}?forward=true`), and refuses every other domain. All of those are
+ * here except four, left out on purpose:
+ *
+ * - Ethereum (0): delivery there costs about 1.4 USDC, so the smallest sensible transfer is about
+ *   fifteen dollars.
+ * - Linea (11): a Standard transfer from Linea takes 6 to 32 hours.
+ * - Plume (22) and EDGE (28): Circle publishes no Standard timing for either, and EDGE runs its own
+ *   deployment of Circle's contracts with an explorer we could not reach.
+ *
+ * Each EVM chain here also forwards *into* Arc, so they are offered both ways. Solana is a
+ * destination only: sending from Solana needs a Solana signer, which these routes do not have.
  *
  * # Provenance
  *
  * Read from the live chains with `cast`, not from documentation (2026-10-09 and 2026-10-14):
  *
- * - Arc's `TokenMessengerV2.remoteTokenMessengers(d)` names each chain's messenger. On seventeen
- *   of the eighteen it is the same address as Arc's, and so are the transmitter and minter. That
- *   is convenient and also the hazard: a call made on the wrong chain reaches a real Circle
- *   contract and returns a plausible answer.
- * - EDGE (domain 28) is the exception: its own deployment, at its own three addresses. Nothing
- *   here may assume one address set.
+ * - Arc's `TokenMessengerV2.remoteTokenMessengers(d)` names each chain's messenger. On every chain
+ *   here it is the same address as Arc's, and so are the transmitter and minter. That is
+ *   convenient and also the hazard: a call made on the wrong chain reaches a real Circle contract
+ *   and returns a plausible answer. Not every Circle chain shares them (EDGE does not), so each
+ *   row still names its own three.
  * - Domain ids are each chain's `MessageTransmitterV2.localDomain()`.
  * - Each chain's `TokenMinterV2.getLocalToken(26, <Arc USDC>)` returns its USDC, and Arc's maps
  *   it back. Every one is a 6-decimal token whose symbol is `USDC`.
@@ -37,14 +44,12 @@ import { CCTP_DOMAIN, PRESETS } from "./networks.js";
  */
 
 export type EvmChainId =
-  | "ethereum"
   | "avalanche"
   | "optimism"
   | "arbitrum"
   | "base"
   | "polygon"
   | "unichain"
-  | "linea"
   | "codex"
   | "sonic"
   | "worldchain"
@@ -53,8 +58,6 @@ export type EvmChainId =
   | "xdc"
   | "hyperevm"
   | "ink"
-  | "plume"
-  | "edge"
   | "arc";
 
 export interface EvmChain {
@@ -84,14 +87,15 @@ export interface EvmChain {
   /** What claiming by hand costs here, said plainly. */
   claimCost: string;
   /**
-   * How long a Standard burn made here takes to be attested. Circle's published figures where it
-   * publishes one (Linea, Ink, Codex, the fast-finality chains); "15 minutes or more" where it
-   * does not. Replace with what `scripts/test-evm-arc-forwarding-mainnet.sh` measures.
+   * How long a Standard burn made here takes to be attested. Circle's published figures where we
+   * could read them (Ink, Codex, Monad, HyperEVM); the rest by the kind of chain (an Ethereum
+   * rollup waits for Ethereum, the others finalise in seconds). Replace with what
+   * `scripts/test-evm-arc-forwarding-mainnet.sh` measures.
    */
   standardEta: string;
 }
 
-/** Circle's three contracts, at the address they have on every chain here but EDGE. */
+/** Circle's three contracts, at the one address they have on every chain here. */
 const CIRCLE = {
   tokenMessengerAddress: "0x28b5a0e9C621a5BadaA536219b3a228C8168cf5d",
   messageTransmitterAddress: "0x81D40F21F12A8F0E3252Bccb954D722d4c464B64",
@@ -103,21 +107,6 @@ const ETH = { name: "Ether", symbol: "ETH", decimals: 18 } as const;
 const arc = PRESETS.mainnet.arc;
 
 export const EVM_CHAINS: Record<EvmChainId, EvmChain> = {
-  ethereum: {
-    id: "ethereum",
-    name: "Ethereum",
-    chainId: 1,
-    cctpDomainId: CCTP_DOMAIN.ethereum,
-    usdcAddress: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
-    ...CIRCLE,
-    rpcUrl: "https://ethereum-rpc.publicnode.com",
-    explorerUrl: "https://etherscan.io",
-    nativeCurrency: ETH,
-    fast: true,
-    maxForwardFeeUnits: 5_000_000,
-    claimCost: "Ethereum gas, paid in ETH",
-    standardEta: "15 to 20 minutes",
-  },
   avalanche: {
     id: "avalanche",
     name: "Avalanche",
@@ -207,21 +196,6 @@ export const EVM_CHAINS: Record<EvmChainId, EvmChain> = {
     maxForwardFeeUnits: 500_000,
     claimCost: "a little ETH on Unichain for gas",
     standardEta: "15 to 20 minutes",
-  },
-  linea: {
-    id: "linea",
-    name: "Linea",
-    chainId: 59144,
-    cctpDomainId: CCTP_DOMAIN.linea,
-    usdcAddress: "0x176211869cA2b568f2A7D4EE941E073a821EE1ff",
-    ...CIRCLE,
-    rpcUrl: "https://rpc.linea.build",
-    explorerUrl: "https://lineascan.build",
-    nativeCurrency: ETH,
-    fast: true,
-    maxForwardFeeUnits: 1_000_000,
-    claimCost: "a little ETH on Linea for gas",
-    standardEta: "6 to 32 hours",
   },
   codex: {
     id: "codex",
@@ -342,39 +316,6 @@ export const EVM_CHAINS: Record<EvmChainId, EvmChain> = {
     maxForwardFeeUnits: 500_000,
     claimCost: "a little ETH on Ink for gas",
     standardEta: "about 30 minutes",
-  },
-  plume: {
-    id: "plume",
-    name: "Plume",
-    chainId: 98866,
-    cctpDomainId: CCTP_DOMAIN.plume,
-    usdcAddress: "0x222365EF19F7947e5484218551B56bb3965Aa7aF",
-    ...CIRCLE,
-    rpcUrl: "https://rpc.plume.org",
-    explorerUrl: "https://explorer.plume.org",
-    nativeCurrency: { name: "Plume", symbol: "PLUME", decimals: 18 },
-    fast: true,
-    maxForwardFeeUnits: 500_000,
-    claimCost: "a little PLUME for gas",
-    standardEta: "15 minutes or more",
-  },
-  edge: {
-    id: "edge",
-    name: "EDGE",
-    chainId: 3343,
-    cctpDomainId: CCTP_DOMAIN.edge,
-    usdcAddress: "0x98d2919b9A214E6Fa5384AC81E6864bA686Ad74c",
-    // EDGE runs its own deployment of Circle's contracts, not the shared addresses.
-    tokenMessengerAddress: "0x98706A006bc632Df31CAdFCBD43F38887ce2ca5c",
-    messageTransmitterAddress: "0x5b61381Fc9e58E70EfC13a4A97516997019198ee",
-    tokenMinterAddress: "0x338Dfd607855BeEc17f33e539Ac2479853cC8384",
-    rpcUrl: "https://edge-mainnet.g.alchemy.com/public",
-    explorerUrl: "https://edge-mainnet.explorer.alchemy.com",
-    nativeCurrency: ETH,
-    fast: true,
-    maxForwardFeeUnits: 500_000,
-    claimCost: "a little ETH on EDGE for gas",
-    standardEta: "15 minutes or more",
   },
   // Built from the preset, so Arc has one source of truth however it is reached.
   arc: {

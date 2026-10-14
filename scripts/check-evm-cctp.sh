@@ -8,10 +8,11 @@
 # redeploy, and the three contract addresses are identical on every chain, so a stale or
 # mistyped row would still answer.
 #
-# Asserts, for each of the eighteen EVM chains Circle forwards to from Arc, and Arc itself:
+# Asserts, for each EVM chain offered with Arc (every one Circle forwards to from Arc except
+# Ethereum, Linea, Plume and EDGE, left out on purpose), and Arc itself:
 #   - the endpoint answers as the pinned chain id
 #   - TokenMessengerV2 / MessageTransmitterV2 carry code, and the messenger points at the
-#     transmitter and minter pinned for that chain (EDGE has its own three addresses)
+#     transmitter and minter pinned for that chain
 #   - MessageTransmitterV2.localDomain() is the pinned CCTP domain and it is not paused
 #   - depositForBurnWithHook's selector (0x779b432d) is in the messenger's implementation bytecode
 #   - the pinned USDC is a 6-decimal token
@@ -37,16 +38,15 @@ IRIS="${IRIS_BASE_URL:-https://iris-api.circle.com}"
 BURN_WITH_HOOK_SELECTOR="779b432d"
 
 # name | chain id | domain | USDC | default RPC | TokenMessengerV2 | MessageTransmitterV2 | TokenMinterV2
-# Seventeen share Circle's one address set; EDGE has its own, which is why every row carries them.
+# All share Circle's one address set today; each row names its own because not every Circle chain
+# does (EDGE, left out, has its own).
 CHAINS="
-ethereum|1|0|0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48|https://ethereum-rpc.publicnode.com|0x28b5a0e9C621a5BadaA536219b3a228C8168cf5d|0x81D40F21F12A8F0E3252Bccb954D722d4c464B64|0xfd78EE919681417d192449715b2594ab58f5D002
 avalanche|43114|1|0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E|https://api.avax.network/ext/bc/C/rpc|0x28b5a0e9C621a5BadaA536219b3a228C8168cf5d|0x81D40F21F12A8F0E3252Bccb954D722d4c464B64|0xfd78EE919681417d192449715b2594ab58f5D002
 optimism|10|2|0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85|https://optimism-rpc.publicnode.com|0x28b5a0e9C621a5BadaA536219b3a228C8168cf5d|0x81D40F21F12A8F0E3252Bccb954D722d4c464B64|0xfd78EE919681417d192449715b2594ab58f5D002
 arbitrum|42161|3|0xaf88d065e77c8cC2239327C5EDb3A432268e5831|https://arb1.arbitrum.io/rpc|0x28b5a0e9C621a5BadaA536219b3a228C8168cf5d|0x81D40F21F12A8F0E3252Bccb954D722d4c464B64|0xfd78EE919681417d192449715b2594ab58f5D002
 base|8453|6|0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913|https://mainnet.base.org|0x28b5a0e9C621a5BadaA536219b3a228C8168cf5d|0x81D40F21F12A8F0E3252Bccb954D722d4c464B64|0xfd78EE919681417d192449715b2594ab58f5D002
 polygon|137|7|0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359|https://polygon-bor-rpc.publicnode.com|0x28b5a0e9C621a5BadaA536219b3a228C8168cf5d|0x81D40F21F12A8F0E3252Bccb954D722d4c464B64|0xfd78EE919681417d192449715b2594ab58f5D002
 unichain|130|10|0x078D782b760474a361dDA0AF3839290b0EF57AD6|https://mainnet.unichain.org|0x28b5a0e9C621a5BadaA536219b3a228C8168cf5d|0x81D40F21F12A8F0E3252Bccb954D722d4c464B64|0xfd78EE919681417d192449715b2594ab58f5D002
-linea|59144|11|0x176211869cA2b568f2A7D4EE941E073a821EE1ff|https://rpc.linea.build|0x28b5a0e9C621a5BadaA536219b3a228C8168cf5d|0x81D40F21F12A8F0E3252Bccb954D722d4c464B64|0xfd78EE919681417d192449715b2594ab58f5D002
 codex|81224|12|0xd996633a415985DBd7D6D12f4A4343E31f5037cf|https://rpc.codex.xyz|0x28b5a0e9C621a5BadaA536219b3a228C8168cf5d|0x81D40F21F12A8F0E3252Bccb954D722d4c464B64|0xfd78EE919681417d192449715b2594ab58f5D002
 sonic|146|13|0x29219dd400f2Bf60E5a23d13Be72B486D4038894|https://rpc.soniclabs.com|0x28b5a0e9C621a5BadaA536219b3a228C8168cf5d|0x81D40F21F12A8F0E3252Bccb954D722d4c464B64|0xfd78EE919681417d192449715b2594ab58f5D002
 worldchain|480|14|0x79A02482A880bCE3F13e09Da970dC34db4CD24d1|https://worldchain-mainnet.g.alchemy.com/public|0x28b5a0e9C621a5BadaA536219b3a228C8168cf5d|0x81D40F21F12A8F0E3252Bccb954D722d4c464B64|0xfd78EE919681417d192449715b2594ab58f5D002
@@ -55,8 +55,6 @@ sei|1329|16|0xe15fC38F6D8c56aF07bbCBe3BAf5708A2Bf42392|https://evm-rpc.sei-apis.
 xdc|50|18|0xfA2958CB79b0491CC627c1557F441eF849Ca8eb1|https://rpc.xdcrpc.com|0x28b5a0e9C621a5BadaA536219b3a228C8168cf5d|0x81D40F21F12A8F0E3252Bccb954D722d4c464B64|0xfd78EE919681417d192449715b2594ab58f5D002
 hyperevm|999|19|0xb88339CB7199b77E23DB6E890353E22632Ba630f|https://rpc.hyperliquid.xyz/evm|0x28b5a0e9C621a5BadaA536219b3a228C8168cf5d|0x81D40F21F12A8F0E3252Bccb954D722d4c464B64|0xfd78EE919681417d192449715b2594ab58f5D002
 ink|57073|21|0x2D270e6886d130D724215A266106e6832161EAEd|https://rpc-gel.inkonchain.com|0x28b5a0e9C621a5BadaA536219b3a228C8168cf5d|0x81D40F21F12A8F0E3252Bccb954D722d4c464B64|0xfd78EE919681417d192449715b2594ab58f5D002
-plume|98866|22|0x222365EF19F7947e5484218551B56bb3965Aa7aF|https://rpc.plume.org|0x28b5a0e9C621a5BadaA536219b3a228C8168cf5d|0x81D40F21F12A8F0E3252Bccb954D722d4c464B64|0xfd78EE919681417d192449715b2594ab58f5D002
-edge|3343|28|0x98d2919b9A214E6Fa5384AC81E6864bA686Ad74c|https://edge-mainnet.g.alchemy.com/public|0x98706A006bc632Df31CAdFCBD43F38887ce2ca5c|0x5b61381Fc9e58E70EfC13a4A97516997019198ee|0x338Dfd607855BeEc17f33e539Ac2479853cC8384
 arc|5042|26|0x3600000000000000000000000000000000000000|https://rpc.mainnet.arc.io|0x28b5a0e9C621a5BadaA536219b3a228C8168cf5d|0x81D40F21F12A8F0E3252Bccb954D722d4c464B64|0xfd78EE919681417d192449715b2594ab58f5D002
 "
 ARC_TOKEN_MESSENGER="0x28b5a0e9C621a5BadaA536219b3a228C8168cf5d"

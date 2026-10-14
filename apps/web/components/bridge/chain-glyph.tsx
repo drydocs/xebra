@@ -10,21 +10,19 @@ import { cn } from "../ui/cn";
  * badges instead of stray rectangles.
  *
  * Files are 96px PNGs in /public/chains, sized for a 24px slot at 2x. Sources: Arc from
- * arc.network's own site icon; Unichain, Codex, World Chain, Ink, Plume and EDGE from DefiLlama's
- * chain icons; every other chain from the Trust Wallet assets repository.
+ * arc.network's own site icon; Unichain, Codex, World Chain and Ink from DefiLlama's chain icons;
+ * every other chain from the Trust Wallet assets repository.
  */
 export type Chain =
   | "stellar"
   | "solana"
   | "arc"
-  | "ethereum"
   | "avalanche"
   | "optimism"
   | "arbitrum"
   | "base"
   | "polygon"
   | "unichain"
-  | "linea"
   | "codex"
   | "sonic"
   | "worldchain"
@@ -32,22 +30,18 @@ export type Chain =
   | "sei"
   | "xdc"
   | "hyperevm"
-  | "ink"
-  | "plume"
-  | "edge";
+  | "ink";
 
 const SRC: Record<Chain, string> = {
   stellar: "/chains/stellar.png",
   solana: "/chains/solana.png",
   arc: "/chains/arc.png",
-  ethereum: "/chains/ethereum.png",
   avalanche: "/chains/avalanche.png",
   optimism: "/chains/optimism.png",
   arbitrum: "/chains/arbitrum.png",
   base: "/chains/base.png",
   polygon: "/chains/polygon.png",
   unichain: "/chains/unichain.png",
-  linea: "/chains/linea.png",
   codex: "/chains/codex.png",
   sonic: "/chains/sonic.png",
   worldchain: "/chains/worldchain.png",
@@ -56,8 +50,6 @@ const SRC: Record<Chain, string> = {
   xdc: "/chains/xdc.png",
   hyperevm: "/chains/hyperevm.png",
   ink: "/chains/ink.png",
-  plume: "/chains/plume.png",
-  edge: "/chains/edge.png",
 };
 
 export function ChainGlyph({ chain, className }: { chain: Chain; className?: string }) {
@@ -82,14 +74,12 @@ export const CHAIN_NAMES: Record<Chain, string> = {
   stellar: "Stellar",
   solana: "Solana",
   arc: "Arc",
-  ethereum: "Ethereum",
   avalanche: "Avalanche",
   optimism: "OP Mainnet",
   arbitrum: "Arbitrum",
   base: "Base",
   polygon: "Polygon",
   unichain: "Unichain",
-  linea: "Linea",
   codex: "Codex",
   sonic: "Sonic",
   worldchain: "World Chain",
@@ -98,6 +88,4 @@ export const CHAIN_NAMES: Record<Chain, string> = {
   xdc: "XDC",
   hyperevm: "HyperEVM",
   ink: "Ink",
-  plume: "Plume",
-  edge: "EDGE",
 };

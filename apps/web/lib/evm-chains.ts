@@ -12,14 +12,12 @@
  */
 
 export type EvmChainId =
-  | "ethereum"
   | "avalanche"
   | "optimism"
   | "arbitrum"
   | "base"
   | "polygon"
   | "unichain"
-  | "linea"
   | "codex"
   | "sonic"
   | "worldchain"
@@ -28,8 +26,6 @@ export type EvmChainId =
   | "xdc"
   | "hyperevm"
   | "ink"
-  | "plume"
-  | "edge"
   | "arc";
 
 export interface EvmChain {
@@ -57,7 +53,7 @@ export interface EvmChain {
   standardEta: string;
 }
 
-/** Circle's three contracts, at the address they have on every chain here but EDGE. */
+/** Circle's three contracts, at the one address they have on every chain here. */
 const CIRCLE = {
   tokenMessengerAddress: "0x28b5a0e9C621a5BadaA536219b3a228C8168cf5d",
   messageTransmitterAddress: "0x81D40F21F12A8F0E3252Bccb954D722d4c464B64",
@@ -67,21 +63,6 @@ const CIRCLE = {
 const ETH = { name: "Ether", symbol: "ETH", decimals: 18 } as const;
 
 export const EVM_CHAINS: Record<EvmChainId, EvmChain> = {
-  ethereum: {
-    id: "ethereum",
-    name: "Ethereum",
-    chainId: 1,
-    cctpDomainId: 0,
-    usdcAddress: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
-    ...CIRCLE,
-    rpcUrl: "https://ethereum-rpc.publicnode.com",
-    explorerUrl: "https://etherscan.io",
-    nativeCurrency: ETH,
-    fast: true,
-    maxForwardFeeUnits: 5_000_000,
-    claimCost: "Ethereum gas, paid in ETH",
-    standardEta: "15 to 20 minutes",
-  },
   avalanche: {
     id: "avalanche",
     name: "Avalanche",
@@ -171,21 +152,6 @@ export const EVM_CHAINS: Record<EvmChainId, EvmChain> = {
     maxForwardFeeUnits: 500_000,
     claimCost: "a little ETH on Unichain for gas",
     standardEta: "15 to 20 minutes",
-  },
-  linea: {
-    id: "linea",
-    name: "Linea",
-    chainId: 59144,
-    cctpDomainId: 11,
-    usdcAddress: "0x176211869cA2b568f2A7D4EE941E073a821EE1ff",
-    ...CIRCLE,
-    rpcUrl: "https://rpc.linea.build",
-    explorerUrl: "https://lineascan.build",
-    nativeCurrency: ETH,
-    fast: true,
-    maxForwardFeeUnits: 1_000_000,
-    claimCost: "a little ETH on Linea for gas",
-    standardEta: "6 to 32 hours",
   },
   codex: {
     id: "codex",
@@ -306,39 +272,6 @@ export const EVM_CHAINS: Record<EvmChainId, EvmChain> = {
     maxForwardFeeUnits: 500_000,
     claimCost: "a little ETH on Ink for gas",
     standardEta: "about 30 minutes",
-  },
-  plume: {
-    id: "plume",
-    name: "Plume",
-    chainId: 98866,
-    cctpDomainId: 22,
-    usdcAddress: "0x222365EF19F7947e5484218551B56bb3965Aa7aF",
-    ...CIRCLE,
-    rpcUrl: "https://rpc.plume.org",
-    explorerUrl: "https://explorer.plume.org",
-    nativeCurrency: { name: "Plume", symbol: "PLUME", decimals: 18 },
-    fast: true,
-    maxForwardFeeUnits: 500_000,
-    claimCost: "a little PLUME for gas",
-    standardEta: "15 minutes or more",
-  },
-  edge: {
-    id: "edge",
-    name: "EDGE",
-    chainId: 3343,
-    cctpDomainId: 28,
-    usdcAddress: "0x98d2919b9A214E6Fa5384AC81E6864bA686Ad74c",
-    // EDGE runs its own deployment of Circle's contracts, not the shared addresses.
-    tokenMessengerAddress: "0x98706A006bc632Df31CAdFCBD43F38887ce2ca5c",
-    messageTransmitterAddress: "0x5b61381Fc9e58E70EfC13a4A97516997019198ee",
-    tokenMinterAddress: "0x338Dfd607855BeEc17f33e539Ac2479853cC8384",
-    rpcUrl: "https://edge-mainnet.g.alchemy.com/public",
-    explorerUrl: "https://edge-mainnet.explorer.alchemy.com",
-    nativeCurrency: ETH,
-    fast: true,
-    maxForwardFeeUnits: 500_000,
-    claimCost: "a little ETH on EDGE for gas",
-    standardEta: "15 minutes or more",
   },
   arc: {
     id: "arc",

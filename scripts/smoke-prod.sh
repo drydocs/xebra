@@ -86,9 +86,12 @@ echo "  (a status of 'down' above would mean Circle is unhealthy right now, not 
 
 echo "EVM routes (live Circle calls; served whether or not the build offers them)"
 check "base -> arc, both speeds"       "/api/circle-health?src=6&dst=26"  200 "b['status'] in ('ok','degraded') and 0 < b['tiers']['standard']['high'] <= 100000 and b['tiers']['standard']['minimumFeePpb'] == 0 and b['tiers']['fast']['finalityThreshold'] == 1000"
-check "arc -> ethereum, its own ceiling" "/api/circle-health?src=26&dst=0" 200 "b['status'] in ('ok','degraded') and 0 < b['quote']['high'] <= 5000000"
+check "arc -> hyperevm"                 "/api/circle-health?src=26&dst=19" 200 "b['status'] in ('ok','degraded') and 0 < b['quote']['high'] <= 500000"
 check "arc -> solana, opening the account"  "/api/circle-health?src=26&dst=5&newAccount=1" 200 "b['status'] in ('ok','degraded') and 200000 < b['quote']['high'] <= 1000000"
-check "edge -> arc (EDGE's own Circle contracts)" "/api/circle-health?src=28&dst=26" 200 "b['status'] in ('ok','degraded') and b['quote']['high'] > 0"
+check "ink -> arc"                       "/api/circle-health?src=21&dst=26" 200 "b['status'] in ('ok','degraded') and b['quote']['high'] > 0"
+for left in 0 11 22 28; do
+  check "chain $left is not offered (left out on purpose)" "/api/circle-health?src=26&dst=$left" 400
+done
 check "rejects a route between two peers" "/api/circle-health?src=6&dst=3" 400
 check "rejects solana as a source"        "/api/circle-health?src=5&dst=26" 400
 

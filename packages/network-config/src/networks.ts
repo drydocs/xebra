@@ -48,7 +48,6 @@ export const CCTP_DOMAIN = {
   base: 6,
   polygon: 7,
   unichain: 10,
-  linea: 11,
   codex: 12,
   sonic: 13,
   worldchain: 14,
@@ -57,10 +56,8 @@ export const CCTP_DOMAIN = {
   xdc: 18,
   hyperevm: 19,
   ink: 21,
-  plume: 22,
   arc: 26,
   stellar: 27,
-  edge: 28,
 } as const;
 
 export interface StellarPreset {

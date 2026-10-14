@@ -12,7 +12,7 @@ describe("readSource", () => {
   });
 
   it("accepts the EVM chains this product burns on", () => {
-    for (const domain of [0, 1, 2, 3, 6, 7, 10, 11, 12, 13, 14, 15, 16, 18, 19, 21, 22, 26, 28]) {
+    for (const domain of [1, 2, 3, 6, 7, 10, 12, 13, 14, 15, 16, 18, 19, 21, 26]) {
       expect(readSource(String(domain), STELLAR)).toEqual({ domain, kind: "evm" });
     }
   });
@@ -20,7 +20,22 @@ describe("readSource", () => {
   it("refuses a chain we do not burn on, and anything that is not a domain", () => {
     // 5 is Solana: a destination here, never a source. 8 (Sui) and 29 are Circle domains we do
     // not burn on.
-    for (const bad of ["5", "8", "29", "999", "-1", "0x6", "base", "6;", " 6"]) {
+    // 0, 11, 22 and 28 (Ethereum, Linea, Plume, EDGE) are Circle chains left out on purpose.
+    for (const bad of [
+      "0",
+      "11",
+      "22",
+      "28",
+      "5",
+      "8",
+      "29",
+      "999",
+      "-1",
+      "0x6",
+      "base",
+      "6;",
+      " 6",
+    ]) {
       expect(readSource(bad, STELLAR), bad).toBeNull();
     }
   });
@@ -62,15 +77,19 @@ describe("isOfferedRoute", () => {
 
   it("offers each EVM peer with Arc, both ways, and nothing between peers", () => {
     expect(isOfferedRoute(6, 26, STELLAR)).toBe(true);
-    expect(isOfferedRoute(26, 0, STELLAR)).toBe(true);
+    expect(isOfferedRoute(26, 7, STELLAR)).toBe(true);
     expect(isOfferedRoute(6, 3, STELLAR)).toBe(false);
     expect(isOfferedRoute(6, 5, STELLAR)).toBe(false);
     // Arc sends to Solana; Solana is never a source here.
     expect(isOfferedRoute(26, 5, STELLAR)).toBe(true);
     expect(isOfferedRoute(5, 26, STELLAR)).toBe(false);
-    // EDGE (28) and Linea (11), both directions.
-    expect(isOfferedRoute(28, 26, STELLAR)).toBe(true);
-    expect(isOfferedRoute(26, 11, STELLAR)).toBe(true);
+    // Ink (21) and Sei (16), both directions; the chains left out, neither.
+    expect(isOfferedRoute(21, 26, STELLAR)).toBe(true);
+    expect(isOfferedRoute(26, 16, STELLAR)).toBe(true);
+    for (const left of [0, 11, 22, 28]) {
+      expect(isOfferedRoute(26, left, STELLAR)).toBe(false);
+      expect(isOfferedRoute(left, 26, STELLAR)).toBe(false);
+    }
     expect(isOfferedRoute(26, 27, STELLAR)).toBe(false);
   });
 });

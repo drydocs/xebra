@@ -8,7 +8,8 @@ import {
 } from "./evm-forward-fee";
 
 const ARC = { name: "Arc", maxForwardFeeUnits: 100_000 };
-const ETHEREUM = { name: "Ethereum", maxForwardFeeUnits: 5_000_000 };
+/** A destination where delivery is dear, to exercise a higher ceiling. */
+const COSTLY = { name: "Costly Chain", maxForwardFeeUnits: 5_000_000 };
 // Iris, Base to Arc, 2026-10-09.
 const STANDARD: FeeTier = { finalityThreshold: 2000, high: 16_778, minimumFeePpb: 0 };
 const FAST: FeeTier = { finalityThreshold: 1000, high: 16_778, minimumFeePpb: 32_500 };
@@ -69,9 +70,9 @@ describe("planEvmFee", () => {
   });
 
   it("gives a costlier destination its own, higher limit", () => {
-    // Iris, Arc to Ethereum, 2026-10-09: about 1.38 USDC.
+    // About what Iris quoted for Arc to Ethereum on 2026-10-09: 1.38 USDC.
     const tier = { ...STANDARD, high: 1_376_978 };
-    expect(planEvmFee({ amount: 50_000_000n, tier, destination: ETHEREUM }).ok).toBe(true);
+    expect(planEvmFee({ amount: 50_000_000n, tier, destination: COSTLY }).ok).toBe(true);
     expect(planEvmFee({ amount: 50_000_000n, tier, destination: ARC }).ok).toBe(false);
   });
 
@@ -117,7 +118,7 @@ describe("minimumEvmAmount", () => {
     expect(minimumEvmAmount(STANDARD)).toBe(167_780n);
   });
 
-  it("is about fourteen dollars to Ethereum at the fee Circle quoted", () => {
+  it("is about fourteen dollars when delivery costs 1.38 USDC", () => {
     const min = minimumEvmAmount({ ...STANDARD, high: 1_376_978 });
     expect(min).toBe(13_769_780n);
     expect(suggestedEvmMinimum(min)).toBe(14_460_000n);
