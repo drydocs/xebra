@@ -55,8 +55,7 @@ export function encodeWrapperBridge(args: WrapperBridgeArgs): Hex {
   }
   // The same recipient rules as a direct burn; the wrapper builds the hook from the owner itself.
   const { mintRecipient } = recipientAndHook(args.recipient, args.destinationDomain);
-  const owner =
-    typeof args.recipient === "string" ? undefined : args.recipient.createAccountFor;
+  const owner = typeof args.recipient === "string" ? undefined : args.recipient.createAccountFor;
   return encodeFunctionData({
     abi: xebraWrapperAbi,
     functionName: "bridge",

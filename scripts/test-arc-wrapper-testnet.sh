@@ -32,6 +32,25 @@ WRAPPER="${WRAPPER:-$(python3 -c "import json;print(json.load(open('$REPO_ROOT/d
 
 die() { echo "FAIL: $*" >&2; exit 1; }
 
+# Public endpoints drop requests; every read is retried before it counts as an answer.
+fetch() {
+  local out
+  for _ in 1 2 3 4 5 6; do
+    out="$(curl -s -m 20 "$@")" && [ -n "$out" ] && { echo "$out"; return 0; }
+    sleep 3
+  done
+  return 1
+}
+rpc_post() { fetch "$1" -X POST -H 'content-type: application/json' -d "$2"; }
+retry() {
+  local out
+  for _ in 1 2 3 4 5 6; do
+    out="$("$@" 2>/dev/null)" && [ -n "$out" ] && { echo "$out"; return 0; }
+    sleep 3
+  done
+  return 1
+}
+
 # Testnet USDC, each address read back from its own chain (symbol USDC, 6 decimals) on 2026-10-14.
 case "$DEST" in
   base)      DOMAIN=6; RPC=https://sepolia.base.org;                    DUSDC=0x036CbD53842c5426634e7929541eC2318f3dCF7e ;;
@@ -55,8 +74,8 @@ if [ "$DOMAIN" = 5 ]; then
       new PublicKey('ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL'));
     console.log(owner.toBase58(), ata.toBase58(), '0x' + owner.toBuffer().toString('hex'), '0x' + ata.toBuffer().toString('hex'));
   ")
-  exists="$(curl -s -m 20 "$SOLANA_DEVNET_RPC" -X POST -H 'content-type: application/json' \
-    -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getAccountInfo\",\"params\":[\"$ATA_B58\",{\"encoding\":\"base64\"}]}" \
+  exists="$(rpc_post "$SOLANA_DEVNET_RPC" \
+    "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getAccountInfo\",\"params\":[\"$ATA_B58\",{\"encoding\":\"base64\"}]}" \
     | python3 -c 'import json,sys; print("yes" if json.load(sys.stdin)["result"]["value"] else "no")')"
   RECIP32="$ATA32"
   if [ "$exists" = no ]; then
@@ -69,52 +88,58 @@ else
   echo "recipient   $RECIPIENT on $DEST"
 fi
 
-MAX_FEE="$(curl -s -m 20 "$IRIS/v2/burn/USDC/fees/26/$DOMAIN?$QUERY" \
+MAX_FEE="$(fetch "$IRIS/v2/burn/USDC/fees/26/$DOMAIN?$QUERY" \
   | python3 -c 'import json,sys; print(next(r["forwardFee"]["high"] for r in json.load(sys.stdin) if r["finalityThreshold"] == 2000))')"
-QUOTE="$(cast call "$WRAPPER" 'quote(uint256,uint32,uint256,uint32,bool)((uint256,uint256,uint256,uint256,uint256,bool))' \
+QUOTE="$(retry cast call "$WRAPPER" 'quote(uint256,uint32,uint256,uint32,bool)((uint256,uint256,uint256,uint256,uint256,bool))' \
   "$AMOUNT" "$DOMAIN" "$MAX_FEE" 2000 "$CREATES" --rpc-url "$ARC_RPC")"
 FEE="$(echo "$QUOTE" | tr -d '()' | cut -d, -f2 | awk '{print $1}')"
 EXPECT=$((AMOUNT - FEE))
 echo "amount      $AMOUNT   Circle's fee $MAX_FEE   total fee $FEE   recipient should get $EXPECT"
 
-accrued_before="$(cast call "$WRAPPER" 'accruedFees()(uint256)' --rpc-url "$ARC_RPC" | awk '{print $1}')"
+accrued_before="$(retry cast call "$WRAPPER" 'accruedFees()(uint256)' --rpc-url "$ARC_RPC" | awk '{print $1}')"
 cast send "$USDC" 'approve(address,uint256)' "$WRAPPER" "$AMOUNT" --private-key "$KEY" --rpc-url "$ARC_RPC" >/dev/null
 DEADLINE=$(( $(date +%s) + 600 ))
 TX="$(cast send "$WRAPPER" 'bridge((uint256,uint32,bytes32,uint256,uint32,bytes32,uint256,uint64))' \
   "($AMOUNT,$DOMAIN,$RECIP32,$MAX_FEE,2000,$OWNER_HEX,$FEE,$DEADLINE)" \
   --private-key "$KEY" --rpc-url "$ARC_RPC" --json | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["status"]=="0x1", d; print(d["transactionHash"])')"
 echo "burned      $TX (from $SENDER)"
-accrued_after="$(cast call "$WRAPPER" 'accruedFees()(uint256)' --rpc-url "$ARC_RPC" | awk '{print $1}')"
+accrued_after="$(retry cast call "$WRAPPER" 'accruedFees()(uint256)' --rpc-url "$ARC_RPC" | awk '{print $1}')"
 echo "accrued     $accrued_before -> $accrued_after (took $((accrued_after - accrued_before)))"
-left="$(cast call "$USDC" 'allowance(address,address)(uint256)' "$WRAPPER" 0x8FE6B999Dc680CcFDD5Bf7EB0974218be2542DAA --rpc-url "$ARC_RPC" | awk '{print $1}')"
+left="$(retry cast call "$USDC" 'allowance(address,address)(uint256)' "$WRAPPER" 0x8FE6B999Dc680CcFDD5Bf7EB0974218be2542DAA --rpc-url "$ARC_RPC" | awk '{print $1}')"
 [ "$left" = 0 ] || die "the wrapper left allowance $left to Circle's messenger"
 
+balance() {
+  if [ "$DOMAIN" = 5 ]; then
+    rpc_post "$SOLANA_DEVNET_RPC" \
+      "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getTokenAccountBalance\",\"params\":[\"$ATA_B58\"]}" \
+      | python3 -c 'import json,sys; r=json.load(sys.stdin); print(r["result"]["value"]["amount"] if "result" in r else 0)'
+  else
+    retry cast call "$DUSDC" 'balanceOf(address)(uint256)' "$RECIPIENT" --rpc-url "$RPC" | awk '{print $1}'
+  fi
+}
+
+# The recipient's balance is the finish line. Circle's own forwardState is printed alongside: it has
+# been seen as both CONFIRMED and COMPLETE for a delivered transfer.
 echo "waiting for Circle's forwarder (testnet takes from seconds to about 15 minutes)…"
 start=$(date +%s)
-for _ in $(seq 1 180); do
-  state="$(curl -s -m 20 "$IRIS/v2/messages/26?transactionHash=$TX" | python3 -c '
+got=0
+for _ in $(seq 1 120); do
+  state="$(fetch "$IRIS/v2/messages/26?transactionHash=$TX" | python3 -c '
 import json, sys
 try:
     m = json.load(sys.stdin)["messages"][0]
     body = (m.get("decodedMessage") or {}).get("decodedMessageBody") or {}
     print(m.get("status"), m.get("forwardState"), body.get("feeExecuted"))
 except Exception:
-    print("none none none")')"
+    print("none none none")' || echo "none none none")"
   read -r status forward fee_executed <<<"$state"
-  [ "$forward" = COMPLETE ] && break
   [ "$forward" = FAILED ] && die "Circle reports the forward FAILED; claim it at /claim"
-  sleep 10
+  got="$(balance || echo 0)"
+  [ "$got" = "$EXPECT" ] && break
+  sleep 15
 done
-[ "$forward" = COMPLETE ] || die "not delivered after 30 minutes (status $status, forwardState $forward)"
-echo "delivered   after $(( $(date +%s) - start ))s; Circle's feeExecuted $fee_executed (maxFee $MAX_FEE)"
-
-if [ "$DOMAIN" = 5 ]; then
-  got="$(curl -s -m 20 "$SOLANA_DEVNET_RPC" -X POST -H 'content-type: application/json' \
-    -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getTokenAccountBalance\",\"params\":[\"$ATA_B58\"]}" \
-    | python3 -c 'import json,sys; print(json.load(sys.stdin)["result"]["value"]["amount"])')"
-else
-  got="$(cast call "$DUSDC" 'balanceOf(address)(uint256)' "$RECIPIENT" --rpc-url "$RPC" | awk '{print $1}')"
-fi
+echo "delivered   after $(( $(date +%s) - start ))s; Circle says $status / $forward, feeExecuted $fee_executed (maxFee $MAX_FEE)"
 echo "recipient   holds $got, expected $EXPECT"
-[ "$got" = "$EXPECT" ] || die "the recipient did not get amount - fee"
+[ "$got" = "$EXPECT" ] || die "the recipient did not get amount - fee within 30 minutes"
+[ "$fee_executed" = "$MAX_FEE" ] || echo "note: Circle executed $fee_executed of the $MAX_FEE allowed"
 echo "PASS $DEST"

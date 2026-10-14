@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
   type FeeTier,
+  type WrapperTerms,
   minimumEvmAmount,
   planEvmFee,
+  planWrapperFee,
   speedFeeFor,
   suggestedEvmMinimum,
-  type WrapperTerms,
-  planWrapperFee,
   wrapperSplit,
 } from "./evm-forward-fee";
 
@@ -132,6 +132,11 @@ describe("minimumEvmAmount", () => {
 });
 
 describe("planWrapperFee", () => {
+  const toBaseCaps = {
+    maxForwardFee: 500_000n,
+    accountCreation: false,
+    maxForwardFeeNewAccount: 0n,
+  };
   /** The wrapper's mainnet settings: Stellar's fee, at most 100 USDC per transfer. */
   const terms: WrapperTerms = {
     paused: false,
@@ -140,11 +145,16 @@ describe("planWrapperFee", () => {
     minTransfer: 1_000_000n,
     maxTransfer: 100_000_000n,
     maxFastFeeBps: 5,
-    domain: { maxForwardFee: 500_000n, accountCreation: false, maxForwardFeeNewAccount: 0n },
+    domain: toBaseCaps,
   };
   const toBase = { name: "Base", maxForwardFeeUnits: 500_000 };
   const standard = (high: number): FeeTier => ({ finalityThreshold: 2000, high, minimumFeePpb: 0 });
-  const plan = (amount: bigint, high: number, over: Partial<WrapperTerms> = {}, opensAccount = false) =>
+  const plan = (
+    amount: bigint,
+    high: number,
+    over: Partial<WrapperTerms> = {},
+    opensAccount = false,
+  ) =>
     planWrapperFee({
       amount,
       tier: standard(high),
@@ -169,7 +179,7 @@ describe("planWrapperFee", () => {
   });
 
   it("charges Circle's fee alone, and keeps nothing, when it is above Xebra's", () => {
-    const opening = { ...terms.domain, accountCreation: true, maxForwardFeeNewAccount: 1_000_000n };
+    const opening = { ...toBaseCaps, accountCreation: true, maxForwardFeeNewAccount: 1_000_000n };
     const p = plan(10_000_000n, 450_000, { domain: opening }, true);
     expect(p.ok && [p.fee, p.xebraFee, p.received]).toEqual([450_000n, 0n, 9_550_000n]);
   });
@@ -178,7 +188,9 @@ describe("planWrapperFee", () => {
     expect(plan(2_000_000n, 54_099, { paused: true })).toMatchObject({ ok: false, kind: "cap" });
     expect(plan(2_000_000n, 54_099, { domain: null })).toMatchObject({ ok: false, kind: "cap" });
     expect(plan(2_000_000n, 54_099, {}, true)).toMatchObject({ ok: false, kind: "cap" });
-    expect(plan(2_000_000n, 54_099, { domain: { ...terms.domain!, maxForwardFee: 50_000n } })).toMatchObject({
+    expect(
+      plan(2_000_000n, 54_099, { domain: { ...toBaseCaps, maxForwardFee: 50_000n } }),
+    ).toMatchObject({
       ok: false,
       kind: "cap",
     });
@@ -188,12 +200,14 @@ describe("planWrapperFee", () => {
   it("names a minimum the contract would accept", () => {
     const below = plan(500_000n, 54_099);
     expect(below).toMatchObject({ ok: false, kind: "minimum" });
-    const named = BigInt(Math.round(Number((below as { reason: string }).reason.match(/least ([\d.]+)/)![1]) * 1e6));
+    const named = BigInt(
+      Math.round(Number((below as { reason: string }).reason.match(/least ([\d.]+)/)![1]) * 1e6),
+    );
     expect(plan(named, 54_099).ok).toBe(true);
   });
 
   it("allows Fast its speed fee on top of the destination's cap", () => {
-    const capped = { domain: { ...terms.domain!, maxForwardFee: 290_000n } };
+    const capped = { domain: { ...toBaseCaps, maxForwardFee: 290_000n } };
     const fast: FeeTier = { finalityThreshold: 1000, high: 280_000, minimumFeePpb: 100_000 };
     const p = planWrapperFee({
       amount: 100_000_000n,

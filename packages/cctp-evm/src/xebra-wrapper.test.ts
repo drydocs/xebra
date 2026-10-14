@@ -21,9 +21,7 @@ describe("encodeWrapperBridge", () => {
   it("calls the selector the contract's own test pins", () => {
     // contracts/arc-evm/test/XebraCctpWrapper.t.sol asserts the same number.
     expect(
-      toFunctionSelector(
-        "bridge((uint256,uint32,bytes32,uint256,uint32,bytes32,uint256,uint64))",
-      ),
+      toFunctionSelector("bridge((uint256,uint32,bytes32,uint256,uint32,bytes32,uint256,uint64))"),
     ).toBe("0x132519fe");
     expect(encodeWrapperBridge(base).slice(0, 10)).toBe("0x132519fe");
   });
