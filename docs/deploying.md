@@ -75,6 +75,8 @@ NEXT_PUBLIC_STELLAR_CCTP_WRAPPER_LEGACY_CONTRACT_ID   # optional: v1, read by /a
 NEXT_PUBLIC_ARC_ENABLED                               # `1` offers Arc as a destination from Stellar
 NEXT_PUBLIC_ARC_SENDS_TO                              # optional: where Arc may send, or `all`
 NEXT_PUBLIC_ARC_RECEIVES_FROM                         # optional: EVM chains that may send into Arc
+NEXT_PUBLIC_STELLAR_SENDS_TO                          # optional: EVM chains Stellar may send to, or `all`;
+                                                      # each is offered once the wrapper commits its domain
 ```
 
 Server-side only:
@@ -154,3 +156,6 @@ watch is Circle and the deployment itself:
 No mainnet transfer has gone through the routes between Arc and the EVM chains yet; they were proven
 on testnet on 2026-10-14. EVM chains → Arc is off in production (`NEXT_PUBLIC_ARC_RECEIVES_FROM`
 unset).
+
+Stellar → the EVM chains other than Arc waits on the wrapper: none of their domains is committed yet,
+and each takes a 48-hour proposal ([`admin-panel.md`](./admin-panel.md#adding-a-chain)).

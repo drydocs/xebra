@@ -53,7 +53,7 @@ WRAPPER="CCNWLGFMILJU476RZHDA2PSUH2WH3LIPERHS6BYPCRVDDYYNNUIKZMTJ" # wrapper v1 
 ARC_RPC="https://rpc.mainnet.arc.io"
 ARC_DOMAIN=26
 ARC_USDC="0x3600000000000000000000000000000000000000"
-# Addresses USDC could never be recovered from. Mirrors apps/web/lib/arc-address.ts.
+# Addresses USDC could never be recovered from. Mirrors unsafeRecipientsFor in apps/web/lib/evm-address.ts.
 ARC_UNSAFE="0x3600000000000000000000000000000000000000 0x28b5a0e9c621a5badaa536219b3a228c8168cf5d 0x81d40f21f12a8f0e3252bccb954d722d4c464b64 0xfd78ee919681417d192449715b2594ab58f5d002"
 
 IRIS="https://iris-api.circle.com"

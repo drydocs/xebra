@@ -34,33 +34,12 @@ export async function getDelivery(txHash: string, sourceDomain?: number): Promis
 }
 
 /**
- * Whether Circle looks able to carry a transfer to `dest` right now.
+ * Whether Circle looks able to carry a transfer between two CCTP domains right now. The answer
+ * carries both speeds (`tiers`), each with its own fee; a Stellar burn only ever uses Standard.
  *
  * Returns `null` when the check itself could not be run. That is not `down`: our own server being
  * unreachable says nothing about Circle, and refusing to send on that basis would make this check a
  * single point of failure for the product.
- */
-export async function getCircleHealth(
-  dest: "solana" | "arc",
-  newAccount: boolean,
-): Promise<CircleHealth | null> {
-  try {
-    const q = new URLSearchParams({ dest });
-    if (newAccount) q.set("newAccount", "1");
-    const res = await fetch(`/api/circle-health?${q}`);
-    if (!res.ok) return null;
-    const body = (await res.json()) as CircleHealth;
-    return body.status === "ok" || body.status === "degraded" || body.status === "down"
-      ? body
-      : null;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * The same question for a route that calls Circle directly, named by its two CCTP domains. The
- * answer carries both speeds (`tiers`), each with its own fee.
  */
 export async function getRouteHealth(
   sourceDomain: number,

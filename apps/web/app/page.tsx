@@ -77,7 +77,12 @@ export default function HomePage() {
             ) : (
               <>
                 Circle burns your USDC on Stellar and mints the same dollars on{" "}
-                {env.arcEnabled ? "Solana or Arc" : "Solana"}.
+                {env.stellarSendsTo.length > 0
+                  ? "the chain you choose"
+                  : env.arcEnabled
+                    ? "Solana or Arc"
+                    : "Solana"}
+                .
               </>
             )}{" "}
             No wrapped asset, no bridge token, and nobody holds your funds in between.

@@ -7,15 +7,20 @@ import {
   type BridgeChainConfig,
   type BridgeQuote,
   formatUsdc,
-  getDomainForwardConfig,
   getUsdcBalance,
+  getWrapperDomains,
   getWrapperFeeParams,
   parseUsdc,
   quoteBridge,
   submitBridge,
 } from "../../lib/cctp-bridge";
-import { type DeliveryView, getCircleHealth, getDelivery } from "../../lib/circle-status";
-import { DESTINATIONS, type DestinationId, availableDestinations } from "../../lib/destinations";
+import { type DeliveryView, getDelivery, getRouteHealth } from "../../lib/circle-status";
+import {
+  type DestinationId,
+  STELLAR_CCTP_DOMAIN,
+  stellarDestination,
+  stellarDestinations,
+} from "../../lib/destinations";
 import { env, isCctpRailConfigured } from "../../lib/env";
 import { formatError, reportError } from "../../lib/format-error";
 import {
@@ -24,6 +29,7 @@ import {
   chooseMaxFee,
   minimumForwardedAmount,
   suggestedMinimum,
+  withTableCeiling,
 } from "../../lib/forward-fee";
 import { type RecipientResolution, resolveRecipient } from "../../lib/solana-address";
 import { Button } from "../ui/button";
@@ -32,7 +38,7 @@ import { ArrowRight } from "../ui/icons";
 import { Notice } from "../ui/notice";
 import { StripeRule } from "../ui/stripe-rule";
 import { useWallets } from "../wallet/wallet-provider";
-import { DestinationPicker } from "./destination-picker";
+import { ChainPicker, PickerLabel } from "./chain-picker";
 import { QUICK_AMOUNTS, QuickAmount } from "./quick-amount";
 import { SubmittedNotice } from "./receipt";
 import { ArcRecipientPanel, RecipientPanel, UseMyWallet } from "./recipient-panels";
@@ -40,7 +46,8 @@ import { RouteTrack } from "./route-track";
 import { QuotePanel } from "./stellar-quote-panel";
 
 /**
- * One job: move USDC from Stellar to Solana or Arc over Circle's CCTP, through Xebra's wrapper.
+ * One job: move USDC from Stellar to Solana or an EVM chain over Circle's CCTP, through Xebra's
+ * wrapper.
  * The bridge screen (`app/page.tsx`) shows this form when the source is Stellar; a transfer that
  * starts on an EVM chain is `evm-bridge-form.tsx`.
  *
@@ -53,6 +60,14 @@ import { QuotePanel } from "./stellar-quote-panel";
  * placeholder was mainnet USDC even on testnet.
  *
  * The amount and the destination address are the only two things only the user can know.
+ *
+ * # Which chains are offered is read from the contract
+ *
+ * The wrapper sends only to the CCTP domains it has committed, and adding one takes a 48-hour
+ * timelock. So the picker shows an EVM chain only when the build names it *and* the contract has
+ * committed it (`stellarDestinations`), read once when the form opens and again every minute. A
+ * chain appears by itself the moment its commit lands, and one the contract does not have is never
+ * offered, because a transfer to it would be refused at signing.
  *
  * # Fee figures come from the contract
  *
@@ -91,6 +106,11 @@ export function StellarBridgeForm({
   const [amountInput, setAmountInput] = useState("5");
   const [destination, setDestination] = useState("");
   const [destId, setDestId] = useState<DestinationId>("solana");
+  // Every destination the wrapper has committed, with its switches and caps. `undefined` while the
+  // first read is out; `null` when it could not be read.
+  const [domains, setDomains] = useState<Map<number, DomainForwardConfig> | null | undefined>(
+    undefined,
+  );
   // What the receipt describes. Fixed at the moment of signing, so switching the picker
   // afterwards cannot rewrite where an already-burned transfer says it is going.
   const [sentTo, setSentTo] = useState<DestinationId>("solana");
@@ -109,8 +129,6 @@ export function StellarBridgeForm({
     key: string;
     value: CircleHealth | null;
   } | null>(null);
-  // This destination's forwarding switches and caps, read from the contract.
-  const [domainCfg, setDomainCfg] = useState<DomainForwardConfig | null>(null);
   // The wrapper's fee and floor, which set how small a transfer to this destination can be.
   const [feeParams, setFeeParams] = useState<FeeParams | null>(null);
   const [recipient, setRecipient] = useState<RecipientResolution | null>(null);
@@ -124,23 +142,54 @@ export function StellarBridgeForm({
     return () => onBusyChange?.(false);
   }, [busy, onBusyChange]);
 
-  const dest = DESTINATIONS[destId];
-  const destinations = useMemo(() => availableDestinations(env.arcEnabled), []);
+  const dest = useMemo(() => stellarDestination(destId), [destId]);
+  const destinations = useMemo(
+    () =>
+      stellarDestinations({
+        arcEnabled: env.arcEnabled,
+        sendsTo: env.stellarSendsTo,
+        committed: domains ? new Set(domains.keys()) : null,
+      }),
+    [domains],
+  );
 
   // Always present. With no wrapper configured, `wrapperContractId` is null and nothing can be
   // sent: there is no direct path around the wrapper (see `lib/cctp-bridge.ts`).
-  const config: BridgeChainConfig = useMemo(
+  const wrapper = useMemo(
     () => ({
       wrapperContractId: env.cctpWrapperContractId,
+      sorobanRpcUrl: env.sorobanRpcUrl,
+      networkPassphrase: env.stellarNetworkPassphrase,
+    }),
+    [],
+  );
+  const config: BridgeChainConfig = useMemo(
+    () => ({
+      ...wrapper,
       horizonUrl: env.horizonUrl,
       cctpTokenMessengerId: env.cctpTokenMessengerId,
       usdcSacAddress: env.usdcSacAddress,
-      sorobanRpcUrl: env.sorobanRpcUrl,
-      networkPassphrase: env.stellarNetworkPassphrase,
       destinationDomain: dest.domain,
     }),
-    [dest.domain],
+    [wrapper, dest.domain],
   );
+
+  // This destination's forwarding switches and caps: the contract's, lowered to the chain table's
+  // ceiling where that is tighter. Null until read, and when the contract does not send there.
+  const committedCfg = domains?.get(dest.domain) ?? null;
+  const domainCfg = useMemo(
+    () => committedCfg && withTableCeiling(committedCfg, dest.evm?.maxForwardFeeUnits ?? null),
+    [committedCfg, dest.evm],
+  );
+  // Said, never waited on: a destination the contract does not have, or a contract that could not
+  // be read, is a sentence on the screen and a disabled button.
+  const domainProblem = !isCctpRailConfigured
+    ? null
+    : domains === null
+      ? "We could not read the bridge contract's settings just now. This page tries again every minute."
+      : domains !== undefined && !committedCfg
+        ? `The bridge contract does not send to ${dest.name} yet, so nothing can be sent there.`
+        : null;
 
   const amount = useMemo(() => {
     try {
@@ -182,25 +231,38 @@ export function StellarBridgeForm({
 
   // Circle's fee quote depends on whether it also has to open an account, so a health reading only
   // counts for the flavour it was taken for.
-  const healthKey = `${destId}:${recipientNeedsAccount}`;
+  const healthKey = `${dest.domain}:${recipientNeedsAccount}`;
   const health = healthState?.key === healthKey ? healthState.value : null;
   const healthUnavailable = healthState?.key === healthKey && healthState.value === null;
 
-  // The contract's own switches and caps for this destination.
+  // Which destinations the contract sends to, with their switches and caps. Needs no wallet, so the
+  // picker is right before anyone connects; re-read every minute so a chain committed, switched off
+  // or removed while the page is open shows up without a reload.
+  useEffect(() => {
+    let cancelled = false;
+    const read = () =>
+      getWrapperDomains(wrapper)
+        .then((d) => {
+          if (!cancelled) setDomains(d);
+        })
+        .catch(() => {
+          if (!cancelled) setDomains(null);
+        });
+    void read();
+    const timer = setInterval(read, 60_000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [wrapper]);
+
+  // The wrapper's fee and floor.
   useEffect(() => {
     if (!address) {
-      setDomainCfg(null);
       setFeeParams(null);
       return;
     }
     let cancelled = false;
-    getDomainForwardConfig(config, address)
-      .then((c) => {
-        if (!cancelled) setDomainCfg(c);
-      })
-      .catch(() => {
-        if (!cancelled) setDomainCfg(null);
-      });
     getWrapperFeeParams(config, address)
       .then((p) => {
         if (!cancelled) setFeeParams(p);
@@ -361,9 +423,9 @@ export function StellarBridgeForm({
   // open, and again immediately before signing.
   useEffect(() => {
     let cancelled = false;
-    const key = `${destId}:${recipientNeedsAccount}`;
+    const key = `${dest.domain}:${recipientNeedsAccount}`;
     const check = () =>
-      getCircleHealth(destId, recipientNeedsAccount).then((h) => {
+      getRouteHealth(STELLAR_CCTP_DOMAIN, dest.domain, recipientNeedsAccount).then((h) => {
         if (!cancelled) setHealthState({ key, value: h });
       });
     void check();
@@ -372,7 +434,7 @@ export function StellarBridgeForm({
       cancelled = true;
       clearInterval(timer);
     };
-  }, [destId, recipientNeedsAccount]);
+  }, [dest.domain, recipientNeedsAccount]);
 
   // Read the wallet's USDC once it is connected.
   //
@@ -429,17 +491,18 @@ export function StellarBridgeForm({
   }, [destination, destinationCheck.ok, dest.needsAccountResolution]);
 
   // What the burn names as the recipient. Solana: the resolved USDC token account, never the
-  // wallet. Arc: the address itself, left-padded — an EVM mint credits the address directly.
+  // wallet. An EVM chain: the address itself, left-padded — an EVM mint credits the address directly.
   const mintRecipient = dest.needsAccountResolution
     ? (recipient?.tokenAccountBytes ?? null)
     : (destinationCheck.bytes ?? null);
 
   function chooseDestination(id: DestinationId) {
     if (id === destId) return;
-    // An address valid on one chain is never valid on the other, so carrying it over could only
-    // ever be a mistake waiting to be signed.
+    // Between EVM chains the address stays: the same key controls the same address on each, and
+    // it is checked again against the new chain's own unsafe addresses. To or from Solana it is
+    // cleared, because an address valid on one is never valid on the other.
+    if ((id === "solana") !== (destId === "solana")) setDestination("");
     setDestId(id);
-    setDestination("");
     setSubmitError(null);
   }
 
@@ -455,21 +518,41 @@ export function StellarBridgeForm({
     shortfall === null &&
     health?.status !== "down" &&
     mintRecipient !== null &&
+    domainProblem === null &&
     !recipientUnverified &&
     !submitting &&
     !quoting &&
     !resolving;
 
   async function bridge() {
-    if (!kit || !address || !quote || !mintRecipient || !domainCfg) return;
+    if (!kit || !address || !quote || !mintRecipient) return;
     setSubmitting(true);
     setSentTo(destId);
     setSubmitError(null);
     setTxHash(null);
     try {
-      // The check the page already ran may be a minute old. Ask again now that the user has
-      // committed, because this is the last moment declining costs nothing.
-      const fresh = await getCircleHealth(destId, recipientNeedsAccount);
+      // The checks the page already ran may be a minute old. Ask again now that the user has
+      // committed, because this is the last moment declining costs nothing: the contract's switch
+      // and caps for this destination, then Circle.
+      let latestDomains: Map<number, DomainForwardConfig> | null;
+      try {
+        latestDomains = await getWrapperDomains(wrapper);
+      } catch (err) {
+        reportError("reading the wrapper's destinations failed", err);
+        setSubmitError(
+          "We could not read the bridge contract's settings just now, so nothing was sent.",
+        );
+        return;
+      }
+      setDomains(latestDomains);
+      const latestCfg = latestDomains?.get(dest.domain);
+      if (!latestCfg) {
+        setSubmitError(
+          `The bridge contract does not send to ${dest.name} right now, so nothing was sent.`,
+        );
+        return;
+      }
+      const fresh = await getRouteHealth(STELLAR_CCTP_DOMAIN, dest.domain, recipientNeedsAccount);
       setHealthState({ key: healthKey, value: fresh });
       if (fresh?.status === "down") {
         setSubmitError(
@@ -486,7 +569,7 @@ export function StellarBridgeForm({
       const choice = chooseMaxFee({
         quote: fresh.quote,
         needsAccount: recipientNeedsAccount,
-        cfg: domainCfg,
+        cfg: withTableCeiling(latestCfg, dest.evm?.maxForwardFeeUnits ?? null),
         destinationName: dest.name,
       });
       if (!choice.ok) {
@@ -527,7 +610,7 @@ export function StellarBridgeForm({
         amount: quote.amount,
         // Solana: the TOKEN ACCOUNT, never the wallet address. Circle enforces
         // recipient_token_account.key() == mint_recipient; a wallet address here strands the
-        // transfer permanently. Arc: the address itself.
+        // transfer permanently. An EVM chain: the address itself.
         mintRecipient,
         // When Circle creates the account it needs the wallet that will own it. The contract cannot
         // check that `mintRecipient` is that wallet's token account (Soroban has no curve check), so
@@ -617,16 +700,22 @@ export function StellarBridgeForm({
 
         {destinations.length > 1 && (
           <div className="mt-6">
-            <span className="mb-2.5 block text-eyebrow font-medium uppercase text-bone/40">
-              Send to
-            </span>
-            <DestinationPicker
+            <PickerLabel>Send to</PickerLabel>
+            <ChainPicker
+              legend="Destination chain"
+              name="destination-chain"
               options={destinations}
               value={destId}
               onChange={chooseDestination}
               disabled={submitting || Boolean(txHash)}
             />
           </div>
+        )}
+
+        {domainProblem && !txHash && (
+          <Notice tone="alarm" title={`Not sending to ${dest.name} right now`} className="mt-5">
+            {domainProblem}
+          </Notice>
         )}
 
         <Field
@@ -651,8 +740,8 @@ export function StellarBridgeForm({
         </Field>
 
         <UseMyWallet
-          family={destId === "solana" ? "solana" : "evm"}
-          connection={connections[destId === "solana" ? "solana" : "evm"]}
+          family={dest.evm ? "evm" : "solana"}
+          connection={dest.evm ? connections.evm : connections.solana}
           disabled={submitting || Boolean(txHash)}
           onUse={setDestination}
           onConnect={openWallets}
@@ -665,7 +754,11 @@ export function StellarBridgeForm({
             addressValid={destinationCheck.ok}
           />
         ) : (
-          <ArcRecipientPanel address={destination.trim()} valid={destinationCheck.ok} />
+          <ArcRecipientPanel
+            address={destination.trim()}
+            valid={destinationCheck.ok}
+            chainName={dest.name}
+          />
         )}
 
         <QuotePanel
@@ -719,7 +812,11 @@ export function StellarBridgeForm({
         )}
 
         {txHash ? (
-          <SubmittedNotice txHash={txHash} delivery={delivery} destination={DESTINATIONS[sentTo]} />
+          <SubmittedNotice
+            txHash={txHash}
+            delivery={delivery}
+            destination={stellarDestination(sentTo)}
+          />
         ) : (
           <Button
             size="lg"

@@ -18,6 +18,7 @@ import {
   hasEvmRoutes,
   parseArcReceivesFrom,
   parseArcSendsTo,
+  parseStellarSendsTo,
 } from "./evm-chains";
 
 describe("EVM_CHAINS", () => {
@@ -101,5 +102,16 @@ describe("the route lists", () => {
     expect(() => parseArcSendsTo("base,bsae")).toThrow('names "bsae"');
     expect(() => parseArcSendsTo("arc")).toThrow('names "arc"');
     expect(() => parseArcReceivesFrom("1")).toThrow('names "1"');
+  });
+
+  it("name Stellar's EVM destinations other than Arc and Solana, which have their own switches", () => {
+    expect(parseStellarSendsTo(undefined)).toEqual([]);
+    expect(parseStellarSendsTo("all")).toEqual(EVM_ARC_PEERS);
+    expect(parseStellarSendsTo("ink, base")).toEqual(["base", "ink"]);
+    for (const other of ["arc", "solana", "ethereum"]) {
+      expect(() => parseStellarSendsTo(other)).toThrow(
+        `NEXT_PUBLIC_STELLAR_SENDS_TO names "${other}"`,
+      );
+    }
   });
 });

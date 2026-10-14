@@ -1,5 +1,5 @@
+import { PRESETS } from "@xebra/network-config";
 import { describe, expect, it } from "vitest";
-import { ARC_UNSAFE_RECIPIENTS, checkArcAddress } from "./arc-address";
 import { checkAddressOn, unsafeRecipientsFor } from "./evm-address";
 import { EVM_CHAINS } from "./evm-chains";
 
@@ -53,18 +53,55 @@ describe("checkAddressOn", () => {
   });
 });
 
-describe("checkArcAddress", () => {
-  it("is the same check, with Arc's wording unchanged", () => {
-    expect(checkArcAddress("0x1234").error).toBe(
+describe("checkAddressOn for Arc", () => {
+  const arc = EVM_CHAINS.arc;
+
+  it("keeps Arc's wording", () => {
+    expect(checkAddressOn(arc, "0x1234").error).toBe(
       "An Arc address is 0x followed by 40 hex characters.",
     );
-    expect(checkArcAddress("343zLQT4rL96rh6uNas2vm7gDSiv9CQ8dAFa8qvw2di5").error).toBe(
+    expect(checkAddressOn(arc, "343zLQT4rL96rh6uNas2vm7gDSiv9CQ8dAFa8qvw2di5").error).toBe(
       "That looks like a Solana address, not an Arc one.",
     );
-    expect(checkArcAddress(WALLET)).toEqual(checkAddressOn(EVM_CHAINS.arc, WALLET));
   });
 
-  it("refuses exactly what the generated Arc list refuses", () => {
-    expect(ARC_UNSAFE_RECIPIENTS).toEqual(unsafeRecipientsFor(EVM_CHAINS.arc));
+  it("returns the address left-padded to 32 bytes, the shape the wrapper requires", () => {
+    const r = checkAddressOn(arc, WALLET);
+    expect(r.bytes).toHaveLength(32);
+    expect(Buffer.from((r.bytes as Uint8Array).slice(12)).toString("hex")).toBe(
+      WALLET.slice(2).toLowerCase(),
+    );
+  });
+
+  it("is empty until the user types, without shouting an error at them", () => {
+    expect(checkAddressOn(arc, "")).toEqual({ ok: false });
+    expect(checkAddressOn(arc, "   ")).toEqual({ ok: false });
+  });
+
+  it("accepts all-lowercase and all-uppercase, which carry no checksum to fail, and trims", () => {
+    expect(checkAddressOn(arc, WALLET.toLowerCase()).ok).toBe(true);
+    expect(checkAddressOn(arc, `0x${WALLET.slice(2).toUpperCase()}`).ok).toBe(true);
+    expect(checkAddressOn(arc, `  ${WALLET}\n`).ok).toBe(true);
+  });
+
+  it("refuses anything that is not 0x plus 40 hex characters, and the precompile range", () => {
+    for (const bad of [
+      "f39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+      `${WALLET}00`,
+      `0x${"zz".repeat(20)}`,
+      "vitalik.eth",
+    ]) {
+      expect(checkAddressOn(arc, bad).ok, bad).toBe(false);
+    }
+    expect(checkAddressOn(arc, "0x0000000000000000000000000000000000000001").error).toMatch(
+      /system or burn/,
+    );
+  });
+
+  it("refuses the pinned Circle contracts and USDC token on Arc", () => {
+    const { usdcAddress, tokenMessengerAddress, messageTransmitterAddress } = PRESETS.mainnet.arc;
+    for (const pinned of [usdcAddress, tokenMessengerAddress, messageTransmitterAddress]) {
+      expect(Object.keys(unsafeRecipientsFor(arc))).toContain(pinned.toLowerCase());
+    }
   });
 });

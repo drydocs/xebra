@@ -98,7 +98,7 @@ client/server bundling differences.
 pnpm check:env     # no secrets, correct tracking, coherent, client-bundle hygiene
 pnpm check:cctp    # our trait vs the live mainnet Circle contract
 pnpm check:arc     # every Arc constant vs the live chains
-pnpm check:evm     # every Arc <-> EVM route constant vs the live chains
+pnpm check:evm     # every Arc <-> EVM and Stellar -> EVM route constant vs the live chains
 ```
 
 `check-env-files.sh` blocks secret-shaped keys (`*SECRET*`, `*PRIVATE_KEY*`, `*KEYPAIR*`,

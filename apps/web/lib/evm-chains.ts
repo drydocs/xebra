@@ -401,4 +401,12 @@ export function parseArcReceivesFrom(raw: string | null | undefined): EvmPeerId[
   return parseRouteList("NEXT_PUBLIC_ARC_RECEIVES_FROM", raw, EVM_ARC_PEERS);
 }
 
+/**
+ * `NEXT_PUBLIC_STELLAR_SENDS_TO`: which EVM chains other than Arc Stellar may send to, through the
+ * wrapper. Arc keeps its own switch (`NEXT_PUBLIC_ARC_ENABLED`) and Solana is always offered.
+ */
+export function parseStellarSendsTo(raw: string | null | undefined): EvmPeerId[] {
+  return parseRouteList("NEXT_PUBLIC_STELLAR_SENDS_TO", raw, EVM_ARC_PEERS);
+}
+
 export const explorerTxUrl = (chain: EvmChain, hash: string) => `${chain.explorerUrl}/tx/${hash}`;

@@ -1,10 +1,5 @@
-import { type CircleHealth, checkCircle } from "@xebra/cctp-client";
-import {
-  CCTP_DOMAIN,
-  SOLANA_FROM_ARC,
-  evmChainForDomain,
-  isArcToSolana,
-} from "@xebra/network-config";
+import { type CircleHealth, MAX_SANE_FORWARD_FEE_UNITS, checkCircle } from "@xebra/cctp-client";
+import { CCTP_DOMAIN, SOLANA_FROM_ARC, evmChainForDomain } from "@xebra/network-config";
 import { irisBaseUrl, irisBudget, irisFetch, stellarDomainId } from "../../../lib/server/iris";
 import { isOfferedRoute, readDomain } from "../../../lib/server/routes";
 import { createTtlCache } from "../../../lib/server/ttl-cache";
@@ -21,10 +16,15 @@ import { createTtlCache } from "../../../lib/server/ttl-cache";
  * or our own rate limit is holding back status reads). See `checkCircle` for what is probed, what
  * deliberately is not, and the one failure no pre-flight can see.
  *
- * Two ways to name a route. `?dest=solana|arc` is the Stellar form's, unchanged. `?src=&dst=`
- * (CCTP domains) is for the routes that call Circle directly from an EVM chain; only the pairs this
- * product offers are answered, and a delivery fee is judged against the destination chain's own
- * ceiling (`maxForwardFeeUnits`), because delivery honestly costs more on some chains than others.
+ * A route is named by its two CCTP domains, `?src=&dst=`, and only the pairs this product offers
+ * are answered. A delivery fee into an EVM chain is judged against that chain's own ceiling
+ * (`maxForwardFeeUnits`), because delivery honestly costs more on some chains than others. Into
+ * Solana from Arc it has Solana's ceilings; from Stellar, the wrapper holds its own caps on chain and
+ * the page checks the quote against them, so only the general sanity ceiling applies here.
+ *
+ * `?dest=solana|arc` is the older form, for Stellar to those two. The page no longer asks it, and it
+ * stays because the production smoke test does (`scripts/smoke-prod.sh`), and so a page loaded
+ * before a deploy keeps working through it.
  *
  * Public and unauthenticated: it reports public facts about Circle's API. Answers are cached for
  * thirty seconds per route, so page loads do not become Iris calls.
@@ -54,15 +54,17 @@ export async function GET(request: Request): Promise<Response> {
     if (src === null || dst === null || !isOfferedRoute(src, dst, stellarDomainId())) {
       return Response.json({ error: "src and dst must name a route we offer" }, { status: 400 });
     }
-    // Arc to Solana is the one destination here that is not an EVM chain. Circle prices opening
-    // the recipient's USDC account separately, and that price has its own ceiling.
-    const toSolana = isArcToSolana(src, dst);
+    // Solana is the one destination here that is not an EVM chain. Circle prices opening the
+    // recipient's USDC account separately, and from Arc that price has its own ceiling.
+    const toSolana = dst === CCTP_DOMAIN.solana;
     const newAccount = toSolana && params.get("newAccount") === "1";
-    const maxFeeUnits = toSolana
-      ? newAccount
-        ? SOLANA_FROM_ARC.maxForwardFeeNewAccountUnits
-        : SOLANA_FROM_ARC.maxForwardFeeUnits
-      : evmChainForDomain(dst)?.maxForwardFeeUnits;
+    const maxFeeUnits = !toSolana
+      ? evmChainForDomain(dst)?.maxForwardFeeUnits
+      : src === stellarDomainId()
+        ? MAX_SANE_FORWARD_FEE_UNITS
+        : newAccount
+          ? SOLANA_FROM_ARC.maxForwardFeeNewAccountUnits
+          : SOLANA_FROM_ARC.maxForwardFeeUnits;
     if (maxFeeUnits === undefined) {
       return Response.json({ error: "src and dst must name a route we offer" }, { status: 400 });
     }

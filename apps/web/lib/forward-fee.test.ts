@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { type DomainForwardConfig, chooseMaxFee, unitsToStroops } from "./forward-fee";
+import {
+  type DomainForwardConfig,
+  chooseMaxFee,
+  unitsToStroops,
+  withTableCeiling,
+} from "./forward-fee";
 
 const QUOTE = { low: 133_000, med: 158_000, high: 177_000 }; // canonical 6-decimal units
 const CFG: DomainForwardConfig = {
@@ -14,6 +19,20 @@ describe("unitsToStroops", () => {
   it("scales 6-decimal canonical units to 7-decimal stroops", () => {
     expect(unitsToStroops(177_000)).toBe(1_770_000n);
     expect(unitsToStroops(1)).toBe(10n);
+  });
+});
+
+describe("withTableCeiling", () => {
+  it("keeps the stricter of the contract's cap and the chain table's", () => {
+    // Table 0.50 USDC (500_000 units), contract 0.30: the contract's stands.
+    expect(withTableCeiling(CFG, 500_000).maxForwardFee).toBe(3_000_000n);
+    // Table 0.10, contract 0.30: the table's, so a generous commit cannot widen it.
+    expect(withTableCeiling(CFG, 100_000).maxForwardFee).toBe(1_000_000n);
+  });
+
+  it("leaves Solana's caps, including the new-account one, to the contract", () => {
+    expect(withTableCeiling(CFG, null)).toBe(CFG);
+    expect(withTableCeiling(CFG, 100_000).maxForwardFeeNewAccount).toBe(6_000_000n);
   });
 });
 

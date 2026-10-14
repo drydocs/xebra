@@ -1,5 +1,6 @@
 import type { StellarWalletsKit } from "@creit.tech/stellar-wallets-kit";
 import {
+  Account,
   Address,
   Contract,
   TransactionBuilder,
@@ -11,8 +12,8 @@ import { formatError } from "./format-error";
 import type { DomainForwardConfig, FeeParams } from "./forward-fee";
 
 /**
- * Client for `contracts/stellar-cctp-wrapper-v2` — Stellar to Solana and Arc, delivered by Circle's
- * Forwarding Service.
+ * Client for `contracts/stellar-cctp-wrapper-v2` — Stellar to Solana and to every EVM chain the
+ * wrapper has committed, delivered by Circle's Forwarding Service.
  *
  * # There is no direct mode
  *
@@ -223,39 +224,52 @@ export async function getWrapperFeeParams(
 }
 
 /**
- * A destination's forwarding switches and caps, read from the wrapper. The caps are what
- * `chooseMaxFee` checks a quote against, and `forward: false` is the kill switch, which the page
- * must honour: with no relay, a transfer the contract will not forward is one nobody delivers.
+ * Every destination the wrapper has committed, with its forwarding switches and caps, by CCTP
+ * domain. The caps are what `chooseMaxFee` checks a quote against, and `forward: false` is the kill
+ * switch, which the page must honour: with no relay, a transfer the contract will not forward is one
+ * nobody delivers.
+ *
+ * One read answers for every destination, and it needs no wallet: `get_domains` is a view, and a
+ * simulation does not check its source account, so it runs from a placeholder. That is what lets
+ * the form decide which chains to offer before anyone connects.
  */
-export async function getDomainForwardConfig(
-  config: BridgeChainConfig,
-  sourceAddress: string,
-): Promise<DomainForwardConfig | null> {
+export async function getWrapperDomains(
+  config: Pick<BridgeChainConfig, "wrapperContractId" | "sorobanRpcUrl" | "networkPassphrase">,
+): Promise<Map<number, DomainForwardConfig> | null> {
   if (!config.wrapperContractId) return null;
   const server = new rpc.Server(config.sorobanRpcUrl);
-  const retval = await simulateWithPassphrase(
-    server,
-    config.networkPassphrase,
-    config.wrapperContractId,
-    sourceAddress,
-    "get_domains",
-  );
-  const domains = scValToNative(retval) as Array<{
+  const tx = new TransactionBuilder(new Account(VIEW_SOURCE, "0"), {
+    fee: INCLUSION_FEE,
+    networkPassphrase: config.networkPassphrase,
+  })
+    .addOperation(new Contract(config.wrapperContractId).call("get_domains"))
+    .setTimeout(30)
+    .build();
+  const sim = await server.simulateTransaction(tx);
+  if (rpc.Api.isSimulationError(sim)) throw new Error(`get_domains failed: ${sim.error}`);
+  if (!sim.result) throw new Error("get_domains returned no result");
+  const domains = scValToNative(sim.result.retval) as Array<{
     domain: number;
     forward: boolean;
     max_forward_fee: bigint;
     account_creation: boolean;
     max_forward_fee_new_account: bigint;
   }>;
-  const d = domains.find((x) => x.domain === config.destinationDomain);
-  if (!d) return null;
-  return {
-    forward: d.forward,
-    maxForwardFee: BigInt(d.max_forward_fee),
-    accountCreation: d.account_creation,
-    maxForwardFeeNewAccount: BigInt(d.max_forward_fee_new_account),
-  };
+  return new Map(
+    domains.map((d) => [
+      Number(d.domain),
+      {
+        forward: d.forward,
+        maxForwardFee: BigInt(d.max_forward_fee),
+        accountCreation: d.account_creation,
+        maxForwardFeeNewAccount: BigInt(d.max_forward_fee_new_account),
+      },
+    ]),
+  );
 }
+
+/** The all-zero account: a valid address nobody holds, used only as the source of a view. */
+const VIEW_SOURCE = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF";
 
 export async function simulateWithPassphrase(
   server: rpc.Server,

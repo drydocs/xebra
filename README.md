@@ -95,6 +95,16 @@ Two build-time lists switch them on, one direction at a time: `NEXT_PUBLIC_ARC_S
 names, `solana`, or `all`) and `NEXT_PUBLIC_ARC_RECEIVES_FROM` (EVM chains that may send into Arc).
 Production is built with `NEXT_PUBLIC_ARC_SENDS_TO=all` and no `NEXT_PUBLIC_ARC_RECEIVES_FROM`.
 
+## Stellar to the EVM chains
+
+The same fourteen chains can be reached from Stellar through wrapper v2, which needs no code change
+for them: each chain's CCTP domain is proposed in `/admin`, and committed 48 hours later. The
+wrapper holds one pending domain at a time, so they are added one by one. The page reads the
+wrapper's committed domains and offers a chain only when it is committed *and* named in
+`NEXT_PUBLIC_STELLAR_SENDS_TO` (chain names, or `all`), so a chain appears by itself when its commit
+lands. Today the wrapper has Solana and Arc only. `pnpm check:evm` reads back, for each chain, that
+Circle's contracts know Stellar both ways and that Iris prices forwarding under the cap.
+
 ## Repo layout
 
 The corridor — everything on the deployment path:
@@ -118,6 +128,7 @@ scripts/
   check-cctp-interface.sh      our trait vs. the live mainnet Circle contract
   check-arc-cctp.sh            every Arc corridor constant vs. the live chains (read-only)
   check-evm-cctp.sh            every constant the Arc <-> EVM routes rest on vs. the live chains (read-only)
+  check-stellar-evm-cctp.sh    what Stellar -> each EVM chain rests on, before its domain is committed (read-only)
   preflight-bridge.mjs         v1-era checks before a Stellar -> Solana burn (still reads the old relayer key)
   recover-stranded-mint.mjs    operator recovery for a v1 burn that named a wallet, not a token account
   cctp-mint-solana.mjs         manual mint, used for the first live transfer
@@ -170,7 +181,7 @@ cd apps/web && npx convex dev
 | `pnpm test:contracts` | `cargo test` and `forge test` only |
 | `pnpm check:env` | no secrets in env files, correct tracking, coherent config, client-bundle hygiene |
 | `pnpm check:cctp` | our CCTP trait against the live mainnet Circle contract |
-| `pnpm check:arc` / `pnpm check:evm` | the Arc and Arc <-> EVM route constants against the live chains |
+| `pnpm check:arc` / `pnpm check:evm` | the Arc, Arc <-> EVM and Stellar -> EVM route constants against the live chains |
 | `pnpm build` | `apps/web` writes to `.next-build`, so a build cannot wipe what `next dev` is serving |
 
 `contracts/*/lib/` is git-ignored and holds no submodules, so Foundry dependencies are installed

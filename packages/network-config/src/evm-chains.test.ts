@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   EVM_ARC_PEERS,
@@ -80,6 +81,32 @@ describe("EVM_CHAINS", () => {
       "worldchain",
       "ink",
     ]);
+  });
+
+  it("agrees with the table scripts/check-stellar-evm-cctp.sh checks against the chains", () => {
+    // That script is bash and keeps its own copy. A chain added or changed here and not there
+    // would be committed on the wrapper having never been read back from Circle's contracts.
+    const script = readFileSync(
+      new URL("../../../scripts/check-stellar-evm-cctp.sh", import.meta.url),
+      "utf8",
+    );
+    const block = script.match(/^CHAINS="\n([\s\S]*?)^"/m)?.[1] ?? "";
+    const rows = block
+      .trim()
+      .split("\n")
+      .map((line) => {
+        const [id, domain, usdc, , messenger, minter] = line.split("|");
+        return [id, Number(domain), usdc, messenger, minter];
+      });
+    expect(rows).toEqual(
+      Object.values(EVM_CHAINS).map((c) => [
+        c.id,
+        c.cctpDomainId,
+        c.usdcAddress,
+        c.tokenMessengerAddress,
+        c.tokenMinterAddress,
+      ]),
+    );
   });
 
   it("points at no test network", () => {

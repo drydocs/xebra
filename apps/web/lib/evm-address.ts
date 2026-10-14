@@ -3,11 +3,28 @@ import type { EvmChain } from "./evm-chains";
 import type { AddressCheck } from "./solana-address";
 
 /**
- * Validation for a recipient on an EVM chain. `lib/arc-address.ts` says why each rule is here; this
- * is the same check for whichever chain the dollars land on.
+ * Validation for a recipient on an EVM chain, whichever one the dollars land on.
  *
- * On the routes that call Circle directly there is no contract checking even the shape of the
- * recipient, so this is the only thing between a mistyped address and an irreversible burn.
+ * The same stakes as `solana-address.ts`: the mint goes to whatever this produces, a CCTP burn is
+ * irreversible, and the Stellar wrapper can only check the *shape* (`check_mint_recipient` accepts
+ * any non-zero, left-padded 20-byte value). On the routes that call Circle directly there is no
+ * contract checking even that. Neither can tell a wallet from a mistake; that is this file's job.
+ *
+ * # What it refuses beyond "is it hex"
+ *
+ *   - **A bad checksum.** A mixed-case address carries an EIP-55 checksum; one that fails it has a
+ *     typo in it, and would otherwise be a perfectly valid address that nobody controls. An
+ *     all-lowercase or all-uppercase address has no checksum to fail and is accepted, because
+ *     refusing what most explorers and wallets copy would be its own failure.
+ *   - **Addresses that can never hold a balance for a person:** the zero address, the low
+ *     "precompile" range and burn addresses like `0x…dEaD`, and the contracts USDC itself would
+ *     be minted *into* on that chain — the USDC token, and Circle's messenger, transmitter and
+ *     minter. A mint to any of these is unrecoverable, and each is a plausible paste from an
+ *     explorer page.
+ *
+ * It does not, and cannot, check that the recipient is a wallet rather than a contract that
+ * refuses tokens, or that USDC's blocklist does not hold it. Both make the mint revert; the burn
+ * is already done by then, which is what `/claim` exists for.
  */
 
 const EVM_HEX = /^0x[0-9a-fA-F]{40}$/;

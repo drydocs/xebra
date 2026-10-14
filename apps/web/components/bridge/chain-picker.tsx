@@ -4,14 +4,15 @@ import { type Chain, ChainGlyph } from "./chain-glyph";
 /**
  * Which chain, out of several.
  *
- * `DestinationPicker` settled the form for two: a real radio group with both options on show.
- * This is the same control for more. Up to three sit in a row as mark-and-name, as that one does.
- * Past three there is no room for names beside marks at phone width, so each becomes a small tile
- * with the mark above its name, four to a row (six on a wider screen once there are more than
- * eight), which keeps every chain visible and one press away without a dropdown to open first. People find a chain by its logo before they read a word.
+ * Every option stays on show, and the choice is one press. Up to three sit in a row as
+ * mark-and-name. Past three there is no room for names beside marks at phone width, so each
+ * becomes a small tile with the mark above its name, four to a row (six on a wider screen once
+ * there are more than eight), which keeps every chain visible and one press away without a
+ * dropdown to open first. People find a chain by its logo before they read a word.
  *
- * Still a radio group, for the reason given there: choosing a chain is a value for the transfer,
- * not navigation, and the browser's own arrow-key movement and announcement are the ones to have.
+ * A real radio group, not a tab strip: choosing a chain is a value for the transfer, not
+ * navigation, so the browser gives it arrow-key movement and announces it as one, with nothing
+ * here to get subtly wrong.
  *
  * Not rendered with fewer than two options: a control with one choice is just a delay.
  */

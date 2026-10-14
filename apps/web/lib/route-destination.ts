@@ -1,4 +1,4 @@
-import { DESTINATIONS } from "./destinations";
+import { stellarDestination } from "./destinations";
 import {
   EVM_CHAINS,
   type EvmChain,
@@ -26,7 +26,7 @@ export interface RouteDestination {
 
 export function routeDestination(id: RouteDestinationId): RouteDestination {
   if (id === "solana") {
-    const solana = DESTINATIONS.solana;
+    const solana = stellarDestination("solana");
     return {
       id,
       name: solana.name,
