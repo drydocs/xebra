@@ -6,7 +6,8 @@ import { assets, chains, corridors, intents } from "./schema.js";
 /**
  * Runs against a real Postgres (see package README) — skipped automatically when
  * TEST_DATABASE_URL isn't set (e.g. plain `pnpm test` in CI without the docker-compose stack
- * up). `pnpm test:integration` in this package's script wires TEST_DATABASE_URL.
+ * up). `pnpm test:integration` runs only this file; set TEST_DATABASE_URL for it, as the README
+ * shows.
  */
 const connectionString = process.env.TEST_DATABASE_URL;
 const describeIfDb = connectionString ? describe : describe.skip;

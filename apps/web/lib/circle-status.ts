@@ -1,11 +1,11 @@
 import type { CircleHealth, Delivery } from "@xebra/cctp-client";
 
 /**
- * The browser's view of two server routes that read Circle for it: how a burn is getting on, and
- * whether it is safe to start one. Both are budgeted server-side (`lib/server/iris.ts`), so polling
- * them cannot get us rate limited.
+ * The browser's view of three server routes that call Circle for it: how a burn is getting on,
+ * whether it is safe to start one, and (for an expired Fast attestation) asking for a fresh one.
+ * All are budgeted server-side (`lib/server/iris.ts`), so polling them cannot get us rate limited.
  *
- * Neither ever throws. The burn is already on chain by the time the first runs, and a failed status
+ * None ever throws. The burn is already on chain by the time the first runs, and a failed status
  * check says nothing about the money; the second must never become a reason a working product
  * refuses to work.
  */

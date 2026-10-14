@@ -8,9 +8,9 @@ import {
 
 /**
  * Turns repository rows (packages/db shapes) into the plain config `resolveRoute` expects, then
- * resolves the rail. This is apps/api's authoritative routing check (docs/architecture.md §6) —
- * the frontend calls the same `resolveRoute` function client-side for instant UX, but a
- * submission is only accepted if this server-side call agrees.
+ * resolves the rail. This is apps/api's authoritative routing check (docs/architecture.md §6).
+ * §6 also has the frontend call `resolveRoute` client-side for instant UX; apps/web does not
+ * call it today.
  */
 
 export interface CorridorRow {

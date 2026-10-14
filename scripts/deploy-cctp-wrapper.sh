@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 #
-# Deploys contracts/stellar-cctp-wrapper and records the result in deployments/<network>.json.
+# Deploys contracts/stellar-cctp-wrapper and records the result in deployments/mainnet.json under
+# `cctpWrapper`.
+#
+# This is wrapper v1, retired at the cutover to v2 (scripts/deploy-cctp-wrapper-v2.sh). v1 burns
+# carry no forwarding hook and the relay that minted them is deleted, so a v1 burn is delivered
+# only if someone mints it by hand (/claim, scripts/cctp-mint-solana.mjs). The next steps printed
+# at the end are the ones v1 launched with.
 #
 # The repo previously had no Soroban deploy tooling at all — the escrow was deployed by
 # pasting a snippet from its README, which is why no committed record of any deployment
@@ -13,8 +19,8 @@
 #   4. For mainnet, an explicit typed confirmation.
 #
 # Usage:
-#   NETWORK=testnet SOURCE=my-identity ./scripts/deploy-cctp-wrapper.sh
-#   NETWORK=mainnet SOURCE=deployer FEE_BPS=10 MIN_FEE=3000000 ... ./scripts/deploy-cctp-wrapper.sh
+#   SOURCE=deployer FEE_BPS=10 MIN_FEE=3000000 ... ./scripts/deploy-cctp-wrapper.sh
+#   (mainnet only: NETWORK comes from .env.production, and any other value is refused)
 #
 # Required env for a real deploy: ADMIN, PAUSER, FEE_RECIPIENT (Stellar addresses).
 # ADMIN and PAUSER must be different keys held by different operators — the script warns
@@ -25,7 +31,7 @@ set -euo pipefail
 
 # Resolved from this script's own location, so it works from any working directory. These were
 # referenced throughout and never assigned, which under `set -u` killed the script on its first
-# line — this has never successfully run.
+# line — until they were added it had never run. It has since deployed v1 (deployments/mainnet.json).
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 CRATE_DIR="$REPO_ROOT/contracts/stellar-cctp-wrapper"
@@ -50,8 +56,8 @@ PASSPHRASE="$STELLAR_NETWORK_PASSPHRASE"
 USDC="$STELLAR_USDC_ADDRESS"
 MESSENGER="$STELLAR_TOKEN_MESSENGER_ADDRESS"
 
-# Parameters, in 7-decimal stroops. Defaults are conservative starting values; the min_fee
-# should be derived from measured Solana mint gas cost before any real launch.
+# Parameters, in 7-decimal stroops. Defaults are the values v1 was deployed with; MIN_FEE and
+# ACCOUNT_FEE come from the measured Solana mint costs below.
 FEE_BPS="${FEE_BPS:-10}"              # 0.10%
 # Covers the ~872,621 lamports every sponsored mint costs (used_nonce rent, which nobody can
 # ever reclaim, plus the transaction fee), with headroom for SOL moving against us. At $300 SOL
@@ -212,7 +218,7 @@ PYEOF
 
 echo
 echo "==> Next steps (none of these are optional before real money):"
-echo "    1. Set SOROBAN_CCTP_WRAPPER_CONTRACT_ID=$CONTRACT_ID for indexer-stellar."
+echo "    1. Set NEXT_PUBLIC_STELLAR_CCTP_WRAPPER_CONTRACT_ID=$CONTRACT_ID in .env.production and on Vercel."
 echo "    2. Run one small-value bridge and confirm it mints on the destination chain."
 echo "    3. Confirm a REAL wallet (Freighter) can produce the auth tree — mock_all_auths()"
 echo "       in the test suite does not prove this."

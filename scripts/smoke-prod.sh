@@ -12,6 +12,9 @@
 #   - the delivery route reads Circle's verdict for a transfer that really happened on mainnet
 #     (the first v2 test, 2026-09-24) and reports it delivered, with the right Solana transaction;
 #   - the attestation route serves that transfer's proof, and the recipient lookup finds its account;
+#   - the routes that call Circle directly (Arc and the EVM chains, Arc -> Solana) are priced, the
+#     chains left out on purpose are refused, and the status routes take an EVM burn by its chain;
+#   - the attestation route reports the nonce and expiry a Fast transfer's claim needs;
 #   - the removed relay routes are gone;
 #   - the shared Iris rate counter (Convex) is the one in use, not the per-instance fallback.
 #

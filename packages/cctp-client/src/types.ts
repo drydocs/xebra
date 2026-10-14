@@ -1,7 +1,7 @@
 /**
- * @xebra/cctp-client — shared CCTP burn/attest/mint client, used by apps/solver (Stellar<->Solana
- * rebalancing) and apps/cctp-relay (gas-sponsoring the Solana-side mint). See
- * docs/architecture.md §5, §7.
+ * @xebra/cctp-client — shared client for Circle's Iris API: attestations, a burn's forward state,
+ * the pre-flight check, the shared rate budget, and fields read out of an attested message. Used by
+ * apps/web; apps/solver lists it as a dependency but does not import it. See docs/architecture.md §5.
  *
  * Deliberately configuration-driven rather than hardcoding Circle's domain IDs / program
  * addresses: those differ between mainnet/testnet/devnet and have changed as CCTP versions

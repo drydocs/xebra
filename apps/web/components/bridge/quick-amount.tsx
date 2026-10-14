@@ -1,7 +1,8 @@
 import { cn } from "../ui/cn";
 
-/** Offered as one tap each. Not a "max" button: this screen never reads a balance, and a
- *  max that guesses is a max that overdraws the reserve. */
+/** Offered as one tap each, on both forms. There is no "max" button: it was left out when the
+ *  screen read no balance, because a max that guesses is a max that overdraws. Both forms read
+ *  one now (on Arc, less the USDC kept back for gas: `spendableUsdc`), so a max need not guess. */
 export const QUICK_AMOUNTS = ["5", "10", "100"];
 
 /** A preset amount. Sits on the label line, so it never competes with the primary action. */

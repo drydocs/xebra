@@ -331,9 +331,9 @@ export function evmChainForChainId(chainId: number): EvmChain | null {
 export type EvmPeerId = Exclude<EvmChainId, "arc">;
 
 /**
- * Which routes a build offers, one direction at a time. A direction is switched on only once a
- * transfer has gone through it, and the two directions are not proven together: Arc -> Base
- * working says nothing about Base -> Arc, which starts on another chain with another wallet.
+ * Which routes a build offers, one direction at a time, because the two directions are proven
+ * separately: Arc -> Base working says nothing about Base -> Arc, which starts on another chain
+ * with another wallet. A direction is meant to be switched on once a transfer has gone through it.
  */
 export interface EnabledRoutes {
   /** Where Arc may send: EVM chains, and Solana. */

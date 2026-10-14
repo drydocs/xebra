@@ -2,17 +2,20 @@
 
 <img src="film/xebra-film.webp" alt="The Xebra film: a user signs once on Stellar, Circle attests the burn, the relay pays the SOL, and USDC lands on Solana." width="100%">
 
-<sub>The 67-second film, looping. [Full quality, 1080p](film/xebra-film.mp4).</sub>
+<sub>The 67-second film, looping. [Full quality, 1080p](film/xebra-film.mp4). It shows the first
+version, where a relay paid for the mint; Circle's Forwarding Service does that now.</sub>
 
-USDC from Stellar to Solana, and to Arc, over Circle's CCTP. One asset, **mainnet only**. The Arc
-destination is built and verified against the live chains but not yet switched on — see
-[`docs/go-live.md`](./docs/go-live.md#turning-on-arc).
+USDC from Stellar to Solana and Arc, and from Arc to fourteen EVM chains and Solana, over Circle's
+CCTP. One asset, **mainnet only**.
 
-A user connects a Stellar wallet, enters an amount and a Solana address, and signs once. A
-Soroban wrapper contract takes the fee and hands the burn to Circle in the same transaction. A
-relay watches for that burn, waits for Circle's attestation, and pays the SOL to mint on the far
-side. If the relay never shows up, the transfer is still claimable by anyone — including the user,
-from `/claim`.
+A user connects a Stellar wallet, enters an amount and a Solana or Arc address, and signs once. A
+Soroban wrapper contract takes the fee and hands the burn to Circle, with Circle's forwarding hook,
+in the same transaction. Circle attests the burn and its Forwarding Service mints on the far side,
+paying the gas and taking its delivery fee out of ours. If a forward fails, the transfer is still
+claimable by anyone — including the user, from `/claim`.
+
+From Arc, the page calls Circle's `TokenMessengerV2` directly: no Xebra contract and no Xebra fee
+on those routes ([below](#routes-around-arc)).
 
 The wrapper never holds a user's principal. Either the fee is taken and the burn happens in the
 same transaction, or the whole transaction reverts and the user keeps every stroop.
@@ -21,9 +24,10 @@ same transaction, or the whole transaction reverts and the user keeps every stro
 
 | | |
 |---|---|
-| Wrapper contract | **Live on Stellar mainnet** — `CCNWLGFMILJU476RZHDA2PSUH2WH3LIPERHS6BYPCRVDDYYNNUIKZMTJ` ([`deployments/mainnet.json`](./deployments/mainnet.json)) |
-| Corridor | **Real transfers have completed end to end**, including fully unattended ones. One burn is unrecoverable forever — see [`writeups/01-the-lost-dollar.md`](./writeups/01-the-lost-dollar.md) |
-| Relay | Running against a live Convex deployment (`knowing-zebra-183`). Most recent transfer was picked up, attested and minted with nobody watching — see [`writeups/04-thirty-two-bytes.md`](./writeups/04-thirty-two-bytes.md) |
+| Wrapper contract | **v2 live on Stellar mainnet** — `CCPVTWII2TW6VVSVA4JQ2KFHICGBG4QVAHPIGUPSIW3E4VNPUI4Y2WQR` ([`deployments/mainnet.json`](./deployments/mainnet.json), `cctpWrapperV2`). v1 (`CCNWLGFM…`) is retired |
+| Corridor | Stellar → Solana and Stellar → Arc. **Real transfers have completed end to end**, first through v1 and a relay, then through v2 and Circle's forwarder. One burn is unrecoverable forever — see [`writeups/01-the-lost-dollar.md`](./writeups/01-the-lost-dollar.md) |
+| Delivery | Circle's Forwarding Service. There is no relay and no hot wallet; a failed forward is claimed by its owner at `/claim` |
+| Routes around Arc | Arc → 14 EVM chains and Solana are live. Proven on testnet (2026-10-14); no mainnet transfer on them yet. EVM chains → Arc is built and switched off |
 | Frontend | **Live** — [xebra-sandy.vercel.app](https://xebra-sandy.vercel.app/) |
 | CI | lint, typecheck, `vitest`, `cargo test` and `forge test` on every push |
 
@@ -44,10 +48,7 @@ flowchart LR
 
   subgraph circle["Circle"]
     iris["Iris attestation"]
-  end
-
-  subgraph convex["Convex"]
-    relay["relay.submitBurn<br/>relay.tick"]
+    forwarder["Forwarding Service"]
   end
 
   subgraph solana["Solana"]
@@ -62,11 +63,10 @@ flowchart LR
   wrapper -- "fee" --> fees
   wrapper -- "net" --> burn
   burn --> iris
-  burn -. "burn hash" .-> relay
-  iris --> relay
-  relay -- "pays the SOL" --> receive
+  iris --> forwarder
+  forwarder -- "pays the gas" --> receive
   receive --> minted
-  claim -. "if the relay never comes" .-> receive
+  claim -. "if the forward fails" .-> receive
 ```
 
 Two properties do the load-bearing work when anything goes wrong:
@@ -74,11 +74,26 @@ Two properties do the load-bearing work when anything goes wrong:
 - **`destination_caller` is zero**, so every message is permissionlessly mintable. If this project
   disappears mid-transfer, the burned USDC is still claimable forever by whoever holds Circle's
   attestation. `/claim` is that path, in the browser, from the user's own wallet.
-- **The user is `caller` on `deposit_for_burn`**, not the wrapper. USDC moves from the user
-  directly to Circle, argument-bound by the user's own signature — a fully compromised admin
+- **The user is `caller` on the burn**, not the wrapper. USDC moves from the user directly to
+  Circle, argument-bound by the user's own signature — a fully compromised admin
   cannot redirect anyone's burn, and `withdraw_fees` structurally cannot reach user money.
 
 Both are explained in [`contracts/stellar-cctp-wrapper/README.md`](./contracts/stellar-cctp-wrapper/README.md).
+
+## Routes around Arc
+
+Arc sends to Avalanche, OP Mainnet, Arbitrum, Base, Polygon, Unichain, Codex, Sonic, World Chain,
+Monad, Sei, XDC, HyperEVM and Ink, and to Solana. The wallet approves Circle's `TokenMessengerV2`
+for the amount and calls `depositForBurnWithHook` with the forwarding hook, so Circle mints on the
+destination and takes its delivery fee out of the amount. There is no contract of ours in between,
+so the bounds a wrapper would enforce are applied in the page before signing
+(`apps/web/lib/evm-forward-fee.ts`), and every constant is pinned in
+`packages/network-config/src/evm-chains.ts` and re-read from the chains by `pnpm check:evm`.
+Ethereum, Linea, Plume and EDGE are left out on purpose.
+
+Two build-time lists switch them on, one direction at a time: `NEXT_PUBLIC_ARC_SENDS_TO` (chain
+names, `solana`, or `all`) and `NEXT_PUBLIC_ARC_RECEIVES_FROM` (EVM chains that may send into Arc).
+Production is built with `NEXT_PUBLIC_ARC_SENDS_TO=all` and no `NEXT_PUBLIC_ARC_RECEIVES_FROM`.
 
 ## Repo layout
 
@@ -86,24 +101,25 @@ The corridor — everything on the deployment path:
 
 ```
 apps/web/                    Next.js frontend (Vercel) and its server routes
-  app/                         / bridge · /claim · /recover · /intent/[hash]
-  app/api/                     relay handoff, attestation, Solana RPC, recipient, health
-  convex/                      relay state + scheduler: submitBurn, tick, jobs, cursors
-contracts/stellar-cctp-wrapper/  XebraCctpWrapper — fee-taking front door to CCTP V2 (41 tests)
-contracts/stellar-cctp-wrapper-v2/  the forwarding version: Circle mints on the destination (83 tests, not deployed)
+  app/                         / bridge · /claim · /admin · /recover · /intent/[hash]
+  app/api/                     Circle pre-flight, delivery status, attestation, re-attestation, Solana RPC, recipient
+  convex/                      the shared Iris rate counter (irisBudget)
+contracts/stellar-cctp-wrapper-v2/  XebraCctpWrapper v2, live: Circle mints on the destination (84 tests)
+contracts/stellar-cctp-wrapper/  v1, retired — fee-taking front door to CCTP V2 (41 tests)
 packages/
-  relay-core/                  the relay pipeline, with no opinion about how it is hosted
-  cctp-solana/                 receiveMessage builder, keypair decoding, mint submission
-  cctp-evm/                    the same for Arc: receiveMessage calldata, submitter, gas health
-  network-config/              pinned mainnet constants + a validator that refuses an incoherent mix
-  cctp-client/                 Iris attestation client, shared by relay and solver
+  cctp-solana/                 receiveMessage instruction, for /claim
+  cctp-evm/                    EVM calldata: receiveMessage for /claim; approve and depositForBurnWithHook for the Arc routes
+  network-config/              pinned mainnet constants + a validator that refuses an incoherent mix; the EVM chain table
+  cctp-client/                 Iris client, rate budget, Circle pre-flight, delivery state
   observability/               OTel traces/metrics, wired in through apps/web's instrumentation.ts
 scripts/
-  deploy-cctp-wrapper.sh       gated deploy (interface check, tests, release build, typed confirm)
+  deploy-cctp-wrapper-v2.sh    gated v2 deploy (interface check, tests, release build, typed confirm)
+  smoke-prod.sh                read-only check of a deployed app
   check-cctp-interface.sh      our trait vs. the live mainnet Circle contract
   check-arc-cctp.sh            every Arc corridor constant vs. the live chains (read-only)
-  preflight-bridge.mjs         checks that must pass before any burn
-  recover-stranded-mint.mjs    operator recovery for a burn that named a wallet, not a token account
+  check-evm-cctp.sh            every constant the Arc <-> EVM routes rest on vs. the live chains (read-only)
+  preflight-bridge.mjs         v1-era checks before a Stellar -> Solana burn (still reads the old relayer key)
+  recover-stranded-mint.mjs    operator recovery for a v1 burn that named a wallet, not a token account
   cctp-mint-solana.mjs         manual mint, used for the first live transfer
 ```
 
@@ -112,7 +128,7 @@ stack. They stay in the repo, and build and test in CI, for anyone who wants to 
 version; nothing Vercel or Convex serves depends on them being up:
 
 ```
-apps/            api · solver · cctp-relay · arbiter-service · projector · indexer-{arc,stellar,solana}
+apps/            api · solver · arbiter-service · projector · indexer-{arc,stellar,solana}
 packages/        intent-schema · router-core · chain-adapters · arbiter-signer · db · event-bus
 contracts/       arc-evm (XebraEscrow.sol, 17 tests) · stellar-soroban (14 tests)
 infra/terraform  ECS Fargate, RDS, ElastiCache, Redpanda, KMS
@@ -135,11 +151,12 @@ pnpm --filter @xebra/web dev
 `pnpm dev` points the UI at real money. Browsing is safe — quotes are Soroban simulations and
 nothing moves until a signature — but a signed transaction spends real USDC.
 
-The relay needs a Convex deployment of your own to run against, and Convex bundles the workspace
-packages from their `dist/`, so build them first:
+Without Convex the app still runs, and counts its calls to Circle's Iris API per instance. To use
+the shared counter, give it a Convex deployment of your own. Convex bundles `@xebra/cctp-client`
+from its `dist/`, so build it first:
 
 ```bash
-pnpm --filter @xebra/web^... build
+pnpm --filter @xebra/cctp-client build
 cd apps/web && npx convex dev
 ```
 
@@ -153,6 +170,7 @@ cd apps/web && npx convex dev
 | `pnpm test:contracts` | `cargo test` and `forge test` only |
 | `pnpm check:env` | no secrets in env files, correct tracking, coherent config, client-bundle hygiene |
 | `pnpm check:cctp` | our CCTP trait against the live mainnet Circle contract |
+| `pnpm check:arc` / `pnpm check:evm` | the Arc and Arc <-> EVM route constants against the live chains |
 | `pnpm build` | `apps/web` writes to `.next-build`, so a build cannot wipe what `next dev` is serving |
 
 `contracts/*/lib/` is git-ignored and holds no submodules, so Foundry dependencies are installed
@@ -161,18 +179,16 @@ typecheck before anyone has run `npx convex dev`.
 
 ## Deployment
 
-Two services, both with free tiers: **Vercel** serves the UI, **Convex** runs the relay and holds
-its state. No AWS, no Docker, no Redis, no Kafka, no Postgres.
+Two services, both with free tiers: **Vercel** serves the UI and its server routes, **Convex**
+holds one counter that keeps our calls to Circle's Iris API under its rate limit. No AWS, no
+Docker, no Redis, no Kafka, no Postgres.
 
-Convex is what makes a serverless relay honest: serializable mutations make
-`upsertBySourceTx` — the idempotency that stops a burn being minted twice — a read and a write in
-one transaction, and its cron runs every minute on the free plan where Vercel Cron on Hobby runs
-once a day. Mechanics, environment variables and costs are in
-[`docs/deploying.md`](./docs/deploying.md).
-
-The hot wallet is the thing most likely to break this in production: it drains by design, and when
-it empties every transfer stalls *silently*. Two free things watch it — a Convex cron that throws
-when the balance is critical, and `GET /api/health` returning 503 for any uptime monitor.
+There is no relay and no hot wallet. Before anyone signs, the page asks `/api/circle-health` and
+will not start a transfer while Circle's fee quote or attestation keys look unhealthy; after the
+burn, the receipt reads Circle's forward state from `/api/delivery` and sends the owner to `/claim`
+if it failed.
+`scripts/smoke-prod.sh` checks a deployed app, read-only. Mechanics, environment variables and
+costs are in [`docs/deploying.md`](./docs/deploying.md).
 
 ## Tech stack
 
@@ -181,8 +197,8 @@ when the balance is critical, and `GET /api/health` returning 503 for any uptime
 | Monorepo | pnpm workspaces + Turborepo | task-graph caching across small TS packages and non-JS contract packages |
 | Contract | Rust + `soroban-sdk` | native `require_auth`, no bespoke signature scheme |
 | Frontend | Next.js App Router on Vercel | server routes host what the browser must not do itself |
-| Wallet | Stellar Wallets Kit (Freighter) | Solana is destination-only — an address field, no connector |
-| Relay state | Convex | serializable mutations and a one-minute cron on the free plan |
+| Wallet | one modal: Stellar Wallets Kit (Freighter), EIP-6963 for EVM, Wallet Standard for Solana | no wagmi; the EVM routes talk to the wallet's EIP-1193 provider directly |
+| Rate counter | Convex | one counter shared by every serverless instance |
 | Config | `@xebra/network-config` | one pinned mainnet preset, cross-validated; every address read from the live chain |
 | Lint/format | Biome | single fast binary, replaces ESLint + Prettier |
 | Tests | vitest · `cargo test` · `forge test` | one CI job per toolchain |
@@ -191,10 +207,11 @@ when the balance is critical, and `GET /api/health` returning 503 for any uptime
 
 | | |
 |---|---|
-| [`docs/go-live.md`](./docs/go-live.md) | What has to happen before launch, split by who can do it |
-| [`docs/deploying.md`](./docs/deploying.md) | Vercel + Convex mechanics, costs, alerting, the relay's exposure |
+| [`docs/go-live.md`](./docs/go-live.md) | What had to happen before launch, split by who can do it, and what is still open |
+| [`docs/deploying.md`](./docs/deploying.md) | Vercel + Convex mechanics, environment variables, costs |
 | [`docs/environments.md`](./docs/environments.md) | Mainnet-only config, what is enforced, secrets handling |
-| [`docs/forwarding-wrapper.md`](./docs/forwarding-wrapper.md) | The v2 wrapper: let Circle mint on the destination so the relay needs no gas float. Built and proven on testnet, not deployed |
+| [`docs/forwarding-wrapper.md`](./docs/forwarding-wrapper.md) | The v2 wrapper: Circle mints on the destination, so nobody holds destination gas. Live on mainnet |
+| [`docs/admin-panel.md`](./docs/admin-panel.md) | `/admin`: reading and changing the v2 wrapper from a browser wallet |
 | [`docs/roadmap.md`](./docs/roadmap.md) | What comes after the USDC corridor: compliance-preserving RWA bridging |
 | [`docs/GOVERNANCE.md`](./docs/GOVERNANCE.md) | Admin/pauser roles, the 48h timelock, why pausing skips it |
 | [`SECURITY.md`](./SECURITY.md) | Scope, what's worth reporting, how to report it privately |

@@ -188,10 +188,11 @@ export interface RecipientResolution {
   tokenAccountBytes: Uint8Array;
   /**
    * `exists`  — safe to burn.
-   * `missing` — CCTP does not create the token account, so a burn would be unmintable. Block.
-   * `unknown` — the check failed. Do NOT block: refusing a valid transfer on a transient RPC
-   *             error is its own failure, and conflating this with `missing` already caused a
-   *             wallet plainly holding USDC to be reported as having no account.
+   * `missing` — a price, not a block: CCTP does not create the token account, but Circle's
+   *             Forwarding Service opens it during delivery, for a higher fee the burn carries.
+   * `unknown` — the check failed. Not `missing`: conflating the two once reported a wallet plainly
+   *             holding USDC as having no account. Not `exists` either, because the price depends
+   *             on which it is, so the forms hold the transfer until a lookup succeeds.
    */
   status: RecipientStatus;
   reason?: string;

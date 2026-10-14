@@ -4,7 +4,7 @@ import { cn } from "../ui/cn";
  * Fast or Standard, where the source chain has both.
  *
  * Circle will attest a burn before its chain has finalised, for a small fee, or after, for none.
- * From Ethereum and its rollups the difference is seconds against a quarter of an hour, so it is
+ * From Ethereum's rollups the difference is seconds against a quarter of an hour or more, so it is
  * the sender's call and both are stated with what they cost and how long they take, instead of a
  * toggle whose consequence is somewhere else on the screen.
  *

@@ -1,19 +1,27 @@
 # @xebra/web
 
-Next.js (App Router) frontend for the Stellar→Solana corridor. See docs/architecture.md §9.
+Next.js (App Router) app for the USDC routes over Circle's CCTP, deployed on Vercel. How a transfer
+works is in the root [README](../../README.md); deploying is in
+[`docs/deploying.md`](../../docs/deploying.md).
 
-- `/` — connect a Stellar wallet (Freighter, via Stellar Wallets Kit), enter the destination
-  asset (Solana SPL mint) and address, see the routing decision (`cctp-direct` vs `intent-swap`,
-  from apps/api's `quote` procedure — same call the backend re-validates on submission), sign
-  and submit `open()` on the Stellar-source XebraEscrow, then redirect to the status page.
-- `/intent/[hash]` — shareable per-intent status page, polling apps/api's `intentStatus`
-  procedure until the intent reaches a terminal state.
+- `/` — the bridge. Stellar → Solana or Arc through wrapper v2, signed in Freighter
+  (`components/bridge/stellar-bridge-form.tsx`). When the build switches them on
+  (`NEXT_PUBLIC_ARC_SENDS_TO`, `NEXT_PUBLIC_ARC_RECEIVES_FROM`), Arc → EVM chains and Solana, and EVM
+  chains → Arc, through Circle's `TokenMessengerV2` directly
+  (`components/bridge/evm-bridge-form.tsx`).
+- `/claim` — completes a transfer whose forward failed, from the owner's wallet.
+- `/admin` — console for the v2 wrapper ([`docs/admin-panel.md`](../../docs/admin-panel.md)).
+- `/recover` — countersigns the rescue of a v1 burn that named a wallet instead of a token account
+  (`scripts/recover-stranded-mint.mjs` builds the transactions).
+- `/intent/[hash]` — intent-rail status page. It reads `apps/api`, which is not deployed.
 
-`lib/build-open-intent-params.ts` holds the one piece of pure, testable logic (amount/decimal
-conversion) extracted out of the form component — 6 tests, no rendering or wallet needed.
-`lib/open-intent.ts` is real `open()`/`hash_intent()` transaction building + signing code
-(compiled against `@stellar/stellar-sdk`'s real API) not exercised against a live Soroban RPC in
-this build — same caveat as apps/solver's `stellar-claim.ts`.
+Server routes in `app/api/`: `circle-health` (pre-flight), `delivery` (Circle's forward state for a
+burn), `attestation`, `reattest`, `recipient` and `solana-rpc`. `convex/` holds the shared Iris rate
+counter ([`convex/README.md`](./convex/README.md)). Wallets connect through one modal
+(`components/wallet/`): Stellar Wallets Kit for Freighter, EIP-6963 for EVM wallets, the Wallet
+Standard for Solana. There is no wagmi.
+
+`lib/open-intent.ts` and `lib/build-open-intent-params.ts` are escrow-rail leftovers no page imports.
 
 ## Build
 
@@ -21,23 +29,16 @@ this build — same caveat as apps/solver's `stellar-claim.ts`.
 pnpm build
 ```
 
-Verified: this produces a real, successful production build (not just a typecheck) — including
-fixing two build-breaking issues found only by actually running it:
-
-- wagmi's default connector barrel pulls in every connector it ships (Coinbase Smart Wallet →
-  `@coinbase/cdp-sdk`'s optional x402 payments feature → peer deps that aren't installed and
-  aren't needed, since this app only uses `injected()`). Fixed via a webpack `IgnorePlugin` in
-  `next.config.ts`, documented there.
-- `StellarWalletsKit` touches `window` at construction time; constructing it in a plain
-  `useMemo` broke Next's server-side prerender pass (`ReferenceError: window is not defined`).
-  Fixed by lazy-constructing it in a `useEffect` (client-only, post-mount) in `app/page.tsx`.
+Writes to `.next-build`, so a production build cannot wipe the directory a running `next dev` is
+serving from. Vercel runs `build:vercel` instead, which writes `.next`. Both run
+`scripts/check-build-network.mjs` first, which refuses anything but a coherent mainnet configuration.
 
 ## Run
 
 ```bash
-NEXT_PUBLIC_API_URL=http://localhost:4000 \
-NEXT_PUBLIC_SOROBAN_RPC_URL=http://localhost:8000/soroban/rpc \
-NEXT_PUBLIC_STELLAR_ESCROW_CONTRACT_ID=C... \
-NEXT_PUBLIC_STELLAR_USDC_SAC_ADDRESS=C... \
-  pnpm dev
+cp ../../.env.production.example ../../.env.production   # once; public mainnet constants
+pnpm dev
 ```
+
+This points at mainnet. Browsing is safe — quotes are read-only and nothing moves until a
+signature — but a signed transaction spends real USDC.

@@ -3,12 +3,10 @@ import { AddrEncoding, AssetKind, ChainId, type IntentV2 } from "@xebra/intent-s
 
 /**
  * Reconstructs an `IntentV2` from an `IntentOpened` ChainEvent's payload — lets the solver act
- * on live events directly rather than round-tripping through Postgres (which nothing currently
- * populates from the event bus; a Kafka->DB projector consumer is listed in
- * docs/architecture.md §8 but not yet built — see the repo README's Status section). Returns
- * `null` for anything that doesn't look like a well-formed Stellar-source IntentOpened payload
- * rather than throwing, since a malformed or unrelated event on the same topic shouldn't crash
- * the solver loop.
+ * on live events directly rather than reading back the `intents` rows apps/projector writes
+ * from the same events. Returns `null` for anything that doesn't look like a well-formed
+ * Stellar-source IntentOpened payload rather than throwing, since a malformed or unrelated event
+ * on the same topic shouldn't crash the solver loop.
  */
 export function intentFromChainEvent(event: ChainEvent): IntentV2 | null {
   if (

@@ -22,8 +22,8 @@ import type { Eip1193Provider } from "./wallets/types";
  *
  * This talks to the injected EIP-1193 provider directly. The app used to carry wagmi and shed it
  * (see `next.config.ts`) because a bridge that needed an EVM connector to *build* was not worth
- * its dependency tree; a claim page needs four JSON-RPC methods, and `lib/evm-rpc.ts` is those
- * four.
+ * its dependency tree; a claim page needs four JSON-RPC helpers, and they are in `lib/evm-rpc.ts`,
+ * which the EVM transfer shares.
  *
  * # The order matters
  *
@@ -130,8 +130,8 @@ export async function sendClaim(
 }
 
 /**
- * Polls the wallet's own node. Arc finalises in under a second and Ethereum can take minutes at a
- * low fee, so the ceiling is generous; it is for a bad RPC, not for the chain.
+ * Polls the wallet's own node. Arc finalises in under a second and a busy chain can take minutes at
+ * a low fee, so the ceiling is generous; it is for a bad RPC, not for the chain.
  */
 export async function waitForClaim(
   provider: Eip1193Provider,

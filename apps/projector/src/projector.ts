@@ -11,12 +11,10 @@ import {
 import { projectIntentOpened } from "./project-intent-opened.js";
 
 /**
- * Populates packages/db's tables from the event backbone — the piece flagged as a known gap
- * throughout the rest of this codebase (see repo README's Status section, apps/solver's and
- * apps/arbiter-service's module doc comments). Idempotent by design: `intents`/`claims` inserts
- * use `onConflictDoNothing` (an event redelivered — Kafka's at-least-once delivery — shouldn't
- * error), and `escrow_events` is a pure append-only audit log keyed by the event's own dedup id,
- * so redelivery there is a harmless duplicate-key no-op too.
+ * Populates packages/db's tables from the event backbone. Idempotent by design:
+ * `intents`/`claims` inserts use `onConflictDoNothing` (an event redelivered — Kafka's
+ * at-least-once delivery — shouldn't error), and `escrow_events` is a pure append-only audit log
+ * keyed by the event's own dedup id, so redelivery there is a harmless duplicate-key no-op too.
  *
  * `claims` is now populated (see project-claim.ts) — this is what unblocks
  * apps/arbiter-service's claim-verification lookup, per that file's own module doc comment.
@@ -84,7 +82,7 @@ export async function projectEvent(db: Database, event: ChainEvent, logger: Logg
     } catch (err) {
       // The intent row may not exist yet if this event was delivered out of order relative to
       // its IntentOpened event (Kafka partitions by event id, not intentHash, so strict
-      // per-intent ordering isn't guaranteed — see this file's module doc comment) — log and
+      // per-intent ordering isn't guaranteed — see packages/event-bus/src/producer.ts) — log and
       // move on rather than crash the consumer over a transient ordering race.
       logger.warn(
         { eventId: event.id, err },

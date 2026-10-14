@@ -6,12 +6,11 @@ type NewClaimRow = typeof claims.$inferInsert;
 type ChallengeUpdate = Partial<typeof claims.$inferInsert>;
 
 /**
- * Populates the `claims` table this projector previously left untouched (see projector.ts's
- * module doc comment) — the piece apps/arbiter-service's own module doc comment names as the
- * exact thing blocking its claim-verification lookup. Same Arc-vs-Soroban split as
- * project-intent-opened.ts, for the same reason: genuinely different payload shapes (viem's
- * camelCase ABI arg names vs. the Soroban contract's snake_case struct field names — the latter
- * confirmed against real testnet events in scripts/e2e-demo, not guessed).
+ * Populates the `claims` table that apps/arbiter-service's claim-verification lookup
+ * (lookup-claim.ts) reads. Same Arc-vs-Soroban split as project-intent-opened.ts, for the same
+ * reason: genuinely different payload shapes (viem's camelCase ABI arg names vs. the Soroban
+ * contract's snake_case struct field names — the latter confirmed against real testnet events in
+ * scripts/e2e-demo, not guessed).
  */
 export function projectIntentClaimed(event: ChainEvent): NewClaimRow | null {
   if (event.eventType !== "IntentClaimed" || !event.intentHash) return null;

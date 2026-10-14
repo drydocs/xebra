@@ -18,12 +18,12 @@ import { formatError, reportError } from "../../lib/format-error";
  *
  * Two of those steps must be signed by the stranded address itself, and that key lives in the
  * user's wallet. `scripts/recover-stranded-mint.mjs` builds and partially signs each
- * transaction with the relayer (which pays rent and fees); this page adds the wallet's
- * signature and submits.
+ * transaction with an operator key (`SOLANA_KEYPAIR_PATH`, which pays rent and fees); this page
+ * adds the wallet's signature and submits.
  *
  * # Why paste base64 rather than build it here
  *
- * The relayer's key pays the rent, and it must never reach a browser. Splitting the work this
+ * The operator key pays the rent, and it must never reach a browser. Splitting the work this
  * way keeps it on the machine that owns it: the script signs what it can, the wallet signs
  * what only it can, and neither ever sees the other's key.
  */
@@ -180,9 +180,9 @@ export default function RecoverPage() {
       )}
 
       <p className="text-xs leading-relaxed text-bone/35">
-        The relayer has already signed for the fee and rent. Your wallet only adds the signature for
-        the stranded address. If anything fails, no funds move — the rent is refunded when the
-        temporary account is closed in the final step.
+        The recovery script has already signed for the fee and rent. Your wallet only adds the
+        signature for the stranded address. If anything fails, no funds move — the rent is refunded
+        when the temporary account is closed in the final step.
       </p>
     </main>
   );

@@ -24,8 +24,8 @@
  * So it is split. The failure modes are all recoverable, and the ordering is chosen so that
  * the irreversible step happens only after the account it needs exists:
  *
- *   step1  create + initialise the token account at the stranded address   [wallet + relayer]
- *   step2  receiveMessage — mints the USDC into it                         [relayer only]
+ *   step1  create + initialise the token account at the stranded address   [wallet + payer]
+ *   step2  receiveMessage — mints the USDC into it                         [payer only]
  *   step3  sweep to the real ATA, then close and refund the rent           [wallet]
  *
  * If step 1 lands and step 2 never runs, the only cost is rent locked in an empty token
@@ -34,8 +34,9 @@
  * # Signing
  *
  * Steps 1 and 3 need a signature from the stranded address, which lives in the user's wallet.
- * This script partially signs with the relayer where needed and emits base64 transactions for
- * the wallet to countersign. Step 2 the relayer can submit alone.
+ * This script partially signs with the payer where needed and emits base64 transactions for
+ * the wallet to countersign. Step 2 the payer can submit alone. The payer is the old relay's key
+ * by default (the relay is gone); any funded key works via SOLANA_KEYPAIR_PATH.
  *
  * Usage:
  *   node scripts/recover-stranded-mint.mjs --burn-tx <hash> --step 1     # build, print base64

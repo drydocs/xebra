@@ -66,7 +66,7 @@ describe("the Anchor discriminator", () => {
   it('matches sha256("global:receive_message")', async () => {
     // The constant exists so this module runs in a browser: hashing at call time needed
     // `node:crypto`, which is what kept the self-serve claim page from building the same
-    // instruction the relay builds. A precomputed constant is only safe if something checks it,
+    // instruction the relay built. A precomputed constant is only safe if something checks it,
     // and a wrong discriminator is rejected on chain only after paying a fee to find out.
     const { createHash } = await import("node:crypto");
     const expected = createHash("sha256").update("global:receive_message").digest().subarray(0, 8);

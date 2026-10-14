@@ -28,8 +28,8 @@
 #   ARC_RECIPIENT=0x... CONFIRM_SEND_TO=0x... scripts/test-cctp-forwarding-mainnet.sh send
 #   scripts/test-cctp-forwarding-mainnet.sh status <txhash> [--watch]     (ARC_RECIPIENT for balance)
 #
-# `fund` withdraws AMOUNT_USDC of the wrapper's accrued fees to its fee recipient with the ADMIN
-# key. It is optional: skip it if SOURCE already holds the USDC.
+# `fund` withdraws AMOUNT_USDC of wrapper v1's accrued fees (WRAPPER, now retired) to its fee
+# recipient with the ADMIN key. It is optional: skip it if SOURCE already holds the USDC.
 #
 # Environment:
 #   ARC_RECIPIENT  Arc mainnet address to receive        (required)
@@ -47,7 +47,7 @@ SOROBAN_RPC="https://mainnet.sorobanrpc.com"
 PASSPHRASE="Public Global Stellar Network ; September 2015"
 TOKEN_MESSENGER="CAE2G5Z77UP7GYPYGFOWFGW7C7J6I4YP2AFGSADRKQY62SYUFLPNFTXL"
 USDC_SAC="CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75"
-WRAPPER="CCNWLGFMILJU476RZHDA2PSUH2WH3LIPERHS6BYPCRVDDYYNNUIKZMTJ"
+WRAPPER="CCNWLGFMILJU476RZHDA2PSUH2WH3LIPERHS6BYPCRVDDYYNNUIKZMTJ" # wrapper v1 (retired); only `fund` uses it
 
 # --- Arc mainnet ---
 ARC_RPC="https://rpc.mainnet.arc.io"
@@ -212,7 +212,7 @@ cmd_check() {
   accrued="$(SINVOKE_FLAGS='--send no' sinvoke "$SOURCE" "$WRAPPER" get_accrued_fees 2>/dev/null | tr -d '"' || echo "?")"
   echo "Source XLM balance             $xlm"
   echo "Source USDC balance            $usdc stroops   (need >= $AMOUNT_STROOPS)"
-  echo "Wrapper accrued fees           $accrued stroops   (what \`fund\` can withdraw)"
+  echo "Wrapper v1 accrued fees        $accrued stroops   (what \`fund\` can withdraw)"
   echo "Recipient Arc USDC balance     $(arc_balance "$RECIPIENT_LC")"
   echo
   if ! [[ "$usdc" =~ ^[0-9]+$ ]] || [ "$usdc" -lt "$AMOUNT_STROOPS" ]; then
@@ -248,7 +248,7 @@ import sys
 if not (0 < float(sys.argv[1]) <= float(sys.argv[2])):
     sys.exit(f"REFUSING: AMOUNT_USDC must be above 0 and at most {sys.argv[2]}")
 PY
-  echo "Withdraw $AMOUNT_USDC USDC ($AMOUNT_STROOPS stroops) of the wrapper's accrued fees"
+  echo "Withdraw $AMOUNT_USDC USDC ($AMOUNT_STROOPS stroops) of wrapper v1's accrued fees"
   echo "  signed by   $ADMIN  $(stellar keys address "$ADMIN")"
   echo "  paid to     the wrapper's configured fee recipient (withdraw_fees cannot choose another)"
   if [ "${CONFIRM:-}" != "FUND" ]; then

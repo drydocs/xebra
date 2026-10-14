@@ -5,9 +5,9 @@ import type { Logger } from "pino";
  * The solver's Watch->Fill->Claim pipeline (docs/architecture.md §7), generalized as
  * `FillAdapter`/`ClaimAdapter` interfaces so this orchestration logic is chain-agnostic and
  * fully unit-testable without a live Jupiter API or Soroban RPC connection — the same
- * separation pattern used throughout this codebase (apps/cctp-relay's processJob, the
- * indexers' poll functions). `apps/solver/src/adapters/*` supplies the concrete per-corridor
- * implementations; `index.ts` wires whichever adapter pair a given corridor's config selects.
+ * separation pattern used throughout this codebase (the indexers' poll functions).
+ * `apps/solver/src/adapters/*` supplies the concrete per-corridor implementations; `index.ts`
+ * wires the one pair that exists (Solana fill, Stellar claim).
  */
 
 export interface FillQuote {

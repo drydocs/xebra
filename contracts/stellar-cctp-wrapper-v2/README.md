@@ -1,13 +1,15 @@
 # stellar-cctp-wrapper-v2
 
-The forwarding version of `XebraCctpWrapper`. **Not deployed to mainnet.** The deployed wrapper
-(`../stellar-cctp-wrapper`, pinned in `deployments/mainnet.json`) is unchanged and keeps working;
-this is a new contract at a new id, because a contract that holds no funds between transactions
-needs no migration and editing v1 in place would break its pinned WASM hash.
+The forwarding version of `XebraCctpWrapper`. **Live on Stellar mainnet** at
+`CCPVTWII2TW6VVSVA4JQ2KFHICGBG4QVAHPIGUPSIW3E4VNPUI4Y2WQR` (`cctpWrapperV2` in
+`deployments/mainnet.json`); the web app has used it since 2026-09-30, and v1
+(`../stellar-cctp-wrapper`) is retired. It is a new contract at a new id, because a contract that
+holds no funds between transactions needs no migration and editing v1 in place would break its
+pinned WASM hash.
 
 Read [`docs/forwarding-wrapper.md`](../../docs/forwarding-wrapper.md) first. It has the reasoning,
-the fee model, the measured behaviour of Circle's Forwarding Service, the testnet results and what
-is still unbuilt.
+the fee model, the measured behaviour of Circle's Forwarding Service, and the testnet and mainnet
+results.
 
 ## What differs from v1
 
@@ -26,7 +28,7 @@ the destination and takes its fee out of the minted amount. Everything else — 
 - A first-time Solana recipient is forwarded too, with Circle's 65-byte extended hook (built here from
   the signed `recipient_owner`, never from caller-supplied data) that makes Circle's forwarder create
   the token account. That path has its own fee cap. With `account_creation` off on the domain, such a
-  recipient falls back to the v1 relay path.
+  recipient takes the plain path, which nobody mints (there is no relay), so the web app refuses it.
 - `tighten_domain` (admin **or pauser**, instant) turns forwarding off or lowers a cap. It can never
   loosen. Loosening is `propose_domain` under the timelock, and `cancel_pending` vetoes it.
 - `quote` now takes the destination and `max_fee`, since on the forward path the price depends on
@@ -35,7 +37,7 @@ the destination and takes its fee out of the minted amount. Everything else — 
 ## Build and test
 
 ```bash
-cargo test                                       # 83 tests: 41 inherited from v1, 42 new
+cargo test                                       # 84 tests: 41 inherited from v1, 43 new
 cargo build --release --target wasm32v1-none     # -> target/.../xebra_cctp_wrapper_v2.wasm
 ```
 

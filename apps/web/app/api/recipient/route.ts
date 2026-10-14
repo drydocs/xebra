@@ -16,15 +16,16 @@ import { env } from "../../../lib/env";
  * account, blocking a valid transfer. The check now runs here, where there is no `Origin`
  * header and no CORS involved.
  *
- * Soroban RPC, Horizon and Circle's Iris all permit browser origins, which is why only this
- * one call needed moving.
+ * Soroban RPC, Horizon and Circle's Iris all permit browser origins, which is why only Solana's
+ * calls needed moving: this one, and the claim page's, through `/api/solana-rpc`.
  *
  * # Why `unknown` is a distinct answer
  *
- * "The account does not exist" and "I could not find out" have opposite consequences. The
- * first must block a burn — CCTP does not create the token account, so minting would fail.
- * The second must not, because refusing a valid transfer on a transient RPC error is its own
- * failure. They are reported separately and the UI treats them differently.
+ * "The account does not exist" and "I could not find out" have different consequences. The
+ * first is a price: Circle's Forwarding Service opens the account during delivery, for a higher
+ * fee the burn has to carry. The second cannot be priced either way, so the form holds the
+ * transfer until a lookup succeeds rather than guess. They are reported separately and the UI
+ * treats them differently.
  */
 
 const TOKEN_PROGRAM = new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");

@@ -5,7 +5,7 @@ import { CCTP_DOMAIN, evmChainForDomain, isArcToSolana, isEvmRoute } from "@xebr
  *
  * The API routes started life with one source, Stellar, and a bare `?tx=` still means exactly that:
  * every link already sent to someone keeps working. A burn made on an EVM chain names its chain
- * with `&src=<CCTP domain>`, because the same 32 bytes could be a transaction on any of seven.
+ * with `&src=<CCTP domain>`, because the same 32 bytes could be a transaction on any of them.
  *
  * Only domains this product actually burns on are accepted. These routes proxy Circle's API on our
  * rate budget, and are not a general-purpose lookup for every chain Circle supports.

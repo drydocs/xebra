@@ -1,6 +1,6 @@
 /**
- * @xebra/api — tRPC + thin REST/OpenAPI facade over Postgres. The only thing apps/web talks to;
- * see docs/architecture.md §8.
+ * @xebra/api — tRPC over Postgres. apps/web uses it only for the intent rail's status page
+ * (`/intent/[hash]`); see docs/architecture.md §8.
  */
 
 import { createHTTPServer } from "@trpc/server/adapters/standalone";

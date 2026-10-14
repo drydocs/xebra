@@ -1,7 +1,8 @@
 # @xebra/api
 
-tRPC + thin REST facade over Postgres — the only thing apps/web talks to (docs/architecture.md
-§8). Route handlers stay thin: `quote.ts` (the CCTP-vs-intent/swap routing decision) and
+tRPC + thin REST facade over Postgres (docs/architecture.md §8). Part of the intent rail, which is
+not deployed: the only page in apps/web that calls it is `/intent/[hash]`; the bridge never does.
+Route handlers stay thin: `quote.ts` (the CCTP-vs-intent/swap routing decision) and
 `repositories.ts` (the only Drizzle call sites) hold the real logic; `router.ts` just wires zod
 validation to them.
 
@@ -9,8 +10,8 @@ validation to them.
 
 - `chains` — all known chains.
 - `corridors` — active (sourceChain, destChain) pairs.
-- `quote({ sourceChain, destChain, destAsset })` — the authoritative routing decision (same
-  function the frontend calls client-side for instant UX; this call is what's actually trusted).
+- `quote({ sourceChain, destChain, destAsset })` — the authoritative routing decision for the
+  intent rail (`@xebra/router-core`'s rule; the bridge screen no longer calls it).
 - `intentStatus({ intentHash })` — an intent + its claim (if any), the same data a challenger or
   the frontend's status page reads.
 

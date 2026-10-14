@@ -7,10 +7,10 @@ import { resolveQuote } from "./quote.js";
 import { getActiveCorridors, getChains, getIntentByHash, getUsdcAssets } from "./repositories.js";
 
 /**
- * apps/api — tRPC + thin REST facade over Postgres (docs/architecture.md §8). This is the
- * *only* thing apps/web talks to; the frontend never hits Arc/Stellar/Solana RPC or Horizon
- * directly. Route handlers stay thin: real logic lives in quote.ts (pure, unit-tested) and
- * repositories.ts (the only Drizzle call sites).
+ * apps/api — tRPC over Postgres (docs/architecture.md §8). apps/web calls only `intentStatus`,
+ * for the intent rail's status page; the CCTP bridge talks to the chains directly. Route
+ * handlers stay thin: real logic lives in quote.ts (pure, unit-tested) and repositories.ts (the
+ * only Drizzle call sites).
  */
 
 const t = initTRPC.context<Context>().create({ transformer: superjson });
@@ -45,8 +45,8 @@ export const appRouter = t.router({
     }),
 
   /** Public verify/status endpoint — same data a challenger or the frontend's status page
-   *  reads. Also exposed over the thin REST facade (docs/architecture.md §8) for non-tRPC
-   *  consumers. */
+   *  reads. tRPC only: the REST facade docs/architecture.md §8 plans for non-tRPC consumers
+   *  was never built. */
   intentStatus: t.procedure
     .input(z.object({ intentHash: z.string().regex(/^0x[0-9a-fA-F]{64}$/) }))
     .query(async ({ ctx, input }) => {

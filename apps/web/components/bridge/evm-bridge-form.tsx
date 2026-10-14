@@ -51,7 +51,8 @@ import { RouteTrack } from "./route-track";
 import { type Speed, SpeedPicker } from "./speed-picker";
 
 /**
- * Moving USDC between Arc and another EVM chain, by calling Circle's contracts directly.
+ * Moving USDC between Arc and another EVM chain, or from Arc to Solana, by calling Circle's
+ * contracts directly.
  *
  * The sibling of `StellarBridgeForm`, and deliberately a sibling and not a branch inside it. That
  * form talks to a Soroban contract that bounds the fee and fixes the hook; this one has no contract

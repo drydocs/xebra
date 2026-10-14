@@ -5,7 +5,7 @@ title: ""
 labels: bug
 ---
 
-**Component** (wrapper contract / relay / frontend / other):
+**Component** (wrapper contract / frontend / claim page / Arc routes / admin panel / other):
 
 **What happened:**
 

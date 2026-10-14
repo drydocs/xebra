@@ -42,8 +42,9 @@ export function ArcRecipientPanel({
  * first real mainnet burn through this app.
  *
  * Since the address the user types is not the address that receives, the derived one is shown
- * rather than hidden. And because CCTP does not create the token account, its absence blocks
- * the transfer instead of being discovered after the funds are burned.
+ * rather than hidden. CCTP itself does not create the token account; Circle's Forwarding Service
+ * does, during delivery and for a higher fee. So its absence is shown as a price before signing,
+ * and a lookup that failed holds the transfer, instead of either being discovered after the burn.
  */
 export function RecipientPanel({
   resolving,

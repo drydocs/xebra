@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
 #
-# Guards the highest-severity risk in contracts/stellar-cctp-wrapper: that our declared
+# Guards the highest-severity risk in contracts/stellar-cctp-wrapper (v1): that our declared
 # `TokenMessenger` trait drifts from Circle's deployed TokenMessengerMinter.
+#
+# v1 is retired. The live wrapper, v2, calls `deposit_for_burn_with_hook`, which this script does
+# not check: v2's argument order is pinned by its own tests and was proven by real mainnet
+# transfers through it (2026-09-24 onward; scripts/smoke-prod.sh re-reads one).
 #
 # `deposit_for_burn` takes two `i128`s (`amount`, `max_fee`) and two `BytesN<32>`s
 # (`mint_recipient`, `destination_caller`). Transposing either pair compiles, deploys, and
@@ -11,11 +15,10 @@
 # name-for-name and in order, what src/lib.rs declares.
 #
 # Usage:
-#   scripts/check-cctp-interface.sh                 # mainnet (default)
-#   NETWORK=testnet scripts/check-cctp-interface.sh
+#   scripts/check-cctp-interface.sh                 # mainnet; there is no other network
 #
-# Exits non-zero on any drift. Intended to run in CI on every PR touching the wrapper, and
-# on a schedule so a Circle redeploy is noticed before a user finds it.
+# Exits non-zero on any drift. Not run in CI, because it needs the live network: run it by hand
+# (`pnpm check:cctp`) before touching the v1 trait and after any Circle upgrade.
 
 set -euo pipefail
 

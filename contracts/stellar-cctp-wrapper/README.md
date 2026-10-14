@@ -1,5 +1,10 @@
 # XebraCctpWrapper (Soroban)
 
+**Retired.** This is v1, deployed at `CCNWLGFMILJU476RZHDA2PSUH2WH3LIPERHS6BYPCRVDDYYNNUIKZMTJ`. Since
+2026-09-30 the web app uses v2 ([`../stellar-cctp-wrapper-v2`](../stellar-cctp-wrapper-v2/README.md)),
+which keeps everything below and adds Circle's forwarding hook. v1 is still deployed and not paused;
+`/admin` reads it only to show its rent running down.
+
 Fee-taking front door to Circle's CCTP V2 on Stellar. Takes a basis-points-plus-floor fee in
 USDC and forwards the remainder to `TokenMessengerMinter::deposit_for_burn`.
 
@@ -20,7 +25,8 @@ from documentation:
 | `get_min_fee(USDC)` | `0` — controller-settable, never hardcode |
 | `paused()` | `false` |
 
-`MAX_TRANSFER_CEILING` is 250k USDC, two orders of magnitude inside Circle's burn cap.
+`MAX_TRANSFER_CEILING` is Circle's own per-message cap, 10M USDC (it was 250k until 2026-09-09).
+`params.max_transfer` is the lower, adjustable limit.
 
 ## The invariant
 
@@ -74,6 +80,7 @@ is debited `fee + net`, never `amount`.
 
 ```
 fee = max(amount * fee_bps / 10_000, min_fee)
+      + account_fee, only when the request says the recipient needs a token account
 net = (amount - fee) rounded down to a multiple of 10
 ```
 
@@ -81,8 +88,8 @@ Fee-then-normalize, not normalize-then-fee: normalizing first hands Circle a val
 silently truncates. The bps step truncates, so the protocol under-collects by <1 stroop
 rather than rounding against the user.
 
-The `min_fee` floor is not cosmetic — the relay pays Solana SOL gas for every mint, and the
-floor is what keeps small transfers from being loss-making. Derive it from measured mint
+The `min_fee` floor was not cosmetic — the relay paid Solana SOL gas for every v1 mint, and the
+floor is what kept small transfers from being loss-making. It was derived from measured mint
 cost.
 
 ## Operational controls
@@ -95,7 +102,7 @@ entrypoint):
 | `MAX_FEE_BPS_CEILING` | 100 (1.00%) |
 | `MAX_MIN_FEE_CEILING` | 5 USDC |
 | `MIN_TRANSFER_FLOOR` | 10 USDC |
-| `MAX_TRANSFER_CEILING` | 250,000 USDC |
+| `MAX_TRANSFER_CEILING` | 10,000,000 USDC |
 | `MAX_CCTP_FEE_BPS_CEILING` | 50 (0.50%) |
 | `TIMELOCK_SECS` | 172,800 (48h) |
 
@@ -141,11 +148,10 @@ Also unreachable from the test host, and required on testnet before mainnet:
 
 1. The generated `TokenMessengerClient` decodes against the deployed contract (partly
    covered by the interface check; finish it with one real small-value burn).
-2. `indexer-stellar` matches `bridge_initiated` — extend `EVENT_TOPIC_TO_TYPE` in
-   `packages/chain-adapters/src/stellar/decode-soroban-events.ts` and assert against real
-   testnet events. Note `extractIntentHash` returns `null` for these events (they carry
-   `transfer_id`, not `intent_hash`), so it needs `transfer_id` added to `INTENT_HASH_KEYS`
-   or its own extraction path.
+2. `indexer-stellar` matches `bridge_initiated` — done: `EVENT_TOPIC_TO_TYPE` in
+   `packages/chain-adapters/src/stellar/decode-soroban-events.ts` maps it to `CctpBurn`, and
+   `extractIntentHash` returning `null` for it (it carries `transfer_id`, not `intent_hash`) is
+   deliberate, since a plain CCTP transfer is not tied to an intent.
 
 ## Residual risks
 

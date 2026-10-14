@@ -1,5 +1,11 @@
 # Removing the relay
 
+**Status (2026-10-14): done.** The removal was merged to `main` on 2026-09-30 (87fa729) together with
+the web app's move to wrapper v2, and is live: production answers 404 on `/api/relay/*` and
+`/api/health`, and Convex holds only the Iris rate counter. The "before cutover" items below were
+carried out ([`cutover-v2.md`](./cutover-v2.md)); the docs listed as describing the relay have been
+rewritten. The "Left alone on purpose" list still stands.
+
 Decision, 2026-09-21: there is no relay. Circle's Forwarding Service mints on the destination, and a
 transfer whose forward fails is claimed by its owner at `/claim`. Why, and what protects users
 instead: [`forwarding-wrapper.md`](./forwarding-wrapper.md), "No relay".

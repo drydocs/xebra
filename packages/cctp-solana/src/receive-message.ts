@@ -28,9 +28,9 @@ import { type Connection, PublicKey, SystemProgram, TransactionInstruction } fro
  *
  * # Runs in a browser as well as on a server
  *
- * No `node:` imports and no reliance on a global `Buffer`. Both the relay and the self-serve
- * claim page build the instruction from this one function, because the whole point of the claim
- * page is that it does exactly what the relay would have done.
+ * No `node:` imports and no reliance on a global `Buffer`. The self-serve claim page builds the
+ * instruction from this one function, so what a browser wallet signs is the account list that was
+ * verified against mainnet.
  *
  * # `mintRecipient` is a token account, never a wallet
  *
@@ -77,8 +77,8 @@ const utf8 = (s: string) => Buffer.from(s, "utf8");
  * sha256("global:receive_message").
  *
  * Precomputed rather than hashed at call time so this module runs in a browser. It used to call
- * `node:crypto`, which is the only thing that stopped the self-serve claim page from building the
- * same instruction the relay does — and building a second, subtly different one for the browser is
+ * `node:crypto`, which was the only thing that stopped the self-serve claim page from building the
+ * same instruction the relay did — and building a second, subtly different one for the browser is
  * how the two drift apart.
  *
  * A constant is only safe if it is checked, so `receive-message.test.ts` recomputes the hash and
@@ -121,13 +121,13 @@ export interface ReceiveMessageConfig {
  * attestation alone are ~506 bytes and it takes 20 account keys. There is no room to append
  * an ATA creation, so it has to be its own transaction.
  *
- * # Why the relay pays
+ * # Why the payer need not be the owner
  *
  * Creating an ATA is permissionless: the owner never signs, only the payer does. That is what
  * makes it possible to deliver to an exchange deposit address whose key nobody here will ever
- * have. The ~0.002 SOL rent is **not recoverable** — `CloseAccount` requires the owner's
- * signature, and an ATA has no close authority — so it is a permanent, once-per-recipient
- * cost that belongs in the fee floor.
+ * have. The ~0.002 SOL rent is **not recoverable** by the payer — `CloseAccount` requires the
+ * owner's signature, and an ATA has no close authority — so it is a permanent, once-per-recipient
+ * cost to whoever pays.
  */
 export async function ensureRecipientTokenAccount(
   connection: Connection,
@@ -145,8 +145,8 @@ export async function ensureRecipientTokenAccount(
   const ataInfo = await connection.getAccountInfo(ata);
   if (ataInfo) return { tokenAccount: ata, created: false };
 
-  // CreateIdempotent (instruction 1) rather than Create (0): two relay workers racing the
-  // same job must not fail each other, and a retry after a timeout must be harmless.
+  // CreateIdempotent (instruction 1) rather than Create (0): two payers racing to create the
+  // same account must not fail each other, and a retry after a timeout must be harmless.
   const instruction = new TransactionInstruction({
     programId: ASSOCIATED_TOKEN_PROGRAM,
     keys: [
@@ -169,9 +169,9 @@ export async function ensureRecipientTokenAccount(
  */
 export async function buildReceiveMessageInstruction(
   connection: Connection,
-  /** The account that will sign and pay. A `PublicKey`, not a `Keypair`: the relay holds a key
-   *  and a browser wallet does not, and only the public key is needed to build the instruction —
-   *  signing happens later, wherever the key actually lives. */
+  /** The account that will sign and pay. A `PublicKey`, not a `Keypair`: a browser wallet never
+   *  hands over its key, and only the public key is needed to build the instruction — signing
+   *  happens later, wherever the key actually lives. */
   payer: PublicKey,
   messageHex: string,
   attestationHex: string,

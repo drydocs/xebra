@@ -5,14 +5,14 @@ import { type Hex, encodeFunctionData, parseAbi } from "viem";
  *
  * Permissionless by design: Circle's contract checks the attestation, the destination domain and
  * `destinationCaller` (zero for every Xebra burn, meaning *anyone* may submit). That is why the
- * same call serves the relay and the user's own wallet on `/claim`.
+ * user's own wallet can send it on `/claim`.
  */
 export const messageTransmitterAbi = parseAbi([
   "function receiveMessage(bytes message, bytes attestation) returns (bool success)",
   "function usedNonces(bytes32 nonce) view returns (uint256)",
 ]);
 
-/** Calldata for a wallet to send, so the browser claim path builds exactly what the relay does. */
+/** Calldata for a wallet to send: what the browser claim path submits on `/claim`. */
 export function encodeReceiveMessage(message: Hex, attestation: Hex): Hex {
   return encodeFunctionData({
     abi: messageTransmitterAbi,

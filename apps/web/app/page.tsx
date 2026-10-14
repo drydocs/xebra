@@ -63,7 +63,9 @@ export default function HomePage() {
 
       <main className="mx-auto w-full max-w-xl px-4 pt-16 sm:px-5 sm:pt-24">
         <Reveal as="header" className="px-1">
-          <Eyebrow>{manyRoutes ? "Native USDC · Circle CCTP" : "Native USDC · one route"}</Eyebrow>
+          <Eyebrow>
+            {manyRoutes ? "Native USDC · Circle CCTP" : "Native USDC · from Stellar"}
+          </Eyebrow>
           <h1 className="mt-6 text-display font-semibold text-bone [text-wrap:balance]">
             {manyRoutes ? "Burned here." : "Two chains."}
             <br />

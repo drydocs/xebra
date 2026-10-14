@@ -16,10 +16,11 @@ export interface Observability {
 /**
  * Wires traces + metrics to an OTLP/HTTP endpoint — Grafana Cloud in staging/production, a local
  * collector in dev (docs/architecture.md §11). No auto-instrumentation: every service already
- * logs structured events via pino, so the value here is the five day-one alert signals (relay
- * SOL balance, solver inventory, unclaimed-intent window, CCTP attestation age, arbiter KMS
- * failures — see each service's own use of `registerPolledGauge`/`meter`) plus manually-created
- * spans where they earn their cost, not blanket HTTP/DB instrumentation nobody asked for.
+ * logs structured events via pino, so the value here is the day-one alert signals (solver
+ * inventory, unclaimed-intent window, arbiter KMS failures — see each service's own use of
+ * `registerPolledGauge`/`meter`; the relay SOL balance and CCTP attestation age went with the
+ * relay) plus manually-created spans where they earn their cost, not blanket HTTP/DB
+ * instrumentation nobody asked for.
  */
 export function startObservability(opts: {
   serviceName: string;

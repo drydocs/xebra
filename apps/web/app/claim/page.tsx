@@ -20,8 +20,9 @@ import { EvmClaim } from "./evm-claim";
  * for a human to run a script, which made our uptime your risk rather than your convenience.
  * There is no relay any more: a forward that fails is claimed here, by the owner.
  *
- * Distinct from `/recover`, which countersigns a transaction the relayer partly signed, for a burn
- * addressed to a wallet instead of a token account. That is a rescue from a specific past bug.
+ * Distinct from `/recover`, which countersigns a transaction our recovery script partly signed,
+ * for a burn addressed to a wallet instead of a token account. That is a rescue from a specific
+ * past bug.
  * This is the path when a forward failed or was never requested.
  *
  * # Which chain the burn was on
@@ -31,7 +32,9 @@ import { EvmClaim } from "./evm-claim";
  * receipt carries it (`&src=`), and someone arriving with only a hash picks it from the list.
  * Where the mint is submitted is not asked: it is read from Circle's attested message.
  *
- * # What it costs the person clicking
+ * # What a Solana claim costs the person clicking
+ *
+ * (An EVM claim is the destination chain's gas, and nothing else: `evm-claim.tsx`.)
  *
  * The transaction fee plus 867,621 lamports of permanent `used_nonce` rent — about 0.0009 SOL —
  * and roughly 0.002 SOL more if the recipient has no USDC account yet. None of it is recoverable
@@ -268,8 +271,9 @@ function Claim() {
 
       {attestation?.status === "pending" && (
         <Notice tone="info" title="Circle has not signed this yet">
-          Attestation usually lands within a couple of minutes of the burn. Nothing is wrong and
-          nothing is lost — try again shortly.
+          Attestation usually lands within a few minutes of the burn, and can take about half an
+          hour for a Standard transfer from some chains. Nothing is wrong and nothing is lost — try
+          again shortly.
         </Notice>
       )}
 

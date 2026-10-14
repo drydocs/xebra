@@ -15,8 +15,8 @@
 # receiveMessage and nobody paying Arc gas.
 #
 # Testnet only, deliberately: every address below is a testnet address, and there is no mainnet
-# switch. A mainnet run is a different script's job, written after this one shows the mechanism
-# works.
+# switch. The mainnet runs are scripts/test-cctp-forwarding-mainnet.sh (Arc) and
+# scripts/test-cctp-forwarding-solana-mainnet.sh (Solana).
 #
 #   scripts/test-cctp-forwarding.sh check                    read-only: balances, quote, the plan
 #   CONFIRM=SEND scripts/test-cctp-forwarding.sh send        approve + burn (testnet transactions)

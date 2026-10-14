@@ -1,10 +1,11 @@
 import type { AssetRef, ChainId } from "@xebra/intent-schema";
 
 /**
- * CCTP-direct vs intent/swap routing rule. Pure function, shared by apps/web (instant
- * quote-time UX) and apps/api (the authoritative check before accepting a submission — the
- * frontend copy is a UX optimization only, the backend is the source of truth so a
- * manipulated client can't force the wrong rail). See docs/architecture.md §6.
+ * CCTP-direct vs intent/swap routing rule. Pure function, so a frontend could share it for
+ * instant quote-time UX (apps/web does not call it today); apps/api runs it as the
+ * authoritative check before accepting a submission — any frontend copy is a UX optimization
+ * only, the backend is the source of truth so a manipulated client can't force the wrong rail.
+ * See docs/architecture.md §6.
  */
 
 export type Rail = "cctp-direct" | "intent-swap";

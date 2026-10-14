@@ -1,85 +1,50 @@
 # Deploying
 
-Two services, both with free tiers: **Vercel** serves the UI, **Convex** runs the relay and holds
-its state. There is no AWS, no Docker, no Redis, no Kafka and no Postgres in this deployment.
+Two services, both with free tiers: **Vercel** serves the UI and its server routes, **Convex** holds
+one counter. There is no AWS, no Docker, no Redis, no Kafka and no Postgres in this deployment.
 
-## How the relay runs without a server
+## What runs where
 
-`apps/cctp-relay` is a long-running process — a BullMQ worker on Redis, a watcher loop, a
-container. Nothing here runs containers, so the pipeline in `@xebra/relay-core` is driven by
-Convex instead:
+Nothing of ours mints. Circle's Forwarding Service mints on the destination and pays the gas
+([`forwarding-wrapper.md`](./forwarding-wrapper.md)), and a transfer whose forward fails is claimed by
+its owner at `/claim`. The relay that used to mint from a Convex cron and a Solana hot wallet was
+removed ([`relay-removal.md`](./relay-removal.md)), so there is no key or gas float to keep funded.
 
 | | |
 |---|---|
-| `relay.submitBurn` (action, public) | Records a burn and mints it in the same call. The fast path. |
-| `relay.tick` (action, internal) | Scans for new burns, drains anything due. Every minute, from `crons.ts`. |
-| `jobs.*`, `cursors.*` (internal) | State. Serializable mutations, so a read-then-write is atomic. |
+| Vercel | The pages, and the server routes the browser cannot do itself: `/api/circle-health` (pre-flight), `/api/delivery` (Circle's forward state for a burn), `/api/attestation`, `/api/reattest`, `/api/recipient`, `/api/solana-rpc` |
+| Convex | `irisBudget`: one counter that keeps every instance's calls to Circle's Iris API under its rate limit. No cron, no keys, no funds |
 
-`apps/web/app/api/relay/burns` is a thin proxy so the page talks to its own origin and
-`RELAY_SUBMIT_TOKEN` has somewhere to live that is not a browser.
+### Why the counter is shared
 
-Everything that moves money — `processJob`, `advanceRelayJob`, `scanForBurns`,
-`checkBurnAdmission`, the `receiveMessage` instruction — is shared with the container relay,
-unmodified. Convex supplies storage adapters and config; that is all.
-
-### Why Convex and not Postgres
-
-The relay is a retrying job pipeline that must survive between invocations. Postgres can do that,
-but on serverless every part of making it safe is work spent on the storage engine rather than the
-corridor: a connection per invocation, `FOR UPDATE SKIP LOCKED` to keep overlapping workers apart,
-a polling column standing in for a scheduler.
-
-Convex gives serializable mutations, so `upsertBySourceTx` — the whole idempotency guarantee, the
-thing that stops a burn being minted twice — is just a read and a write in one transaction. And
-its cron runs **every minute on the free plan**, where Vercel Cron on Hobby runs **once per day**.
-A daily retry cadence is not a product.
-
-One thing Convex does not remove: actions are *not* transactional, because they call Iris and
-Solana and a retry would submit a mint twice. That is why `jobs.claimDue` hands out a lease before
-any action touches a job.
-
-`@xebra/relay-core/postgres` still exists for anyone self-hosting the container. Both satisfy the
-same interfaces.
+Iris allows 40 requests per second and blocks a caller for five minutes above it. Vercel runs many
+instances, so a count kept in one instance's memory does not bound the total. The counter lives in
+Convex because its mutations are serializable: a read and a write in one transaction. If Convex is
+unreachable, or `CONVEX_URL` or `IRIS_BUDGET_SECRET` is unset, each instance counts alone and the app
+keeps working (`apps/web/lib/server/iris.ts`).
 
 ## Setup
 
 ### 1. Convex
 
 ```bash
-pnpm --filter @xebra/web^... build   # convex bundles the workspace packages from dist/
+pnpm --filter @xebra/cctp-client build   # convex bundles it from dist/
 cd apps/web
-npx convex dev                       # logs in, creates the project, writes convex/_generated/
+npx convex dev                           # logs in, creates the project, rewrites convex/_generated/
 ```
 
-`_generated/` is not in the repo — it is written against your own deployment. `apps/web`'s
-tsconfig excludes `convex/`, and the route handler reaches Convex by name through
-`makeFunctionReference`, so the Next.js build does not depend on having run this.
+`_generated/` is committed, and Convex rewrites it against your own deployment. `apps/web`'s
+tsconfig excludes `convex/`, and the route handlers reach Convex by name through
+`makeFunctionReference` (`lib/server/iris.ts`), so the Next.js build does not depend on having run
+this.
 
-Then set the relay's environment on the Convex deployment — **not** in Vercel:
+Then set the one secret, the same value on the Convex deployment and in Vercel:
 
 ```bash
-npx convex env set RELAY_SOLANA_KEYPAIR "<base58 | base64 | keygen JSON array>"
-npx convex env set SOLANA_RPC_URL       "https://api.mainnet-beta.solana.com"
-npx convex env set SOLANA_USDC_MINT     "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+npx convex env set IRIS_BUDGET_SECRET "<long random string>"
 ```
 
-To also mint on Arc, give the relay an Arc key. Without it the relay serves Solana only, and a
-burn addressed to Arc retries with a readable error until the key appears:
-
-```bash
-npx convex env set RELAY_ARC_PRIVATE_KEY "<32-byte hex private key>"
-```
-
-Fund that address with USDC on Arc — USDC is Arc's gas token, and a mint costs well under a cent.
-`docs/go-live.md` has the full order of operations, including the on-chain step that must come
-first.
-
-Optional, each defaulting to the pinned mainnet constant: `IRIS_BASE_URL`, `HORIZON_URL`,
-`SOROBAN_RPC_URL`, `STELLAR_CCTP_DOMAIN_ID`, `ARC_RPC_URL`, `RELAY_SUBMIT_TOKEN`. Two more are needed only once
-the wrapper contract is deployed, and the burn watcher stays off until both are set:
-`STELLAR_CCTP_WRAPPER_CONTRACT_ID` and `SOROBAN_START_LEDGER`.
-
-`npx convex deploy` pushes to production and starts the cron.
+`npx convex deploy` pushes to production. See [`apps/web/convex/README.md`](../apps/web/convex/README.md).
 
 ### 2. Vercel
 
@@ -105,7 +70,11 @@ NEXT_PUBLIC_STELLAR_TOKEN_MESSENGER_ADDRESS
 NEXT_PUBLIC_SOLANA_CCTP_DOMAIN_ID
 NEXT_PUBLIC_SOLANA_RPC_URL
 NEXT_PUBLIC_SOLANA_USDC_MINT
-NEXT_PUBLIC_STELLAR_CCTP_WRAPPER_CONTRACT_ID   # empty until the wrapper is deployed
+NEXT_PUBLIC_STELLAR_CCTP_WRAPPER_CONTRACT_ID          # v2, `cctpWrapperV2` in deployments/mainnet.json
+NEXT_PUBLIC_STELLAR_CCTP_WRAPPER_LEGACY_CONTRACT_ID   # optional: v1, read by /admin for its rent only
+NEXT_PUBLIC_ARC_ENABLED                               # `1` offers Arc as a destination from Stellar
+NEXT_PUBLIC_ARC_SENDS_TO                              # optional: where Arc may send, or `all`
+NEXT_PUBLIC_ARC_RECEIVES_FROM                         # optional: EVM chains that may send into Arc
 ```
 
 Server-side only:
@@ -113,44 +82,30 @@ Server-side only:
 | | |
 |---|---|
 | `CONVEX_URL` | The deployment URL from `npx convex deploy` |
-| `RELAY_SUBMIT_TOKEN` | Optional, and only if you set one in Convex too |
+| `IRIS_BUDGET_SECRET` | The same value as on Convex; a mismatch makes each instance count alone |
+| `ADMIN_PASSWORD` | Gates `/admin`; unset or under 16 characters, `/admin` is a 404 ([`admin-panel.md`](./admin-panel.md)) |
+| `ADMIN_ALLOWED_IPS` | Optional IP allowlist for `/admin` |
 
 ### 3. Check it
 
 ```bash
-npx convex run relay:tick          # from apps/web
+BASE_URL=https://<your deployment> ./scripts/smoke-prod.sh
 ```
 
-`{"status":"ok",...}` means the relay is configured and reachable. `unconfigured` names the
-missing variable. `npx convex logs` follows the cron.
+Read-only. Every line must be `ok`; the exit status is the number of failures. `the shared counter is
+in use` proves Convex and Vercel agree on `IRIS_BUDGET_SECRET`. A `down` in the Circle lines is
+Circle being unhealthy at that moment, not the app.
 
 ## What each plan costs
 
-**Convex free:** 1M function calls and 20 GB-hours of action compute per month, 0.5 GB storage. A
-minute-cron is about 43,000 calls a month, so the relay lives well inside it.
+**Convex free:** 1M function calls and 20 GB-hours of action compute per month, 0.5 GB storage.
+There is no cron; Convex is called once per Iris call our servers make, and the pre-flight and
+delivery routes cache Circle's answers for seconds at a time.
 
 **Vercel Pro, $20/month — for the terms, not the features.** Vercel's fair-use guidelines restrict
 Hobby to non-commercial, personal use, and charging a bridge fee is commercial. Hobby is fine while
-you are moving your own money to test; because the schedule lives in Convex, a Hobby deployment is
+you are moving your own money to test; nothing here needs Vercel Cron, so a Hobby deployment is
 functionally complete rather than crippled.
-
-## The relay's exposure, stated plainly
-
-Every mint costs the hot wallet 867,621 lamports of permanent rent plus fees, and up to 2,039,280
-more if the recipient has no USDC account yet. None of it is recoverable.
-
-Until the wrapper contract is deployed, nothing on chain distinguishes a burn made through this app
-from any other CCTP user's burn on Stellar — Circle's contract serves everyone. So `submitBurn`
-cannot tell whose mint it is being asked to pay for. It is bounded rather than authenticated: a
-burn older than an hour is refused, and sponsorship stops after 200 mints in 24 hours.
-
-A determined griefer inside those bounds can still get a bounded number of their own transfers
-sponsored. **Deploying the wrapper is what removes this**, because the watcher then only ever sees
-burns we were paid a fee on. It is on the launch path in `docs/go-live.md` for revenue reasons;
-this is the second reason.
-
-Refusing to sponsor never strands anyone. The burn stays claimable by whoever holds Circle's
-attestation, which is public and never expires.
 
 ## Two build details
 
@@ -165,11 +120,12 @@ whatever it contains. `scripts/with-env.mjs` treats a missing file as "use the e
 `NETWORK` or `NEXT_PUBLIC_NETWORK` is already set, and still fails loudly on a local checkout where
 neither is.
 
-## If the relay is unavailable
+## If a forward fails
 
 `/claim` completes a transfer from the user's own wallet. It fetches Circle's attestation, builds
-the same `receiveMessage` instruction the relay builds, and has the connected wallet sign and pay.
-The receipt links to it with the burn hash already filled in.
+the `receiveMessage` call for the destination named in the message, and has the user's wallet sign
+and pay (Phantom on Solana, the browser's EVM wallet on Arc and the EVM chains). The receipt links to
+it with the burn hash already filled in.
 
 The payer does not have to be the recipient: `receiveMessage` mints to the address the burn named
 whoever submits it, so a third party can rescue someone else's stuck transfer. When the recipient
@@ -177,30 +133,24 @@ has no USDC account yet, the page asks for the destination wallet — a token ac
 be reversed into its owner, so there is no way to create one without being told — and checks the
 derived address against the burn before anything is signed.
 
-Two server routes exist for it, both because the browser cannot do the work directly:
-`/api/attestation` keeps the Iris URL out of the bundle, and `/api/solana-rpc` is a
-method-restricted pass-through, because Solana's public RPC answers the CORS preflight with 200
-and then **403s the actual POST** whenever an `Origin` header is present.
+Three server routes exist for it, all because the browser cannot do the work directly:
+`/api/attestation` keeps the Iris URL out of the bundle, `/api/reattest` asks Circle to re-sign a Fast
+message whose attestation expired, and `/api/solana-rpc` is a method-restricted pass-through, because
+Solana's public RPC answers the CORS preflight with 200 and then **403s the actual POST** whenever an
+`Origin` header is present.
 
-## Alerting
+## Watching it
 
-The hot wallet is the thing most likely to break this in production. It drains by design — every
-mint burns 867,621 lamports of rent nobody gets back — and when it empties, **every transfer stalls
-silently**: a job that cannot be paid for is indistinguishable from one waiting on Circle's
-attestation, so nothing errors and nobody notices until a user complains.
+There is no hot wallet to drain, so the old balance alerts went with the relay. What is left to
+watch is Circle and the deployment itself:
 
-Two things watch it, both free:
-
-- A Convex cron every 15 minutes that **throws** when the balance is critical, so it shows as a
-  failed function in the dashboard rather than a log line nobody reads.
-- `GET /api/health`, which returns **503** when the relay cannot do its job. Point any free uptime
-  monitor at it — 503 is the one signal they all understand without configuration.
-
-Thresholds come from the measured cost of a mint (`packages/relay-core/src/health.ts`): critical is
-two worst-case transfers left, warning is ten. The response says how many transfers remain, not
-just a lamport count, because that is the number that tells you whether to act now.
+- `scripts/smoke-prod.sh` exits non-zero on any failed check, so it can gate a deploy or run on a
+  schedule.
+- `GET /api/circle-health?dest=solana` is the endpoint for an uptime monitor. It answers 200 with
+  `status` of `ok`, `degraded` or `down` in the body, so the monitor has to match on the body.
 
 ## What is still missing
 
-**The relay has never run against a live Convex deployment.** That needs your login. Everything
-here is unit-tested and none of it has talked to a real database.
+No mainnet transfer has gone through the routes between Arc and the EVM chains yet; they were proven
+on testnet on 2026-10-14. EVM chains → Arc is off in production (`NEXT_PUBLIC_ARC_RECEIVES_FROM`
+unset).

@@ -10,9 +10,9 @@ import "./globals.css";
 /**
  * # Why the typefaces are local files and not `next/font/google`
  *
- * `next/font/google` fetches the font at *build* time. This app's production image is built
- * in CI, and a build that silently depends on fonts.gstatic.com being reachable is a build
- * that fails on the day it is not. The two latin subsets are 52 KB committed to the repo,
+ * `next/font/google` fetches the font at *build* time. This app's production build runs on
+ * Vercel and in CI, and a build that silently depends on fonts.gstatic.com being reachable is a
+ * build that fails on the day it is not. The two latin subsets are 52 KB committed to the repo,
  * self-hosted from our own origin, and cannot be broken by someone else's outage.
  *
  * Geist is a variable font across 100-900, so weight is free: the interface uses 400, 500,
@@ -33,15 +33,16 @@ const geistMono = localFont({
   display: "swap",
 });
 
-// What the site says it does follows what this build offers: the Stellar route alone, or that
-// and the routes between Arc and other EVM chains. Inlined at build time, like the flag itself.
+// What the site says it does follows what this build offers: Stellar's routes alone, or those
+// and the routes that start on Arc or another EVM chain. Inlined at build time, like the flags.
 const MANY_ROUTES = hasEvmRoutes(env.evmRoutes);
+const STELLAR_DESTINATIONS = env.arcEnabled ? "Solana or Arc" : "Solana";
 const TITLE = MANY_ROUTES
   ? "Xebra — native USDC between chains"
-  : "Xebra — USDC from Stellar to Solana";
+  : `Xebra — USDC from Stellar to ${STELLAR_DESTINATIONS}`;
 const DESCRIPTION = MANY_ROUTES
   ? "Move native USDC between Stellar, Solana, Arc and other chains over Circle's CCTP. No wrapped assets, no custody."
-  : "Move native USDC from Stellar to Solana over Circle's CCTP. One signature, no wrapped assets, no custody.";
+  : `Move native USDC from Stellar to ${STELLAR_DESTINATIONS} over Circle's CCTP. One signature, no wrapped assets, no custody.`;
 
 export const metadata: Metadata = {
   title: { default: TITLE, template: "%s · Xebra" },
@@ -62,7 +63,7 @@ export const metadata: Metadata = {
     title: TITLE,
     description: MANY_ROUTES
       ? "Native USDC between chains, over Circle's CCTP."
-      : "Native USDC, Stellar to Solana, over Circle's CCTP.",
+      : `Native USDC, Stellar to ${STELLAR_DESTINATIONS}, over Circle's CCTP.`,
   },
 };
 

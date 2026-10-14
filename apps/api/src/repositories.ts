@@ -12,7 +12,7 @@ import { eq } from "drizzle-orm";
 /**
  * Thin, real Drizzle data-access functions — the only place in this app that talks to Postgres
  * directly. Everything else (quote.ts, router.ts) takes plain data in and returns plain data
- * out, so it stays testable without a live database (see apps/cctp-relay's processJob for the
+ * out, so it stays testable without a live database (the indexers' poll functions follow the
  * same separation pattern).
  */
 

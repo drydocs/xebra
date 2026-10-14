@@ -24,7 +24,7 @@ const BLURB: Record<Family, string> = {
     : "Pays for the transfer and signs it. Required to send.",
   solana: "Fills in your Solana address as the recipient.",
   evm: EVM_SENDS
-    ? "Pays for and signs a transfer between Arc and another EVM chain, fills in a recipient, and completes a claim."
+    ? "Pays for and signs a transfer that starts on an EVM chain, fills in a recipient, and completes a claim."
     : "Fills in your Arc address as the recipient, and completes a claim.",
 };
 
@@ -33,8 +33,8 @@ const BLURB: Record<Family, string> = {
  *
  * A native <dialog> opened with showModal(): the browser supplies the focus trap, Escape to close,
  * inert background and return of focus, none of which a hand-built overlay gets right by default.
- * Tabs are only the families the caller asked for, so the bridge screen can ask for "Stellar" and
- * the recipient field for "Solana" or "EVM" without showing what is irrelevant.
+ * Tabs are only the families the caller asked for, so the admin panel can ask for "Stellar" alone
+ * and the recipient field for "Solana" or "EVM" without showing what is irrelevant.
  */
 export function WalletModal({
   families,

@@ -1,8 +1,8 @@
 # Forwarding wrapper (v2)
 
-Status: **designed, implemented in `contracts/stellar-cctp-wrapper-v2` (83 tests), and proven on
-testnet end to end. Not deployed to mainnet.** The deployed wrapper (v1,
-`deployments/mainnet.json`) is untouched and keeps working.
+Status (2026-10-14): **implemented in `contracts/stellar-cctp-wrapper-v2` (84 tests), deployed to
+mainnet on 2026-09-24, and what the live web app has used since 2026-09-30.** v1 is retired. The
+dated sections below are the record of how it got there.
 
 **Decision, 2026-09-21: the relay is removed, not kept as a fallback.** A forward that fails is the
 owner's to claim at `/claim`; nobody holds a funded key to mint on their behalf. Everything below
@@ -311,6 +311,9 @@ sized close to it. The `max_fee` used was the live `high` quote at 1.0x and it w
 
 ## Rollout
 
+Carried out, with one change: v2 went to mainnet with Arc and Solana (account creation on) together,
+and the web app moved from v1 to v2 in one step on 2026-09-30 ([`cutover-v2.md`](./cutover-v2.md)).
+
 1. Testnet end to end through the wrapper. **Done**, above.
 2. Review, then deploy v2 to mainnet with **Arc only** (`forward: true`, `max_forward_fee` ≈ 0.10).
    v1 stays live and serves Solana until Solana forwarding is proven. **v1 depends on the relay
@@ -367,10 +370,10 @@ just safety.
 
 ## Open questions
 
-- **ATA creation through the forwarder: contract done, the rest is not.** Built into v2 with unit
-  tests (including one that pins the exact 65 bytes mainnet accepted) and simulated on testnet against
-  Circle's real messenger. Still to do: the front end must derive the token account from the owner (the
-  contract cannot), quote with `includeRecipientSetup=true`, and pass the owner. A
+- **ATA creation through the forwarder: done.** Built into v2 with unit tests (including one that
+  pins the exact 65 bytes mainnet accepted) and simulated on testnet against Circle's real messenger.
+  The front end derives the token account from the owner (the contract cannot), quotes with
+  `includeRecipientSetup=true`, and passes the owner (2026-09-24). A
   failed creation forward is claimed by the owner like any other, but the claim then also has to
   create the token account, which `/claim` already handles. A real testnet burn of this path is blocked by Circle's sandbox indexer, but the path itself is
   proven on mainnet.

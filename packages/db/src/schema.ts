@@ -179,9 +179,10 @@ export const cctpTransfers = pgTable("cctp_transfers", {
   // `WHERE relay_jobs.cctp_transfer_id = cctp_transfers.id`.
 });
 
-/** Mirrors @xebra/cctp-client's `RelayJobState` (packages/cctp-client/src/relay-job.ts) — this
- *  is the `RelayJobStore` implementation apps/cctp-relay's `InMemoryRelayJobStore` placeholder
- *  is meant to be swapped out for. */
+/** The relay's job queue. The relay was removed on 2026-09-24 (apps/cctp-relay,
+ *  packages/relay-core and cctp-client's `relay-job.ts` with it); this table and its migrations
+ *  are kept so the schema still matches databases already migrated. Nothing reads or writes it
+ *  now, and the notes below describe how the relay used it. */
 export const relayJobs = pgTable(
   "relay_jobs",
   {
@@ -189,17 +190,17 @@ export const relayJobs = pgTable(
     /** The burn that started this. `(source_domain_id, source_tx_hash)` is the natural key:
      *  one burn transaction produces exactly one mint, so the unique index below is what makes
      *  re-enqueueing after a crash or a duplicate watcher tick idempotent. `relay-job.ts`
-     *  claims idempotency "at the caller's job-store layer" — this is that layer. */
+     *  claimed idempotency "at the caller's job-store layer" — this was that layer. */
     sourceDomainId: integer("source_domain_id").notNull(),
     sourceTxHash: text("source_tx_hash").notNull(),
     /** Optional: the richer projected record, written by apps/projector from the event bus.
-     *  Nullable because the relay must be able to work from a burn alone — requiring a
-     *  projected row first would make minting depend on the projector being healthy. */
+     *  Nullable because the relay had to be able to work from a burn alone — requiring a
+     *  projected row first would have made minting depend on the projector being healthy. */
     cctpTransferId: text("cctp_transfer_id").references(() => cctpTransfers.id),
     status: relayJobStatusEnum("status").notNull().default("queued"),
-    /** Circle's attested message and signature. Stored so a restarted relay can resume without
-     *  re-querying Iris, and so the pair stays available for the permissionless manual claim
-     *  path (docs/architecture.md §5) if the relay is ever unavailable. */
+    /** Circle's attested message and signature. Stored so a restarted relay could resume without
+     *  re-querying Iris, and so the pair stayed available for the permissionless manual claim
+     *  path (docs/architecture.md §5) if the relay was unavailable. */
     message: text("message"),
     attestation: text("attestation"),
     destTxSignature: text("dest_tx_signature"),
@@ -208,16 +209,16 @@ export const relayJobs = pgTable(
     solGasSpentLamports: numeric("sol_gas_spent_lamports", { precision: 38, scale: 0 }),
     /** When this job may next be attempted, and by whom.
      *
-     *  These two columns are the queue. The relay originally used BullMQ, whose delayed-job
+     *  These two columns were the queue. The relay originally used BullMQ, whose delayed-job
      *  support needs Redis and a process that stays alive to consume it — neither exists in a
-     *  serverless deployment. A cron-invoked function instead claims rows whose
-     *  `next_attempt_at` has passed, so the backoff policy that used to be a BullMQ delay is a
-     *  timestamp.
+     *  serverless deployment. A cron-invoked function instead claimed rows whose
+     *  `next_attempt_at` had passed, so the backoff policy that used to be a BullMQ delay became
+     *  a timestamp.
      *
-     *  `leased_until` is what makes a claim safe when two invocations overlap: a claimed row is
-     *  invisible to other workers until its lease expires, so the same burn is not minted twice
-     *  by a cron tick racing an inline drain. A crashed invocation's rows simply become
-     *  claimable again when the lease lapses, with no cleanup step. */
+     *  `leased_until` is what made a claim safe when two invocations overlapped: a claimed row
+     *  was invisible to other workers until its lease expired, so the same burn was not minted
+     *  twice by a cron tick racing an inline drain. A crashed invocation's rows simply became
+     *  claimable again when the lease lapsed, with no cleanup step. */
     nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }).notNull().defaultNow(),
     leasedUntil: timestamp("leased_until", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -231,8 +232,8 @@ export const relayJobs = pgTable(
       table.sourceDomainId,
       table.sourceTxHash,
     ),
-    /** The claim query's access path: due, unfinished jobs in `next_attempt_at` order. Without
-     *  it every cron tick sequentially scans a table that only ever grows. */
+    /** The relay's claim query's access path: due, unfinished jobs in `next_attempt_at` order.
+     *  Without it every cron tick sequentially scanned a table that only ever grows. */
     byDue: index("relay_jobs_due_idx").on(table.status, table.nextAttemptAt),
   }),
 );
@@ -250,16 +251,18 @@ export const solverInventorySnapshots = pgTable("solver_inventory_snapshots", {
 });
 
 /**
- * Pagination cursors for chain watchers, one row per (service, stream).
+ * Pagination cursors for chain watchers, one row per (service, stream). Its only writer was the
+ * relay's Stellar burn watcher, removed with the relay on 2026-09-24; kept, like `relay_jobs`,
+ * so the schema still matches databases already migrated.
  *
  * Soroban RPC's `getEvents` is cursor-paginated and its cursors are opaque strings, not ledger
- * numbers. Keeping the cursor in Postgres rather than in memory is what makes a relay restart
+ * numbers. Keeping the cursor in Postgres rather than in memory is what made a relay restart
  * resume where it stopped: an in-memory cursor restarts from `startLedger` on every deploy,
  * which either re-scans days of history or — once the RPC's retention window has passed the
  * start ledger — silently skips every burn in between.
  *
- * Duplicate scans are harmless (`relay_jobs_source_tx_idx` makes a repeat a no-op); gaps are
- * not, so the cursor is only ever advanced after a batch is fully durable.
+ * Duplicate scans were harmless (`relay_jobs_source_tx_idx` made a repeat a no-op); gaps were
+ * not, so the cursor was only ever advanced after a batch was fully durable.
  */
 export const watcherCursors = pgTable("watcher_cursors", {
   /** `<service>:<stream>`, e.g. `cctp-relay:stellar-burns`. */

@@ -53,7 +53,7 @@ export const EVM_STEP_LABEL: Record<EvmBridgeStep, (source: string) => string> =
   burning: () => "Confirm the transfer in your wallet (2 of 2)",
 };
 
-/** Long enough for an Ethereum transaction priced low; the node is the wallet's, not ours. */
+/** Long enough for a transaction priced low on a busy chain; the node is the wallet's, not ours. */
 const RECEIPT_TIMEOUT_MS = 10 * 60_000;
 const RECEIPT_POLL_MS = 2_000;
 

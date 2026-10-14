@@ -15,9 +15,8 @@ against injected `FillAdapter`/`ClaimAdapter` interfaces — 4 tests, no live ne
   compiled against the real SDK types). Not exercised against a live Soroban RPC.
 
 `decode-intent-event.ts` reconstructs an `IntentV2` directly from a live `IntentOpened`
-`ChainEvent`'s payload (5 tests) rather than reading it back from Postgres — see the repo
-README's Status section for why (the Kafka→DB projector that would populate `intents` doesn't
-exist yet).
+`ChainEvent`'s payload (5 tests) rather than reading back the `intents` rows `apps/projector` writes
+from the same events.
 
 Inventory tracking (`getBalance` in `index.ts`) is a placeholder returning "always sufficient" —
 wiring real SPL balance checks is a `TODO` there.

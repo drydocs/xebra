@@ -1,5 +1,12 @@
 # Going live
 
+**Status (2026-10-14):** steps 1–5 of §5 are done, and the app has since moved from wrapper v1 and
+the relay to wrapper v2 and Circle's Forwarding Service (merged 2026-09-30; see
+[`cutover-v2.md`](./cutover-v2.md) and [`relay-removal.md`](./relay-removal.md)). There is no relay,
+no hot wallet and no relay secret: a failed forward is claimed by its owner at `/claim`. Arc is
+switched on. What is still open is steps 6–8 of §5. The v1 and relay material below is kept as the
+record of how launch was planned.
+
 What has to happen before anyone who is not us can connect a wallet and bridge USDC, split by
 who can do it. Ordered so that nothing later depends on something earlier being skipped.
 
@@ -15,6 +22,12 @@ The frontend is deployed at [xebra-sandy.vercel.app](https://xebra-sandy.vercel.
 ---
 
 ## 1. Decide the fee, because the current defaults lose money on some transfers
+
+**Decided (2026-09-09): option 2.** v1 shipped with a 0.30 USDC floor plus a 0.70 USDC account fee
+charged only to first-time recipients, and `scripts/deploy-cctp-wrapper.sh` now defaults to those
+values and to Circle's 10M USDC per-message cap for `MAX_TRANSFER`. On v2, Circle pays the
+destination costs and takes them out of the fee, so the lamport table below no longer applies; v2
+was deployed with `max_transfer` 100 USDC.
 
 `scripts/deploy-cctp-wrapper.sh` defaults to `FEE_BPS=10` (0.10%) and `MIN_FEE=5000000`
 (0.50 USDC). Measured costs per transfer, on the Solana side, paid by us:
@@ -59,40 +72,36 @@ The deploy script requires four Stellar addresses and refuses to run without the
 **`ADMIN` and `PAUSER` must be different keys held by different people.** The pauser exists so
 that a compromised admin can still be stopped by someone who is not the attacker. If one person
 holds both, that check does not exist. The script warns and continues; it cannot know who holds
-what.
+what. (v2's script, `scripts/deploy-cctp-wrapper-v2.sh`, reuses v1's four from
+`deployments/mainnet.json`.)
 
-A Solana hot wallet for the relay. It pays every mint, and it will be drained by ordinary
-operation — budget refills, not a one-time transfer. The current one
-(`BswkfXXywbVo8tesK4sWkrpsaVYUy3zaJuQYTCChGpG2`, key in the git-ignored `.secrets/`) holds
-enough for a handful of transfers. Its key must reach the relay through Secrets Manager and
-nothing else; it must never be in an env file or a container image.
+There is no longer a Solana hot wallet. The relay's (`BswkfXXywbVo8tesK4sWkrpsaVYUy3zaJuQYTCChGpG2`)
+was emptied on 2026-09-21 and removed with the relay; Circle's Forwarding Service pays destination
+gas.
 
 ### Accounts
 
-The deployment is Vercel for the UI and Convex for the relay. See `docs/deploying.md` for the
-mechanics; this is only the list of things that need an account and a card.
+The deployment is Vercel for the UI and Convex for one shared rate counter. See `docs/deploying.md`
+for the mechanics; this is only the list of things that need an account and a card.
 
-- **Convex, free.** Holds relay state and runs the minute-by-minute heartbeat. 1M function calls
-  a month; the relay uses a fraction of it.
+- **Convex, free.** Holds the counter that keeps our calls to Circle's Iris API under its rate
+  limit. 1M function calls a month; the counter uses a fraction of it.
 - **Vercel, Pro.** $20/month. Not for the features — for the terms: Hobby is restricted to
-  non-commercial use, and taking a bridge fee is commercial. Because the schedule lives in Convex,
-  Hobby is functionally complete while you are still testing with your own money.
+  non-commercial use, and taking a bridge fee is commercial. Nothing needs Vercel Cron, so Hobby
+  is functionally complete while you are still testing with your own money.
 - **A domain**, if you want one that is not `*.vercel.app`. Vercel handles the certificate.
 
 That is the whole list. There is no AWS, no container registry, no Redis and no Kafka in this
-deployment: `infra/terraform` and the other eight services stay in the repo for anyone who wants
+deployment: `infra/terraform` and the other seven services stay in the repo for anyone who wants
 to self-host, and are not on this path.
 
 ### Secrets to generate and store
 
-On the **Convex** deployment (`npx convex env set`), which is where the relay runs:
+- `IRIS_BUDGET_SECRET` — the same long random value on the **Convex** deployment
+  (`npx convex env set`) and on **Vercel**.
+- `ADMIN_PASSWORD` — on **Vercel**, at least 16 characters, for `/admin`.
 
-- `RELAY_SOLANA_KEYPAIR` — the hot wallet secret. Base58, base64 or a keygen byte array; all
-  three are accepted.
-- `RELAY_SUBMIT_TOKEN` — optional, and only for operations: it bypasses the relay's admission
-  bounds so an old burn can be re-driven by hand.
-
-On **Vercel**: `CONVEX_URL`, and `RELAY_SUBMIT_TOKEN` if you set one.
+Also on Vercel, not secret: `CONVEX_URL`.
 
 Both platforms encrypt these at rest and decrypt them into the function at invocation. That is
 better than the ECS arrangement the Terraform describes, where secrets land as plaintext process
@@ -106,8 +115,12 @@ outside what this repo can answer and worth settling before launch rather than a
 
 ## Turning on Arc
 
+**Done.** Wrapper v2 was deployed with domain 26 forwarded, so steps 1 and 2 below no longer apply
+(there is no relay to hold an Arc key), and production is built with `NEXT_PUBLIC_ARC_ENABLED=1`.
+
 Stellar → Arc runs over the same wrapper and the same fee schedule as Solana. Every part of it is
-built and tested; what remains needs a key or a decision. **Nothing here has moved real money yet.**
+built and tested; what remains needs a key or a decision. **Nothing here had moved real money when
+this was written.**
 
 What was verified against the live chains (`pnpm check:arc` repeats it, read-only): Arc is chain
 5042; its TokenMessengerV2 holds Stellar's messenger as domain 27 and Stellar's holds Arc's as
@@ -116,7 +129,7 @@ Iris prices `27 → 26` for both Fast and Standard.
 
 In this order, because each step depends on the one before:
 
-1. **Commit domain 26 on the wrapper.** Only domain 5 is allowed today (`get_domains` →
+1. **Commit domain 26 on the wrapper.** Only domain 5 was allowed on v1 (`get_domains` →
    `[{"domain":5,"evm_style":false}]`), so an Arc burn would revert with `DomainNotAllowed`. As
    `ADMIN`: `propose_domain` with `{"domain":26,"evm_style":true}`, wait out the 48-hour timelock,
    then `commit_domain`. `evm_style: true` is what makes the contract insist on a left-padded
@@ -125,14 +138,15 @@ In this order, because each step depends on the one before:
    `RELAY_ARC_PRIVATE_KEY` on Convex, and send it a few USDC on Arc. Do not reuse another key.
    The relay's `health` action (and `/api/health`) reports this wallet next to the Solana one.
 3. **Run one transfer yourself** before anyone else can: burn a small amount to an Arc address you
-   control, and watch it arrive. This is the first real Arc mint; the gas figure in
-   `packages/cctp-evm/src/health.ts` is an assumption until it has one to be measured against.
+   control, and watch it arrive. This is the first real Arc mint; the gas figure in the relay's
+   `packages/cctp-evm/src/health.ts` (deleted with the relay) was an assumption until then.
 4. **Flip `NEXT_PUBLIC_ARC_ENABLED=1`** in Vercel and redeploy. It is inlined at build time, so a
    running deployment cannot be switched over — which is the point: the UI should not offer Arc
    until 1 and 2 are done.
 
-The fee is unchanged (0.10%, 0.30 USDC floor). The 0.70 USDC account fee is Solana rent and never
-applies to Arc: an Arc mint credits an ERC-20 balance and creates nothing.
+The fee is the same as Solana's (0.10%, 0.30 USDC floor), and Circle's delivery fee comes out of it.
+v2 charges no separate account fee (`account_fee` is 0): opening a Solana token account is priced
+inside Circle's delivery fee, and an Arc mint creates nothing.
 
 Known gaps, none of which lose money silently but all worth knowing:
 
@@ -144,6 +158,8 @@ Known gaps, none of which lose money silently but all worth knowing:
   for both thresholds today.
 
 ## 3. One more reason to deploy the wrapper early
+
+Moot since the relay was removed: nobody sponsors a mint any more, so there is nothing to grief.
 
 Until it exists, nothing on chain distinguishes a burn made through this app from any other CCTP
 user's burn on Stellar — Circle's contract serves everyone. So `/api/relay/burns` cannot tell whose
@@ -165,16 +181,16 @@ Done since this document was first written, so you do not have to ask for them:
 - The self-serve claim page (`/claim`), so a user can complete their own transfer when nobody
   sponsors the mint. This is what makes the no-hang promise usable rather than merely true.
 - Hot-wallet alerting: a Convex cron that fails loudly, and `GET /api/health` returning 503 for any
-  free uptime monitor to page on.
+  free uptime monitor to page on. Both went with the relay.
 - CI, running lint, typecheck, `vitest`, `cargo test` and `forge test` on every push. `pnpm lint`
   had never passed before this; it does now.
 
-What is still genuinely open is §7 and §8 below: the bug bounty has not been published, and
+What is still genuinely open is steps 6–8 of §5 below: the bug bounty has not been published, and
 `MAX_TRANSFER` has not been raised past its cautious starting value.
 
 Not on the deployment path: seeding `chains`, `assets` and `corridors`. They have readers and no
 writer, so `apps/api` throws on every quote against an empty table — but the bridge UI quotes from
-a Soroban simulation and the relay does not touch them, so nothing deployed here needs it.
+a Soroban simulation and Circle's API, so nothing deployed here needs it.
 
 ## 5. Sequence
 

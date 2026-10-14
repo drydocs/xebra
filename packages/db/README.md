@@ -7,7 +7,7 @@ docs/architecture.md §10).
 
 ```bash
 docker compose up -d postgres   # from repo root
-cp .env.example .env             # set DATABASE_URL
+export DATABASE_URL=postgres://xebra:xebra@localhost:5432/xebra   # docker-compose's credentials
 pnpm generate                    # regenerate drizzle/ SQL after a schema.ts change
 pnpm migrate                     # apply migrations
 ```
@@ -22,6 +22,6 @@ TEST_DATABASE_URL=postgres://xebra:xebra@localhost:5432/xebra pnpm test:integrat
 `src/schema.integration.test.ts` round-trips a full corridor + intent through real foreign keys
 (including verifying FK enforcement rejects a dangling reference) — this has been run against a
 live Postgres, not just typechecked. All 9 tables and 11 foreign keys from docs/architecture.md
-§10 generate and apply cleanly; `cctp_transfers` and `relay_jobs` reference each other
+§10 generate and apply cleanly (the schema has since gained a tenth table, `watcher_cursors`); `cctp_transfers` and `relay_jobs` reference each other
 one-directionally only (`relay_jobs.cctp_transfer_id -> cctp_transfers.id`) — a second FK the
 other way was removed deliberately to avoid a circular table dependency.

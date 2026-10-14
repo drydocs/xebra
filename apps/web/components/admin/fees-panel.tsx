@@ -112,7 +112,7 @@ export function FeesPanel({ state, role, busy, request }: PanelProps) {
           value={f.accountFee}
           onChange={set("accountFee")}
           current={stroopsToField(live.accountFee)}
-          hint="Legacy relay path. 0 on forwarded routes. Ceiling 2."
+          hint="Unforwarded transfers only; the app sends none. Ceiling 2."
           disabled={role === "viewer"}
         />
         <NumField

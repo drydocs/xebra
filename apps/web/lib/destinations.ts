@@ -2,13 +2,14 @@ import { checkArcAddress } from "./arc-address";
 import { type AddressCheck, checkSolanaAddress } from "./solana-address";
 
 /**
- * Where a transfer can land.
+ * Where a transfer from Stellar can land. (A transfer from an EVM chain has its own:
+ * `lib/route-destination.ts`.)
  *
  * The domain ids are Circle's and never change (`packages/network-config` pins and tests them);
  * they are literals here for the reason `lib/env.ts` gives — the browser bundle should not
  * import the whole preset table to learn two integers.
  *
- * Everything that differs by destination is answered here, once, so the bridge screen asks
+ * Everything that differs by destination is answered here, once, so the Stellar form asks
  * `DESTINATIONS[id]` instead of branching on a chain name in a dozen places.
  */
 export type DestinationId = "solana" | "arc";

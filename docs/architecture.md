@@ -1,5 +1,12 @@
 # Xebra v2 — Stellar-as-Hub, Stellar→Solana Corridor
 
+**Status (2026-10-14):** this is the design written before the build, kept as history. What runs
+today is narrower: the CCTP rail goes through the Soroban wrapper v2, and Circle's Forwarding Service
+mints on the destination. There is no `cctp-relay` (deleted 2026-09-24), nothing on the deployment
+path uses Postgres, Redis, Redpanda or ECS, and the frontend connects wallets through Freighter,
+EIP-6963 and the Wallet Standard (no wagmi). Arc also sends to fourteen EVM chains and Solana by
+calling Circle directly. See the [README](../README.md).
+
 ## Context
 
 Xebra v1 (specced, not yet built) is a single corridor: Arc→Stellar, intent-based swap-capable bridge. The user now wants to extend this into a generalized, production-grade multi-chain system where **Stellar becomes the settlement hub**, adding a new **Stellar→Solana** corridor, using **CCTP** as the plain-USDC rail alongside the existing intent+escrow+solver model as the swap rail. This is greenfield — the repo currently contains only the spec markdown, no code — so this plan defines the system from scratch rather than modifying existing implementation.

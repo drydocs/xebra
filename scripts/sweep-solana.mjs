@@ -2,11 +2,14 @@
 /**
  * Moves every token and all SOL out of the two leftover Solana wallets into one destination.
  *
+ * Ran on 2026-09-21, when the relay was removed (docs/relay-removal.md), and emptied both wallets.
+ * Kept for the record, and for anything that lands in them later.
+ *
  * Default is a DRY RUN: it reads chain state, builds the transactions, SIMULATES them, and prints
  * the plan. It sends nothing. To send, set CONFIRM to the exact sentence the plan ends with.
  *
  * Wallets swept (both are ours, keys in the git-ignored .secrets/):
- *   - the relay hot wallet:  .secrets/solana-relayer.json
+ *   - the old relay's hot wallet:  .secrets/solana-relayer.json
  *   - the test wallet:       .secrets/mainnet-test-wallets/solana-fresh-1.json
  *
  * What it does, and why in this order:

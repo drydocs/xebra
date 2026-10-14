@@ -1,5 +1,11 @@
 # Cutover to wrapper v2
 
+**Status (2026-10-14): carried out.** `forwarding-v2` was merged to `main` on 2026-09-30 (87fa729), and
+production (built from `main`) points at v2 with Arc switched on; `/api/relay/*` and `/api/health` are
+404 and `scripts/smoke-prod.sh` passes. Of "After cutover": Arc is enabled, the admin panel shows both
+contracts' remaining rent, and the docs have been rewritten. v1 is still deployed and not paused, and
+v2's `max_transfer` is still 100 USDC. Everything below is the checklist as written.
+
 Written 2026-09-24. What it takes to move the live app from wrapper v1 plus the relay to wrapper v2
 plus Circle's Forwarding Service, in order, with how to tell each step worked and how to back out.
 

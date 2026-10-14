@@ -1,10 +1,10 @@
 /**
- * @xebra/projector — the "Kafka->DB projector" flagged throughout this codebase as a known gap
- * (docs/architecture.md §8's service table). Consumes the event backbone and populates
- * packages/db's tables so apps/api serves real live state instead of only whatever a manual
- * seed put in Postgres, apps/solver can read intents from the DB instead of raw events, and
- * apps/arbiter-service can look up a challenged claim's details. See projector.ts for exactly
- * what is and isn't projected yet.
+ * @xebra/projector — the Kafka->DB projector (the "indexer→API projection" consumer in
+ * docs/architecture.md §8). Consumes the event backbone and populates packages/db's tables so
+ * apps/api serves real live state instead of only whatever a manual seed put in Postgres,
+ * apps/solver can read intents from the DB instead of raw events, and apps/arbiter-service can
+ * look up a challenged claim's details. See projector.ts for exactly what is and isn't
+ * projected yet.
  */
 
 import { createDb } from "@xebra/db";

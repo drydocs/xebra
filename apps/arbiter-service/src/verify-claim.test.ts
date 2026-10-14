@@ -127,8 +127,8 @@ describe("verifyClaimAgainstDestinationChain", () => {
   it("returns ok=false (can't verify yet) for a destination chain with no verifier", async () => {
     const connection = { getParsedTransaction: vi.fn() } as unknown as Connection;
 
-    // Arc is only ever a source chain in this system, never a real destination — stands in for
-    // "some chain nobody has wired verification for."
+    // Arc is only ever a source chain on the intent rail, never an intent's destination — stands
+    // in for "some chain nobody has wired verification for."
     const result = await verifyClaimAgainstDestinationChain(
       connection,
       unusedStellarSource,

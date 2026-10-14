@@ -32,7 +32,7 @@ import { parseArcReceivesFrom, parseArcSendsTo } from "./evm-chains";
  *
  * # Why there are no fallbacks
  *
- * Because `NEXT_PUBLIC_*` is baked in at build time, a production container cannot correct a
+ * Because `NEXT_PUBLIC_*` is baked in at build time, a production deployment cannot correct a
  * frontend built against the wrong network. The previous defaults made that dangerous:
  *
  *   lib/wagmi.ts:  process.env.NEXT_PUBLIC_ARC_CHAIN_ID ?? "9001"          // anvil
@@ -80,7 +80,7 @@ function required(name: RawKey): string {
   const value = RAW[name];
   if (!value || value.trim() === "") {
     throw new Error(
-      `${name} is not set. NEXT_PUBLIC_* values are inlined at BUILD time, so this must be present when the bundle is compiled — as a Docker build arg in CI, or via \`pnpm dev\` which loads .env.local. See docs/environments.md.`,
+      `${name} is not set. NEXT_PUBLIC_* values are inlined at BUILD time, so this must be present when the bundle is compiled — as an environment variable on Vercel or in CI, or via \`pnpm build\` / \`pnpm dev\`, which load .env.production through scripts/with-env.mjs. See docs/environments.md.`,
     );
   }
   return value.trim();
@@ -115,19 +115,26 @@ export const env = {
   usdcSacAddress: required("NEXT_PUBLIC_STELLAR_USDC_SAC_ADDRESS"),
   /** Circle's TokenMessengerMinter, read client-side for the live burn fee. */
   cctpTokenMessengerId: required("NEXT_PUBLIC_STELLAR_TOKEN_MESSENGER_ADDRESS"),
-  /** CCTP domain of the destination chain. Solana is 5. */
+  /**
+   * Solana's CCTP domain (5). A Stellar transfer's domain comes from the destination picked
+   * (`lib/destinations.ts`); this only fills the admin panel's config, which sends no transfer.
+   */
   destinationDomain: Number(required("NEXT_PUBLIC_SOLANA_CCTP_DOMAIN_ID")),
-  /** Destination-chain RPC, used only to confirm the recipient token account exists. */
+  /**
+   * Solana RPC, used server-side to confirm a recipient's token account exists (`/api/recipient`)
+   * and behind the claim page's proxy (`/api/solana-rpc`), and by `/recover` to submit.
+   */
   solanaRpcUrl: required("NEXT_PUBLIC_SOLANA_RPC_URL"),
-  /** USDC mint on the destination chain, for deriving the recipient token account. */
+  /** Solana's USDC mint, for deriving a recipient's token account. */
   usdcSolanaMint: required("NEXT_PUBLIC_SOLANA_USDC_MINT"),
   /**
-   * Whether Arc is offered as a destination. Off unless set to exactly `1`.
+   * Whether Arc is offered as a destination from Stellar. Off unless set to exactly `1`.
    *
    * A switch and not an inference, because two things outside this bundle have to be true first:
-   * the wrapper's admin must have committed domain 26 (`propose_domain`, then `commit_domain`
-   * after the 48-hour timelock), and the relay must hold an Arc key. Offering Arc before either
-   * would let someone sign a transfer the contract rejects, or burn one nobody sponsors. The
+   * the wrapper must accept domain 26 (v2 was deployed with it; another wrapper's admin would
+   * `propose_domain`, then `commit_domain` after the 48-hour timelock), and Circle's Forwarding
+   * Service must be seen delivering a transfer to Arc through it. Offering Arc before either
+   * would let someone sign a transfer the contract rejects, or burn one nobody delivers. The
    * flag is flipped when both are done, by the person who did them.
    */
   arcEnabled: optional("NEXT_PUBLIC_ARC_ENABLED") === "1",
@@ -140,8 +147,10 @@ export const env = {
    *   - `NEXT_PUBLIC_ARC_RECEIVES_FROM`: which EVM chains may send into Arc.
    *
    * Lists and not a yes/no because these routes have no contract of ours to refuse a bad one, so
-   * each direction of each chain is switched on only once a transfer has gone through it
-   * (`scripts/test-evm-arc-forwarding-mainnet.sh`). A name that is not a chain fails the build.
+   * a direction is meant to be switched on once a transfer has gone through it: Arc to all fifteen
+   * went live after one testnet transfer each (2026-10-14), and
+   * `scripts/test-evm-arc-forwarding-mainnet.sh` does the same with real money. A name that is not
+   * a chain fails the build.
    * They gate *starting* a transfer only: `/claim` and the status routes serve every route
    * regardless, so a transfer already made is never stranded by a flag.
    */
@@ -161,10 +170,10 @@ export const env = {
    */
   apiUrl: optional("NEXT_PUBLIC_API_URL"),
   /**
-   * Optional until the wrapper is deployed to this network. Deliberately not `required()`:
-   * the alternatives are blocking the build before deployment, or inventing a placeholder —
+   * Optional, as it had to be before the wrapper was deployed. Deliberately not `required()`:
+   * the alternatives were blocking the build before deployment, or inventing a placeholder —
    * and a placeholder contract id in a mainnet bundle is exactly the kind of value that
-   * silently sends funds nowhere. Absent means "the CCTP rail is unavailable in this build".
+   * silently sends funds nowhere. Absent means "the Stellar route is unavailable in this build".
    */
   cctpWrapperContractId: optional("NEXT_PUBLIC_STELLAR_CCTP_WRAPPER_CONTRACT_ID"),
   /** The retired v1 wrapper. Read-only, and only so the admin panel can show its rent running down
@@ -172,7 +181,7 @@ export const env = {
   legacyWrapperContractId: optional("NEXT_PUBLIC_STELLAR_CCTP_WRAPPER_LEGACY_CONTRACT_ID"),
 } as const;
 
-/** Whether the CCTP-direct rail can be offered in this build. */
+/** Whether the Stellar route, through the wrapper, can be offered in this build. */
 export const isCctpRailConfigured = env.cctpWrapperContractId !== null;
 
 /** True only for a build that will touch real money. Use it to gate destructive UI. */

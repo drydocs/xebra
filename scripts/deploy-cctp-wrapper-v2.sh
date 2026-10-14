@@ -2,7 +2,8 @@
 #
 # Deploys contracts/stellar-cctp-wrapper-v2 (Circle Forwarding Service wrapper) to Stellar MAINNET and
 # records it in deployments/mainnet.json under `cctpWrapperV2`. v1's entry (`cctpWrapper`) is left
-# untouched: v1 stays live until the web app is cut over.
+# untouched: v1 is retired since the cutover, but its record still supplies the Circle addresses and
+# roles read below.
 #
 # Default is a DRY RUN. It runs every gate, prints the exact constructor arguments, and validates the
 # transaction by BUILDING it (`--build-only`), which encodes the arguments against the wasm's own

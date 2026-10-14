@@ -27,6 +27,8 @@ pnpm dev      # mainnet
 pnpm build    # mainnet
 pnpm check:env
 pnpm check:cctp
+pnpm check:arc
+pnpm check:evm
 ```
 
 `pnpm dev` points the UI at real money. That is safe to *browse* — quotes are Soroban
@@ -55,9 +57,9 @@ not from documentation.
 - `NETWORK` missing — **there is no default**, deliberately.
 - `NETWORK` set to anything but `mainnet` (a stale `NETWORK=testnet` fails loudly).
 - A network passphrase that is not the mainnet one.
-- Any endpoint containing `testnet`, `devnet`, `sandbox`, `localhost`, `127.0.0.1`.
+- Any endpoint containing `testnet`, `devnet`, `sandbox`, `localhost`, `127.0.0.1`, `0.0.0.0`.
 - An overridden Circle contract address (they are pinned).
-- A wrong CCTP domain id (Stellar 27, Solana 5).
+- A wrong CCTP domain id (Stellar 27, Solana 5, Arc 26), or an Arc chain id other than 5042.
 - Anything but production Iris — attest against the sandbox and burns stay "pending" forever.
 - Any empty CCTP address.
 
@@ -95,6 +97,8 @@ client/server bundling differences.
 ```bash
 pnpm check:env     # no secrets, correct tracking, coherent, client-bundle hygiene
 pnpm check:cctp    # our trait vs the live mainnet Circle contract
+pnpm check:arc     # every Arc constant vs the live chains
+pnpm check:evm     # every Arc <-> EVM route constant vs the live chains
 ```
 
 `check-env-files.sh` blocks secret-shaped keys (`*SECRET*`, `*PRIVATE_KEY*`, `*KEYPAIR*`,
@@ -105,35 +109,32 @@ ignore.
 
 ## Secrets
 
-Never in these files. In the deployed app the relay's secrets are Convex environment variables and
-`CONVEX_URL` is a Vercel one — see `docs/deploying.md`. The list below also covers the self-hosted
-container path, where they come from AWS Secrets Manager at runtime:
+Never in these files. The deployed app has two: `IRIS_BUDGET_SECRET`, the same value on the Convex
+deployment and in Vercel, and `ADMIN_PASSWORD`, in Vercel only. `CONVEX_URL` is a Vercel variable
+too — see `docs/deploying.md`. Neither secret can move money: the first guards the Iris rate
+counter, the second is a convenience gate in front of `/admin`, whose writes are authorised on chain.
+Neither may ever be a `NEXT_PUBLIC_*` variable; `check-env-files.sh` blocks `*SECRET*` and
+`*PASSWORD*` from both env files.
 
-`RELAY_SOLANA_KEYPAIR`, `RELAY_SUBMIT_TOKEN`, `SOLVER_SOLANA_KEYPAIR`,
-`SOLVER_STELLAR_SECRET`, `DATABASE_URL`, and any credential-bearing `REDIS_URL` /
-`KAFKA_BROKERS`.
-
-`RELAY_SUBMIT_TOKEN` is shared between the relay and `apps/web`'s server-side
-`/api/relay/burns` route, and only bypasses the relay's admission bounds for operations. It gates
-who can spend the relay's SOL, not who can receive funds —
-losing it cannot strand a transfer, because a burn stays claimable by anyone holding the
-attestation. It must never be a `NEXT_PUBLIC_*` variable; `check-env-files.sh` blocks the
-`*_TOKEN` suffix from both env files for exactly this reason.
+The self-hosted container path has its own, from AWS Secrets Manager at runtime:
+`SOLVER_SOLANA_KEYPAIR`, `SOLVER_STELLAR_SECRET`, `DATABASE_URL`, and any credential-bearing
+`REDIS_URL` / `KAFKA_BROKERS`.
 
 One known issue, tracked, not yet fixed — and it applies only to the self-hosted container path:
 
 - ECS injects Secrets Manager values as **plaintext process env**, so anything that can read
-  `/proc/<pid>/environ` or dump a task definition gets the relay and solver hot wallets. Only
+  `/proc/<pid>/environ` or dump a task definition gets the solver's hot wallets. Only
   the arbiter uses KMS properly. Vercel is not affected: it decrypts into the function at
   invocation.
 
 ## Promotion checklist
 
 1. `scripts/check-cctp-interface.sh` — Circle can redeploy.
-2. Deploy the wrapper: `SOURCE=… ADMIN=… PAUSER=… FEE_RECIPIENT=… scripts/deploy-cctp-wrapper.sh`
-   (gated on the interface check, the test suite, a release build, and a typed confirmation).
-3. Fill `STELLAR_CCTP_WRAPPER_CONTRACT_ID` and `NEXT_PUBLIC_STELLAR_CCTP_WRAPPER_CONTRACT_ID`
-   in `.env.production` from `deployments/mainnet.json`.
+2. Deploy the wrapper: `scripts/deploy-cctp-wrapper-v2.sh` (dry run by default; gated on the
+   interface check, the test suite, a release build, the deployer's XLM, and a typed confirmation).
+   It takes `ADMIN`, `PAUSER` and `FEE_RECIPIENT` from v1's record in `deployments/mainnet.json`.
+3. Fill `NEXT_PUBLIC_STELLAR_CCTP_WRAPPER_CONTRACT_ID` in `.env.production` from
+   `deployments/mainnet.json` (`cctpWrapperV2`).
 4. Set the `NEXT_PUBLIC_*` values in Vercel **before** the build — they are inlined at build
    time, so setting them afterwards is a no-op. (On the container path they are Docker build
    args, for the same reason.)
@@ -142,4 +143,5 @@ One known issue, tracked, not yet fixed — and it applies only to the self-host
 
 `ADMIN` and `PAUSER` must be different keys held by different operators. The pauser exists so
 a compromised admin can still be stopped by someone else; making them the same address
-removes the only check on a stolen admin key. The deploy script warns, but does not block.
+removes the only check on a stolen admin key. v1's deploy script (`scripts/deploy-cctp-wrapper.sh`)
+warns, but does not block; v2's reuses v1's addresses.

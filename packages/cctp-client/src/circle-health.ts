@@ -5,11 +5,11 @@ import { type BudgetStore, type BudgetUsage, IrisUnavailable } from "./iris-budg
  *
  * # What this is for
  *
- * A transfer here is a burn on Stellar followed by Circle minting on the destination. If Circle's
- * side is down when the user signs, the burn still happens and the USDC is gone from their wallet
- * until someone mints it — and with no relay, that someone is the user, paying gas on a chain they
- * may hold nothing on. Refusing to *start* a transfer while Circle is visibly unwell costs nothing
- * and avoids that.
+ * A transfer here is a burn on the source chain (Stellar, Arc or another EVM chain) followed by
+ * Circle minting on the destination. If Circle's side is down when the user signs, the burn still
+ * happens and the USDC is gone from their wallet until someone mints it — and with no relay, that
+ * someone is the user, paying gas on a chain they may hold nothing on. Refusing to *start* a
+ * transfer while Circle is visibly unwell costs nothing and avoids that.
  *
  * # What it checks
  *

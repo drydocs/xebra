@@ -25,7 +25,8 @@ const EVENT_TOPIC_TO_TYPE: Record<string, ChainEventType> = {
   intent_resolved: "IntentResolved",
   intent_finalized: "IntentFinalized",
   intent_refunded: "IntentRefunded",
-  // CCTP-direct rail, emitted by contracts/stellar-cctp-wrapper rather than the escrow.
+  // CCTP-direct rail, emitted by the CCTP wrapper (contracts/stellar-cctp-wrapper and its
+  // successor, stellar-cctp-wrapper-v2, use the same topic) rather than the escrow.
   // `extractIntentHash` correctly yields `null` for this one — it carries `transfer_id`, not
   // `intent_hash`, and a plain CCTP transfer is not tied to an intent (see `ChainEvent`'s
   // own note on the nullable `intentHash`). The wrapper's operational events

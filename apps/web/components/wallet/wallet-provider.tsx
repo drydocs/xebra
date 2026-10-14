@@ -31,8 +31,9 @@ import { WalletModal } from "./wallet-modal";
 /**
  * One place that knows which wallets exist and which are connected, across Stellar, Solana and EVM.
  *
- * A person can hold all three at once (a Stellar wallet to pay, a Solana or EVM wallet to name the
- * recipient), so connections are per family and independent; connecting one never disturbs another.
+ * A person can hold all three at once (a Stellar or EVM wallet to pay, a Solana or EVM wallet to
+ * name the recipient), so connections are per family and independent; connecting one never
+ * disturbs another.
  * Nothing reconnects on load: a wallet prompt the user did not ask for is worse than one extra tap.
  */
 interface WalletContextValue {

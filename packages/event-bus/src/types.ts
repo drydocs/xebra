@@ -1,9 +1,8 @@
 /**
  * @xebra/event-bus — the Redpanda/Kafka event backbone (docs/architecture.md §8): chain
- * watchers (apps/indexer-*) publish normalized `ChainEvent`s here; apps/api's DB-projection
- * consumer, apps/solver, and apps/cctp-relay all subscribe independently. This is the "what
- * happened" tier — durable, replayable facts — distinct from BullMQ's "do this" job-queue tier
- * used inside apps/cctp-relay.
+ * watchers (apps/indexer-*) publish normalized `ChainEvent`s here; apps/projector (the DB
+ * projection), apps/solver and apps/arbiter-service all subscribe independently. This is the
+ * "what happened" tier — durable, replayable facts — distinct from a job queue's "do this" tier.
  */
 
 export const CHAIN_EVENTS_TOPIC = "xebra.chain-events";

@@ -17,8 +17,8 @@ const ICONS: Record<Tone, (props: { className?: string }) => React.ReactElement>
 };
 
 /**
- * An inline message with a status. Used for the direct-mode explainer, the submitted receipt
- * and every failure — one component, so a thrown error can never render as bare red text
+ * An inline message with a status. Used for the submitted receipt, word about the recipient
+ * or Circle's state, and every failure — one component, so a thrown error can never render as bare red text
  * hanging off the bottom of the plate.
  *
  * Failures carry `role="alert"`; the other tones do not, because announcing a static

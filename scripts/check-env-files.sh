@@ -4,7 +4,7 @@
 #
 # `.env.production` is deliberately NOT committed — a .env in a repository reads as a mistake
 # regardless of its contents, and the authoritative constants live in packages/network-config
-# as typed, validated presets. `.env.production.example` is tracked so a checkout can run
+# as a typed, validated preset. `.env.production.example` is tracked so a checkout can run
 # `cp .env.production.example .env.production` and go.
 #
 # Both files are checked, because:
@@ -150,6 +150,6 @@ if [ "$FAILED" -eq 0 ]; then
   echo "env OK"
 else
   echo >&2
-  echo "Secrets belong in AWS Secrets Manager, injected at runtime — never in a tracked file." >&2
+  echo "Secrets belong in the host's environment (Vercel and Convex; AWS Secrets Manager on the container path), injected at runtime — never in a tracked file." >&2
   exit 1
 fi

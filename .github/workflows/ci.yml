@@ -1,9 +1,9 @@
 name: CI
 
 # Runs on every push and pull request. The point is not ceremony: this repo holds a Soroban
-# contract that will hold mainnet approval rights and a relay that spends a hot wallet, and the
-# tests that guard both — the fee arithmetic, the CCTP message offsets, the idempotency that stops
-# a double mint — are worth nothing if nobody runs them before a change lands.
+# contract live on mainnet and a web app that builds the transfers users sign, and the tests that
+# guard both — the fee arithmetic, the CCTP message offsets, the bounds on Circle's `max_fee` — are
+# worth nothing if nobody runs them before a change lands.
 
 on:
   push:
@@ -85,12 +85,12 @@ jobs:
             contracts/stellar-cctp-wrapper -> target
             contracts/stellar-cctp-wrapper-v2 -> target
 
-      # The wrapper is the contract that will hold mainnet approval rights. Its tests cover the
-      # fee arithmetic, the parameter ceilings a compromised admin cannot exceed, and the
-      # no-hang paths where a failure must revert the whole transaction.
+      # v1 is the retired wrapper; v2 below inherits its suite. These tests cover the fee
+      # arithmetic, the parameter ceilings a compromised admin cannot exceed, and the no-hang
+      # paths where a failure must revert the whole transaction.
       - run: cargo test --manifest-path contracts/stellar-cctp-wrapper/Cargo.toml
-      # v2 is the forwarding wrapper (docs/forwarding-wrapper.md). It inherits v1's suite and adds
-      # the tests that bound the one new risk: Circle charges the whole `max_fee`.
+      # v2 is the forwarding wrapper (docs/forwarding-wrapper.md), live on mainnet. It inherits v1's
+      # suite and adds the tests that bound the one new risk: Circle charges the whole `max_fee`.
       - run: cargo test --manifest-path contracts/stellar-cctp-wrapper-v2/Cargo.toml
       - run: cargo test --manifest-path contracts/stellar-soroban/Cargo.toml
 

@@ -34,8 +34,8 @@ if (!actual) {
   die(
     "NEXT_PUBLIC_NETWORK is not set.\n" +
       "  NEXT_PUBLIC_* values are inlined at BUILD time, so they must be present when the\n" +
-      "  bundle is compiled — as Docker build args in CI, or via `pnpm build` / `pnpm dev`,\n" +
-      "  which load .env.production through scripts/with-env.mjs.",
+      "  bundle is compiled — as environment variables on Vercel or in CI, or via `pnpm build`\n" +
+      "  / `pnpm dev`, which load .env.production through scripts/with-env.mjs.",
   );
 }
 

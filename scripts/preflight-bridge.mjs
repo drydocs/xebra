@@ -9,6 +9,10 @@
  * account. Every check below corresponds to a failure that has either happened here or was one
  * step away from happening.
  *
+ * Written for wrapper v1 and the relay, both retired. Under wrapper v2, Circle's Forwarding
+ * Service mints, and for a fee opens a missing token account, so check 2's "does not exist yet"
+ * failure and check 4 (the relayer key's SOL) describe the old route, not the live one.
+ *
  * Usage:
  *   node scripts/preflight-bridge.mjs --to <solana_address> [--amount 1]
  *
@@ -28,7 +32,7 @@ const TOKEN_PROGRAM = new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA
 const ATP = new PublicKey("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL");
 const RELAYER_PATH = ".secrets/solana-relayer.json";
 
-/** Rent the relay must hold to complete a mint: its own floor + used_nonce + fee. */
+/** Rent the relayer key must hold to pay for a mint: its own floor + used_nonce + fee. */
 const MINT_COST_LAMPORTS = 810_624 + 867_621 + 5_000;
 
 let failures = 0;
@@ -155,8 +159,8 @@ async function main() {
     ? ok("Solana (domain 5) is a registered destination")
     : bad("Solana is not registered as a remote domain");
 
-  // --- 4. the relay can pay for the mint --------------------------------------
-  console.log("\nRelay (pays the Solana mint)");
+  // --- 4. the relayer key can pay for a mint (the relay itself is deleted) ----
+  console.log("\nRelayer key (pays a mint made by hand)");
   try {
     const kp = JSON.parse(readFileSync(RELAYER_PATH, "utf8"));
     const pub = new PublicKey(Uint8Array.from(kp).slice(32));

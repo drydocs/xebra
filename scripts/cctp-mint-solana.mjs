@@ -5,13 +5,15 @@
  *
  * # Why this exists
  *
- * CCTP is burn + attestation only. Circle runs the attestation service (Iris) and explicitly
- * does **not** run a relayer — their technical guide puts delivery on the integrator: "the API
- * consumer must query this attestation and submit it onchain to the destination domain's
- * MessageTransmitterV2#receiveMessage function." `receiveMessage` is permissionless, so anyone
- * with destination gas can submit it, but nobody is obliged to.
+ * Without Circle's Forwarding Service, CCTP is burn + attestation only. Circle runs the
+ * attestation service (Iris) and does **not** deliver a plain burn — their technical guide puts
+ * delivery on the integrator: "the API consumer must query this attestation and submit it onchain
+ * to the destination domain's MessageTransmitterV2#receiveMessage function." `receiveMessage` is
+ * permissionless, so anyone with destination gas can submit it, but nobody is obliged to.
  *
- * This is the one-off form of what `apps/cctp-relay` will do continuously.
+ * This is the one-off form of what the relay did continuously before it was deleted. Wrapper v2
+ * burns carry Circle's forwarding hook, so Circle mints them; this is for a burn nobody delivered
+ * (a v1 burn, or a forward that failed) whose token account already exists.
  *
  * # Built against CCTP **V2**, not the V1 examples
  *

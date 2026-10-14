@@ -14,9 +14,8 @@ import type { ClaimAdapter, ClaimResult, FillResult } from "../fill-loop.js";
  * `claim` doc comment — it cannot and does not verify this itself; that's the challenge
  * mechanism's job). Real code, compiled against @stellar/stellar-sdk's actual API
  * (`Contract.call`, `rpc.Server.prepareTransaction`/`sendTransaction`, `TransactionBuilder`),
- * but — like the Soroban event-decoding in packages/chain-adapters — not exercised against a
- * live Soroban RPC in this codebase (no local Soroban network was available to deploy against;
- * see docs/architecture.md's "verify at build time" note).
+ * but not itself run against a live Soroban RPC: the live testnet run in scripts/e2e-demo
+ * called the same `claim` through the `stellar` CLI.
  */
 export function createStellarClaimAdapter(
   server: rpc.Server,

@@ -51,7 +51,8 @@ counts Iris calls per instance instead of shared, and logs it once.
 
 ## Removing the old relay tables
 
-The deployment created for the relay has `relayJobs` and `watcherCursors` tables. Convex will not
-deploy a schema that omits a table which still holds documents, so clear them first (dashboard →
-Data → each table → delete all), then `npx convex deploy`. They hold public transaction hashes and
-Circle's public attestations; nothing in them is secret or unrecoverable.
+Done for production at the cutover to wrapper v2 ([`docs/cutover-v2.md`](../../../docs/cutover-v2.md)).
+For any other deployment created for the relay: it has `relayJobs` and `watcherCursors` tables, and
+Convex will not deploy a schema that omits a table which still holds documents, so clear them first
+(dashboard → Data → each table → delete all), then `npx convex deploy`. They hold public transaction
+hashes and Circle's public attestations; nothing in them is secret or unrecoverable.

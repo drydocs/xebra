@@ -173,7 +173,7 @@ export function validate(config: NetworkConfig): string[] {
   for (const [name, actual, expected] of mustMatch) {
     if (actual !== expected) {
       problems.push(
-        `${name} is overridden to "${actual}" instead of the verified mainnet value "${expected}". Circle contract addresses are pinned; if Circle genuinely migrated, update packages/network-config and re-run scripts/check-cctp-interface.sh.`,
+        `${name} is overridden to "${actual}" instead of the verified mainnet value "${expected}". Circle contract addresses are pinned; if Circle genuinely migrated, update packages/network-config and re-run the live checks (pnpm check:cctp, check:arc, check:evm).`,
       );
     }
   }

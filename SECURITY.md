@@ -1,14 +1,16 @@
 # Security
 
-Xebra moves real money on Stellar mainnet and Solana mainnet. Every issue here starts from that.
+Xebra moves real money on Stellar, Solana, Arc and the EVM chains Arc sends to, all on mainnet.
+Every issue here starts from that.
 
 ## Scope
 
 | Component | Address / location | Notes |
 |---|---|---|
-| `XebraCctpWrapper` (Soroban) | `CCNWLGFMILJU476RZHDA2PSUH2WH3LIPERHS6BYPCRVDDYYNNUIKZMTJ` (see [`deployments/mainnet.json`](./deployments/mainnet.json)) | live on Stellar mainnet, takes a fee and hands the burn to Circle's CCTP in one transaction |
-| Relay (`apps/web/convex/`) | production deployment `knowing-zebra-183` | watches burns, waits on Circle's attestation, pays the Solana mint from a hot wallet |
-| Frontend (`apps/web`) | [xebra-sandy.vercel.app](https://xebra-sandy.vercel.app/) | builds the signed request the wallet submits |
+| `XebraCctpWrapper` v2 (Soroban) | `CCPVTWII2TW6VVSVA4JQ2KFHICGBG4QVAHPIGUPSIW3E4VNPUI4Y2WQR` (see [`deployments/mainnet.json`](./deployments/mainnet.json)) | live on Stellar mainnet, takes a fee and hands the burn to Circle's CCTP, with Circle's forwarding hook, in one transaction |
+| `XebraCctpWrapper` v1 (Soroban) | `CCNWLGFMILJU476RZHDA2PSUH2WH3LIPERHS6BYPCRVDDYYNNUIKZMTJ` | retired: the app no longer sends to it, but it is still deployed and not paused |
+| Iris rate counter (`apps/web/convex/`) | production Convex deployment | one shared counter; holds no keys and no funds |
+| Frontend (`apps/web`) | [xebra-sandy.vercel.app](https://xebra-sandy.vercel.app/) | builds the signed request the wallet submits; on the routes between Arc and the EVM chains it calls Circle's `TokenMessengerV2` directly, with no contract of ours in between |
 
 `contracts/arc-evm` (XebraEscrow.sol) and `contracts/stellar-soroban` are part of the Arc↔Stellar
 corridor, which is not on the deployment path (see the README's "Repo layout" section) — real bugs
@@ -17,31 +19,30 @@ there are still worth reporting, but nothing user-facing depends on them today.
 ## What's most worth finding
 
 - Anything that lets the wrapper move a user's **principal**, not just the fee. By design
-  (`contracts/stellar-cctp-wrapper/src/lib.rs`), the user is `caller` on `deposit_for_burn` and the
-  wrapper only ever pulls `q.fee` — a bug that breaks that boundary is the highest-severity class
-  of report this project has.
+  (`contracts/stellar-cctp-wrapper-v2/src/lib.rs`), the user is `caller` on the burn and the
+  wrapper only ever pulls its own take (`q.wrapper_take`) — a bug that breaks that boundary is the
+  highest-severity class of report this project has.
 - Anything that lets a mint be double-paid, redirected, or paid to the wrong domain/recipient shape.
 - Anything that lets `withdraw_fees`, the timelocked admin functions, or `pause`/`unpause` be
   reached without the intended `require_auth`.
-- Relay logic that could double-submit a mint, get stuck retrying forever (see
-  [`writeups/04-thirty-two-bytes.md`](./writeups/04-thirty-two-bytes.md) for a real prior instance
-  of this class of bug), or leak `RELAY_SOLANA_KEYPAIR` / `RELAY_SUBMIT_TOKEN`.
-- Anything that lets a burn not made through this wrapper get sponsored (see
-  [`docs/go-live.md`](./docs/go-live.md) §3 for the current bound-not-authenticated posture of
-  `/api/relay/burns`).
+- Anything that makes a user sign a larger `max_fee` than the page shows, or a burn to a domain,
+  token or recipient they did not choose. On the routes between Arc and the EVM chains the page's
+  own checks (`apps/web/lib/evm-forward-fee.ts`, `apps/web/lib/evm-bridge.ts`) and the pinned table
+  in `packages/network-config/src/evm-chains.ts` are the only guard; no contract of ours bounds them.
 
 The contract has had **no external audit**. `MAX_TRANSFER` is deliberately kept low while that's
 true — see [`docs/go-live.md`](./docs/go-live.md) §1. A formal bug bounty is planned
-(`docs/go-live.md` §7) but not yet published; until it is, this document is the reporting process.
+(`docs/go-live.md` §5, step 7) but not yet published; until it is, this document is the reporting
+process.
 
 ## Reporting
 
-**Do not open a public GitHub issue for anything that could let someone take user funds, drain the
-relay's hot wallet, or bypass the admin/pauser timelock.** Use GitHub's private vulnerability
+**Do not open a public GitHub issue for anything that could let someone take user funds or bypass
+the admin/pauser timelock.** Use GitHub's private vulnerability
 reporting (Security tab → "Report a vulnerability") if enabled on this repo, or email
 egwomevan323@gmail.com with:
 
-- which component (contract, relay, frontend) and, for the contract, which function
+- which component (contract, frontend, Convex counter) and, for the contract, which function
 - the precondition and the concrete sequence of calls or transactions that trigger it
 - what an attacker or a buggy client gains
 
@@ -57,7 +58,7 @@ looked at first — if it's real, `pause()` (immediate, no timelock — see
 ## Keys
 
 `ADMIN` and `PAUSER` are held by different keys, specifically so a compromised admin can still be
-stopped (`docs/go-live.md` §2). The relay's Solana hot wallet is meant to hold only enough for a
-handful of transfers and reaches the relay through Convex's encrypted environment, never a
-committed file or a container image — `.secrets/` is git-ignored for exactly this reason and
-should stay that way in any fork.
+stopped (`docs/go-live.md` §2). There is no relay and no hot wallet: Circle's Forwarding Service pays
+destination gas. The deployment's two secrets, `IRIS_BUDGET_SECRET` and `ADMIN_PASSWORD`, live in
+Convex's and Vercel's encrypted environments, never a committed file — `.secrets/` is git-ignored
+for exactly this reason and should stay that way in any fork.

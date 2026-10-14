@@ -40,7 +40,9 @@ import { RouteTrack } from "./route-track";
 import { QuotePanel } from "./stellar-quote-panel";
 
 /**
- * One job: move USDC from Stellar to Solana or Arc over Circle's CCTP.
+ * One job: move USDC from Stellar to Solana or Arc over Circle's CCTP, through Xebra's wrapper.
+ * The bridge screen (`app/page.tsx`) shows this form when the source is Stellar; a transfer that
+ * starts on an EVM chain is `evm-bridge-form.tsx`.
  *
  * # What is deliberately not asked
  *
@@ -61,7 +63,7 @@ import { QuotePanel } from "./stellar-quote-panel";
  * # Where the design lives
  *
  * Nothing here styles itself from scratch. The plate, the fields, the rules and the buttons
- * are `components/ui/*`, so the one screen that handles money cannot drift away from the one
+ * are `components/ui/*`, so the screen that sends money cannot drift away from the one
  * that reports on it (`app/intent/[hash]`). See `tailwind.config.ts` for the tokens.
  */
 
@@ -84,8 +86,8 @@ export function StellarBridgeForm({
   const { connections, stellarKit: kit, open: openWallets } = useWallets();
   const address = connections.stellar?.address ?? null;
   // Deliberately small. This is mainnet: the field's default is the amount someone will send
-  // if they don't think about it. Direct mode has no minimum (the 10 USDC floor is Xebra's
-  // contract, not Circle's), so a first transfer can be a single dollar.
+  // if they don't think about it. Five sits above the smallest transfer each destination takes at
+  // today's delivery fees (see `routeMinimum` below), so a first transfer can still be small.
   const [amountInput, setAmountInput] = useState("5");
   const [destination, setDestination] = useState("");
   const [destId, setDestId] = useState<DestinationId>("solana");
@@ -125,8 +127,8 @@ export function StellarBridgeForm({
   const dest = DESTINATIONS[destId];
   const destinations = useMemo(() => availableDestinations(env.arcEnabled), []);
 
-  // Always present. When the fee wrapper is not deployed, `wrapperContractId` is null and
-  // the flow bridges directly through Circle's live contract — no fee, but a real transfer.
+  // Always present. With no wrapper configured, `wrapperContractId` is null and nothing can be
+  // sent: there is no direct path around the wrapper (see `lib/cctp-bridge.ts`).
   const config: BridgeChainConfig = useMemo(
     () => ({
       wrapperContractId: env.cctpWrapperContractId,

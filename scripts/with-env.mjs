@@ -2,7 +2,7 @@
 /**
  * Loads an env file into the environment, then execs the rest of the command line.
  *
- *   node scripts/with-env.mjs .env.local turbo run dev
+ *   node scripts/with-env.mjs .env.production turbo run dev
  *
  * # Why this exists rather than `dotenv-cli` or a shell `source`
  *
@@ -11,10 +11,10 @@
  * under `pnpm dev` they started with nothing set. Now that config is strict (no silent
  * fallbacks), that is a hard failure rather than a quiet fallback to localhost.
  *
- * A shell `source .env.local` cannot be used: the Stellar network passphrase contains a
+ * A shell `source .env.production` cannot be used: the Stellar network passphrase contains a
  * semicolon —
  *
- *     STELLAR_NETWORK_PASSPHRASE=Test SDF Network ; September 2015
+ *     STELLAR_NETWORK_PASSPHRASE=Public Global Stellar Network ; September 2015
  *
  * — which `sh` treats as a command separator, so sourcing the file raw would both truncate
  * the passphrase and execute `September 2015` as a command. A parser is required, and the
@@ -23,7 +23,7 @@
  *
  * Existing environment variables always win, so a one-off override still works:
  *
- *   NETWORK=mainnet pnpm dev     # uses mainnet even though .env.local says testnet
+ *   SOLANA_RPC_URL=https://... pnpm dev     # a different RPC from the one .env.production names
  */
 
 import { spawn } from "node:child_process";
@@ -100,7 +100,7 @@ console.error(`with-env: loaded ${count} vars from ${envFile} (NETWORK=${env.NET
 
 // Inherit the caller's cwd. Forcing repoRoot here would break per-app usage: `next dev`
 // invoked from apps/web must actually run in apps/web. The env FILE is still resolved
-// relative to repoRoot, so `../../scripts/with-env.mjs .env.local` works from any package.
+// relative to repoRoot, so `../../scripts/with-env.mjs .env.production` works from any package.
 const child = spawn(command[0], command.slice(1), {
   stdio: "inherit",
   env,
