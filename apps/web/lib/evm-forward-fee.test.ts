@@ -200,9 +200,9 @@ describe("planWrapperFee", () => {
   it("names a minimum the contract would accept", () => {
     const below = plan(500_000n, 54_099);
     expect(below).toMatchObject({ ok: false, kind: "minimum" });
-    const named = BigInt(
-      Math.round(Number((below as { reason: string }).reason.match(/least ([\d.]+)/)![1]) * 1e6),
-    );
+    const figure = (below as { reason: string }).reason.match(/least ([\d.]+)/)?.[1] ?? "0";
+    const named = BigInt(Math.round(Number(figure) * 1e6));
+    expect(named).toBeGreaterThan(0n);
     expect(plan(named, 54_099).ok).toBe(true);
   });
 

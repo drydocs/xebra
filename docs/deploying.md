@@ -75,6 +75,7 @@ NEXT_PUBLIC_STELLAR_CCTP_WRAPPER_LEGACY_CONTRACT_ID   # optional: v1, read by /a
 NEXT_PUBLIC_ARC_ENABLED                               # `1` offers Arc as a destination from Stellar
 NEXT_PUBLIC_ARC_SENDS_TO                              # optional: where Arc may send, or `all`
 NEXT_PUBLIC_ARC_RECEIVES_FROM                         # optional: EVM chains that may send into Arc
+NEXT_PUBLIC_ARC_USE_WRAPPER                           # optional: `1` sends through the pinned EVM wrapper
 ```
 
 Server-side only:
@@ -152,5 +153,6 @@ watch is Circle and the deployment itself:
 ## What is still missing
 
 No mainnet transfer has gone through the routes between Arc and the EVM chains yet; they were proven
-on testnet on 2026-10-14. EVM chains → Arc is off in production (`NEXT_PUBLIC_ARC_RECEIVES_FROM`
+on testnet on 2026-10-14. They call Circle directly and charge no fee of ours: the EVM fee wrapper is
+proven on Arc testnet but not deployed on mainnet ([`go-live.md`](./go-live.md#turning-on-the-arc-wrapper)). EVM chains → Arc is off in production (`NEXT_PUBLIC_ARC_RECEIVES_FROM`
 unset).

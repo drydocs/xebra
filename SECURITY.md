@@ -10,9 +10,10 @@ Every issue here starts from that.
 | `XebraCctpWrapper` v2 (Soroban) | `CCPVTWII2TW6VVSVA4JQ2KFHICGBG4QVAHPIGUPSIW3E4VNPUI4Y2WQR` (see [`deployments/mainnet.json`](./deployments/mainnet.json)) | live on Stellar mainnet, takes a fee and hands the burn to Circle's CCTP, with Circle's forwarding hook, in one transaction |
 | `XebraCctpWrapper` v1 (Soroban) | `CCNWLGFMILJU476RZHDA2PSUH2WH3LIPERHS6BYPCRVDDYYNNUIKZMTJ` | retired: the app no longer sends to it, but it is still deployed and not paused |
 | Iris rate counter (`apps/web/convex/`) | production Convex deployment | one shared counter; holds no keys and no funds |
-| Frontend (`apps/web`) | [xebra-sandy.vercel.app](https://xebra-sandy.vercel.app/) | builds the signed request the wallet submits; on the routes between Arc and the EVM chains it calls Circle's `TokenMessengerV2` directly, with no contract of ours in between |
+| `XebraCctpWrapper` (EVM, `contracts/arc-evm`) | Arc testnet only, `0xEdf6867df28F6A5EdE4c3B701c9E9e5091FDef75` (see [`deployments/testnet.json`](./deployments/testnet.json)); not on mainnet yet | takes Xebra's fee on a transfer out of Arc and burns the rest through Circle with the forwarding hook; unlike the Soroban wrapper, the principal passes through it inside the transaction |
+| Frontend (`apps/web`) | [xebra-sandy.vercel.app](https://xebra-sandy.vercel.app/) | builds the signed request the wallet submits; on the routes between Arc and the EVM chains it calls Circle's `TokenMessengerV2` directly, or the EVM wrapper above once one is pinned and switched on |
 
-`contracts/arc-evm` (XebraEscrow.sol) and `contracts/stellar-soroban` are part of the Arc↔Stellar
+`contracts/arc-evm/src/XebraEscrow.sol` and `contracts/stellar-soroban` are part of the Arc↔Stellar
 corridor, which is not on the deployment path (see the README's "Repo layout" section) — real bugs
 there are still worth reporting, but nothing user-facing depends on them today.
 
@@ -22,13 +23,20 @@ there are still worth reporting, but nothing user-facing depends on them today.
   (`contracts/stellar-cctp-wrapper-v2/src/lib.rs`), the user is `caller` on the burn and the
   wrapper only ever pulls its own take (`q.wrapper_take`) — a bug that breaks that boundary is the
   highest-severity class of report this project has.
+- On the EVM wrapper (`contracts/arc-evm/src/XebraCctpWrapper.sol`) the principal *does* pass
+  through the contract, for one transaction, because Circle's EVM messenger burns from
+  `msg.sender`. Anything that leaves USDC in it beyond `accruedFees`, leaves an allowance to Circle
+  behind, burns more or less than `netBurned`, lets one sender's transfer spend anyone else's
+  funds, or lets `withdrawFees` move more than is accrued, is the same severity as the boundary
+  above.
 - Anything that lets a mint be double-paid, redirected, or paid to the wrong domain/recipient shape.
 - Anything that lets `withdraw_fees`, the timelocked admin functions, or `pause`/`unpause` be
   reached without the intended `require_auth`.
 - Anything that makes a user sign a larger `max_fee` than the page shows, or a burn to a domain,
-  token or recipient they did not choose. On the routes between Arc and the EVM chains the page's
-  own checks (`apps/web/lib/evm-forward-fee.ts`, `apps/web/lib/evm-bridge.ts`) and the pinned table
-  in `packages/network-config/src/evm-chains.ts` are the only guard; no contract of ours bounds them.
+  token or recipient they did not choose. On the routes between Arc and the EVM chains that call
+  Circle directly, the page's own checks (`apps/web/lib/evm-forward-fee.ts`,
+  `apps/web/lib/evm-bridge.ts`) and the pinned table in `packages/network-config/src/evm-chains.ts`
+  are the only guard; through the EVM wrapper the contract applies them again.
 
 The contract has had **no external audit**. `MAX_TRANSFER` is deliberately kept low while that's
 true — see [`docs/go-live.md`](./docs/go-live.md) §1. A formal bug bounty is planned
