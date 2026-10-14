@@ -176,7 +176,9 @@ is not a risk" below). In this order:
 
 1. **Two EVM keys, held by different people**, for admin and pauser (`cast wallet new`, then
    `cast wallet import <name> --private-key …`, or a hardware wallet), and an address for fees.
-2. **A deployer** keystore holding at least 0.1 USDC on Arc mainnet.
+2. **A deployer** keystore holding at least 0.2 USDC on Arc mainnet. The deployment costs about 0.083
+   (4.14M gas at 20 gwei, measured on testnet); the script refuses to start with less than 0.2. Give
+   the admin and pauser a few cents each too: their calls cost 0.001–0.002 USDC.
 3. **Deploy.** `pnpm --filter @xebra/network-config build`, then
    `NETWORK=mainnet ACCOUNT=<deployer> ADMIN=0x… PAUSER=0x… FEE_RECIPIENT=0x… scripts/deploy-arc-wrapper.sh`
    for the dry run, and again with `CONFIRM="deploy the arc wrapper to mainnet"`. It reads the

@@ -111,9 +111,10 @@ echo "==> Gate 3/4: tests"
 
 echo "==> Gate 4/4: the deployer's USDC"
 balance_wei="$(cast balance "$DEPLOYER" --rpc-url "$RPC")"
-# About 2.6M gas at Arc's 20 gwei is 0.05 USDC; ask for twice that.
-python3 -c "import sys; sys.exit(0 if int('$balance_wei') >= 10**17 else 1)" \
-  || die "deployer $DEPLOYER holds $(cast from-wei "$balance_wei") USDC; it needs at least 0.1"
+# The testnet deployment used 4,136,823 gas (the constructor writes fifteen destinations); at
+# Arc's 20 gwei that is 0.083 USDC. Ask for 0.2, so a rise in the gas price does not strand it.
+python3 -c "import sys; sys.exit(0 if int('$balance_wei') >= 2 * 10**17 else 1)" \
+  || die "deployer $DEPLOYER holds $(cast from-wei "$balance_wei") USDC; it needs at least 0.2"
 
 cat <<EOF
 
