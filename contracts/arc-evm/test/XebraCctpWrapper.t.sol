@@ -113,6 +113,11 @@ contract XebraCctpWrapperTest is Test {
     // Construction
     // ---------------------------------------------------------------------------------------------
 
+    function test_bridgeKeepsTheSelectorTheWebEncoderPins() public pure {
+        // packages/cctp-evm/src/xebra-wrapper.test.ts asserts the same number.
+        assertEq(XebraCctpWrapper.bridge.selector, bytes4(0x132519fe));
+    }
+
     function test_readsItsOwnDomainFromCircle() public view {
         assertEq(wrapper.localDomain(), ARC);
         assertEq(address(wrapper.usdc()), address(usdc));

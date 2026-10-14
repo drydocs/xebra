@@ -119,7 +119,12 @@ export function encodeDepositForBurnWithHook(args: BurnWithHookArgs): Hex {
   });
 }
 
-function recipientAndHook(
+/**
+ * The 32-byte recipient a burn names and the hook that goes with it, after every check above.
+ * Exported for the Xebra wrapper's encoder, which sends the same recipient and the owner, and lets
+ * the contract build the hook.
+ */
+export function recipientAndHook(
   recipient: BurnRecipient,
   destinationDomain: number,
 ): { mintRecipient: Hex; hookData: Hex } {
