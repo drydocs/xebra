@@ -12,7 +12,8 @@
 #
 # This makes exactly one burn per run, straight through Circle's TokenMessengerV2 with the same
 # arguments the browser sends (apps/web/lib/evm-bridge.ts), and reports what Circle did with it.
-# A route is switched on in NEXT_PUBLIC_EVM_ROUTES_ENABLED once it has gone through here each way.
+# A direction is switched on in NEXT_PUBLIC_ARC_SENDS_TO or NEXT_PUBLIC_ARC_RECEIVES_FROM once it has
+# gone through here.
 #
 # Safeguards:
 #   - `check` is read-only and is the default thing to run first; it prints the exact calldata

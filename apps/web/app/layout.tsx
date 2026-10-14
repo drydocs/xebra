@@ -3,6 +3,7 @@ import localFont from "next/font/local";
 import type React from "react";
 import { AmbientBackground } from "../components/site/ambient-background";
 import { env } from "../lib/env";
+import { hasEvmRoutes } from "../lib/evm-chains";
 import { Providers } from "./providers";
 import "./globals.css";
 
@@ -34,7 +35,7 @@ const geistMono = localFont({
 
 // What the site says it does follows what this build offers: the Stellar route alone, or that
 // and the routes between Arc and other EVM chains. Inlined at build time, like the flag itself.
-const MANY_ROUTES = env.evmPeers.length > 0;
+const MANY_ROUTES = hasEvmRoutes(env.evmRoutes);
 const TITLE = MANY_ROUTES
   ? "Xebra — native USDC between chains"
   : "Xebra — USDC from Stellar to Solana";

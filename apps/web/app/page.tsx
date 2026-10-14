@@ -29,9 +29,9 @@ export default function HomePage() {
   const { connections, stellarKit: kit, open: openWallets } = useWallets();
   const connect = useCallback(() => openWallets(["stellar", "solana", "evm"]), [openWallets]);
 
-  // Stellar always; the EVM chains only once this build has switched their routes on. With none
-  // on, there is one source, no picker, and the screen is exactly the Stellar one.
-  const sources = useMemo<SourceId[]>(() => ["stellar", ...evmSources(env.evmPeers)], []);
+  // Stellar always; an EVM chain only once this build lets it send. With none on, there is one
+  // source, no picker, and the screen is exactly the Stellar one.
+  const sources = useMemo<SourceId[]>(() => ["stellar", ...evmSources(env.evmRoutes)], []);
   const manyRoutes = sources.length > 1;
   const [from, setFrom] = useState<SourceId>("stellar");
   // A transfer being signed, or a receipt on show, belongs to the source it started from.
@@ -101,7 +101,7 @@ export default function HomePage() {
               <EvmBridgeForm
                 key={from}
                 source={EVM_CHAINS[from]}
-                enabledPeers={env.evmPeers}
+                routes={env.evmRoutes}
                 sourcePicker={sourcePicker}
                 onBusyChange={setBusy}
               />

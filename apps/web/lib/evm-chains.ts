@@ -327,49 +327,78 @@ export function evmChainForChainId(chainId: number): EvmChain | null {
   return Object.values(EVM_CHAINS).find((c) => c.chainId === chainId) ?? null;
 }
 
+/** An EVM chain other than Arc. */
+export type EvmPeerId = Exclude<EvmChainId, "arc">;
+
 /**
- * Where USDC can go from `source`, given what this build has switched on: Arc reaches every
- * enabled peer (Solana included), and an enabled EVM peer reaches Arc. Anything not enabled
- * reaches nothing.
+ * Which routes a build offers, one direction at a time. A direction is switched on only once a
+ * transfer has gone through it, and the two directions are not proven together: Arc -> Base
+ * working says nothing about Base -> Arc, which starts on another chain with another wallet.
  */
+export interface EnabledRoutes {
+  /** Where Arc may send: EVM chains, and Solana. */
+  arcSendsTo: readonly PeerId[];
+  /** Which EVM chains may send into Arc. */
+  arcReceivesFrom: readonly EvmPeerId[];
+}
+
+export const NO_ROUTES: EnabledRoutes = { arcSendsTo: [], arcReceivesFrom: [] };
+
+export function hasEvmRoutes(routes: EnabledRoutes): boolean {
+  return routes.arcSendsTo.length > 0 || routes.arcReceivesFrom.length > 0;
+}
+
+/** Where USDC can go from `source` in this build. Anything not switched on reaches nothing. */
 export function evmDestinationsFrom(
   source: EvmChainId,
-  enabledPeers: readonly PeerId[],
+  routes: EnabledRoutes,
 ): RouteDestinationId[] {
-  if (source === "arc") return ARC_PEERS.filter((id) => enabledPeers.includes(id));
-  return enabledPeers.includes(source) ? ["arc"] : [];
+  if (source === "arc") return ARC_PEERS.filter((id) => routes.arcSendsTo.includes(id));
+  return routes.arcReceivesFrom.includes(source) ? ["arc"] : [];
 }
 
 /**
- * The EVM chains a transfer can start from in this build: the enabled EVM peers, and Arc whenever
- * anything at all is enabled. Solana is never a source here.
+ * The EVM chains a transfer can start from in this build: each chain allowed to send into Arc,
+ * and Arc itself when it may send anywhere. Solana is never a source here.
  */
-export function evmSources(enabledPeers: readonly PeerId[]): EvmChainId[] {
-  const peers = EVM_ARC_PEERS.filter((id) => enabledPeers.includes(id));
-  return enabledPeers.length > 0 ? [...peers, "arc"] : [];
+export function evmSources(routes: EnabledRoutes): EvmChainId[] {
+  const peers = EVM_ARC_PEERS.filter((id) => routes.arcReceivesFrom.includes(id));
+  return routes.arcSendsTo.length > 0 ? [...peers, "arc"] : peers;
 }
 
 /**
- * Reads `NEXT_PUBLIC_EVM_ROUTES_ENABLED`: a comma-separated list of what to switch on (an EVM
- * chain, both ways with Arc, or `solana`, as a destination from Arc), or `all`. Absent or empty
- * means none.
+ * Reads one route list: comma-separated chain names, or `all`. Absent or empty means none.
  *
- * A name that is not one of those throws. A typo here must fail the build, not quietly leave a
- * route off, and certainly not switch on something nobody named.
+ * A name that is not allowed in this list throws. A typo here must fail the build, not quietly
+ * leave a route off, and certainly not switch on something nobody named.
  */
-export function parseEnabledPeers(raw: string | null | undefined): PeerId[] {
+function parseRouteList<T extends string>(
+  variable: string,
+  raw: string | null | undefined,
+  allowed: readonly T[],
+): T[] {
   const value = (raw ?? "").trim();
   if (value === "") return [];
-  if (value === "all") return [...ARC_PEERS];
+  if (value === "all") return [...allowed];
   const names = value.split(",").map((s) => s.trim());
   for (const name of names) {
-    if (!(ARC_PEERS as readonly string[]).includes(name)) {
+    if (!(allowed as readonly string[]).includes(name)) {
       throw new Error(
-        `NEXT_PUBLIC_EVM_ROUTES_ENABLED names "${name}", which is not one of: ${ARC_PEERS.join(", ")}, all`,
+        `${variable} names "${name}", which is not one of: ${allowed.join(", ")}, all`,
       );
     }
   }
-  return ARC_PEERS.filter((id) => names.includes(id));
+  return allowed.filter((id) => names.includes(id));
+}
+
+/** `NEXT_PUBLIC_ARC_SENDS_TO`: where Arc may send. EVM chains and `solana`. */
+export function parseArcSendsTo(raw: string | null | undefined): PeerId[] {
+  return parseRouteList("NEXT_PUBLIC_ARC_SENDS_TO", raw, ARC_PEERS);
+}
+
+/** `NEXT_PUBLIC_ARC_RECEIVES_FROM`: which EVM chains may send into Arc. */
+export function parseArcReceivesFrom(raw: string | null | undefined): EvmPeerId[] {
+  return parseRouteList("NEXT_PUBLIC_ARC_RECEIVES_FROM", raw, EVM_ARC_PEERS);
 }
 
 export const explorerTxUrl = (chain: EvmChain, hash: string) => `${chain.explorerUrl}/tx/${hash}`;

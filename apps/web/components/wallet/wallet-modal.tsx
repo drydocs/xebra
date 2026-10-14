@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { env } from "../../lib/env";
+import { hasEvmRoutes } from "../../lib/evm-chains";
 import {
   type Connection,
   FAMILY_LABEL,
@@ -15,7 +16,7 @@ import { cn } from "../ui/cn";
  * the routes between Arc and other EVM chains existed; with those switched on it also pays, and a
  * Stellar wallet is no longer the only way to send.
  */
-const EVM_SENDS = env.evmPeers.length > 0;
+const EVM_SENDS = hasEvmRoutes(env.evmRoutes);
 
 const BLURB: Record<Family, string> = {
   stellar: EVM_SENDS

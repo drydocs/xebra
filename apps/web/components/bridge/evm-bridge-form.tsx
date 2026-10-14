@@ -16,8 +16,8 @@ import {
   watchBurn,
 } from "../../lib/evm-bridge";
 import {
+  type EnabledRoutes,
   type EvmChain,
-  type PeerId,
   type RouteDestinationId,
   evmDestinationsFrom,
   explorerTxUrl,
@@ -95,12 +95,12 @@ interface Sent {
 
 export function EvmBridgeForm({
   source,
-  enabledPeers,
+  routes,
   sourcePicker,
   onBusyChange,
 }: {
   source: EvmChain;
-  enabledPeers: readonly PeerId[];
+  routes: EnabledRoutes;
   /** The "Send from" control, owned by the screen because it chooses which form this is. */
   sourcePicker?: React.ReactNode;
   /** True while a transfer is being signed or its receipt is on show. */
@@ -114,8 +114,8 @@ export function EvmBridgeForm({
   const onSource = wallet?.chainId === source.chainId;
 
   const destinations = useMemo(
-    () => evmDestinationsFrom(source.id, enabledPeers).map(routeDestination),
-    [source.id, enabledPeers],
+    () => evmDestinationsFrom(source.id, routes).map(routeDestination),
+    [source.id, routes],
   );
   const [destId, setDestId] = useState<RouteDestinationId>(destinations[0]?.id ?? "arc");
   const dest = useMemo(() => routeDestination(destId), [destId]);

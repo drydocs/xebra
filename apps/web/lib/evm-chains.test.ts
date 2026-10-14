@@ -8,12 +8,16 @@ import {
   ARC_PEERS,
   EVM_ARC_PEERS,
   EVM_CHAINS,
+  type EnabledRoutes,
+  NO_ROUTES,
   SOLANA_FROM_ARC,
   evmChainForChainId,
   evmChainForDomain,
   evmDestinationsFrom,
   evmSources,
-  parseEnabledPeers,
+  hasEvmRoutes,
+  parseArcReceivesFrom,
+  parseArcSendsTo,
 } from "./evm-chains";
 
 describe("EVM_CHAINS", () => {
@@ -32,53 +36,70 @@ describe("EVM_CHAINS", () => {
 });
 
 describe("which routes a build offers", () => {
-  it("offers nothing until a peer is switched on", () => {
-    expect(evmSources([])).toEqual([]);
-    expect(evmDestinationsFrom("arc", [])).toEqual([]);
-    expect(evmDestinationsFrom("base", [])).toEqual([]);
+  const routes = (
+    arcSendsTo: EnabledRoutes["arcSendsTo"],
+    arcReceivesFrom: EnabledRoutes["arcReceivesFrom"] = [],
+  ): EnabledRoutes => ({ arcSendsTo, arcReceivesFrom });
+
+  it("offers nothing until a direction is switched on", () => {
+    expect(evmSources(NO_ROUTES)).toEqual([]);
+    expect(evmDestinationsFrom("arc", NO_ROUTES)).toEqual([]);
+    expect(evmDestinationsFrom("base", NO_ROUTES)).toEqual([]);
+    expect(hasEvmRoutes(NO_ROUTES)).toBe(false);
   });
 
-  it("offers Solana only as somewhere Arc sends to", () => {
-    expect(evmDestinationsFrom("arc", ["solana"])).toEqual(["solana"]);
-    // Arc is a source once anything is on; Solana never is.
-    expect(evmSources(["solana"])).toEqual(["arc"]);
-    expect(evmDestinationsFrom("base", ["solana"])).toEqual([]);
+  it("offers Arc to a chain without offering that chain to Arc", () => {
+    const outbound = routes(["base", "solana"]);
+    expect(evmSources(outbound)).toEqual(["arc"]);
+    expect(evmDestinationsFrom("arc", outbound)).toEqual(["base", "solana"]);
+    expect(evmDestinationsFrom("base", outbound)).toEqual([]);
+    expect(hasEvmRoutes(outbound)).toBe(true);
   });
 
-  it("offers an enabled peer both ways, and no other peer either way", () => {
-    expect(evmSources(["base"])).toEqual(["base", "arc"]);
-    expect(evmDestinationsFrom("base", ["base"])).toEqual(["arc"]);
-    expect(evmDestinationsFrom("arc", ["base"])).toEqual(["base"]);
-    expect(evmDestinationsFrom("polygon", ["base"])).toEqual([]);
+  it("offers a chain to Arc without offering Arc anywhere", () => {
+    const inbound = routes([], ["base"]);
+    expect(evmSources(inbound)).toEqual(["base"]);
+    expect(evmDestinationsFrom("base", inbound)).toEqual(["arc"]);
+    expect(evmDestinationsFrom("arc", inbound)).toEqual([]);
   });
 
-  it("never offers a peer to a peer", () => {
+  it("offers both ways when both are on, and never a chain to another chain", () => {
+    const both = routes(EVM_ARC_PEERS, EVM_ARC_PEERS);
+    expect(evmSources(both)).toEqual([...EVM_ARC_PEERS, "arc"]);
     for (const peer of EVM_ARC_PEERS) {
-      expect(evmDestinationsFrom(peer, EVM_ARC_PEERS)).toEqual(["arc"]);
+      expect(evmDestinationsFrom(peer, both)).toEqual(["arc"]);
     }
   });
 });
 
-describe("parseEnabledPeers", () => {
-  it("is off when the variable is absent or empty", () => {
-    expect(parseEnabledPeers(undefined)).toEqual([]);
-    expect(parseEnabledPeers(null)).toEqual([]);
-    expect(parseEnabledPeers("  ")).toEqual([]);
+describe("the route lists", () => {
+  it("are off when the variable is absent or empty", () => {
+    expect(parseArcSendsTo(undefined)).toEqual([]);
+    expect(parseArcSendsTo(null)).toEqual([]);
+    expect(parseArcReceivesFrom("  ")).toEqual([]);
   });
 
-  it("reads a list, in the table's order, forgiving spaces", () => {
-    expect(parseEnabledPeers("base, arbitrum")).toEqual(["arbitrum", "base"]);
-    expect(parseEnabledPeers("solana,unichain")).toEqual(["unichain", "solana"]);
-    expect(parseEnabledPeers("all")).toEqual(ARC_PEERS);
+  it("read a list, in the table's order, forgiving spaces", () => {
+    expect(parseArcSendsTo("base, arbitrum")).toEqual(["arbitrum", "base"]);
+    expect(parseArcSendsTo("solana,unichain")).toEqual(["unichain", "solana"]);
+    expect(parseArcSendsTo("all")).toEqual(ARC_PEERS);
     expect(ARC_PEERS).toHaveLength(15);
+    expect(parseArcReceivesFrom("all")).toEqual(EVM_ARC_PEERS);
   });
 
-  it("fails loudly on a name it does not know, on Arc, and on the chains left out", () => {
+  it("let Solana be a destination of Arc but never a source", () => {
+    expect(parseArcSendsTo("solana")).toEqual(["solana"]);
+    expect(() => parseArcReceivesFrom("solana")).toThrow(
+      'NEXT_PUBLIC_ARC_RECEIVES_FROM names "solana"',
+    );
+  });
+
+  it("fail loudly on a name they do not know, on Arc, and on the chains left out", () => {
     for (const left of ["ethereum", "linea", "plume", "edge"]) {
-      expect(() => parseEnabledPeers(left)).toThrow(`names "${left}"`);
+      expect(() => parseArcSendsTo(left)).toThrow(`NEXT_PUBLIC_ARC_SENDS_TO names "${left}"`);
     }
-    expect(() => parseEnabledPeers("base,bsae")).toThrow('names "bsae"');
-    expect(() => parseEnabledPeers("arc")).toThrow('names "arc"');
-    expect(() => parseEnabledPeers("1")).toThrow('names "1"');
+    expect(() => parseArcSendsTo("base,bsae")).toThrow('names "bsae"');
+    expect(() => parseArcSendsTo("arc")).toThrow('names "arc"');
+    expect(() => parseArcReceivesFrom("1")).toThrow('names "1"');
   });
 });
