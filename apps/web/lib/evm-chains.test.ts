@@ -2,6 +2,7 @@ import {
   EVM_CHAINS as PINNED,
   EVM_ARC_PEERS as PINNED_PEERS,
   SOLANA_FROM_ARC as PINNED_SOLANA,
+  XEBRA_WRAPPERS as PINNED_WRAPPERS,
 } from "@xebra/network-config";
 import { describe, expect, it } from "vitest";
 import {
@@ -11,6 +12,7 @@ import {
   type EnabledRoutes,
   NO_ROUTES,
   SOLANA_FROM_ARC,
+  XEBRA_WRAPPERS,
   evmChainForChainId,
   evmChainForDomain,
   evmDestinationsFrom,
@@ -25,6 +27,7 @@ describe("EVM_CHAINS", () => {
     expect(EVM_CHAINS).toEqual(PINNED);
     expect(EVM_ARC_PEERS).toEqual(PINNED_PEERS);
     expect(SOLANA_FROM_ARC).toEqual(PINNED_SOLANA);
+    expect(XEBRA_WRAPPERS).toEqual(PINNED_WRAPPERS);
   });
 
   it("finds a chain by CCTP domain and by wallet chain id", () => {

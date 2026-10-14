@@ -5,6 +5,9 @@ import {
   planEvmFee,
   speedFeeFor,
   suggestedEvmMinimum,
+  type WrapperTerms,
+  planWrapperFee,
+  wrapperSplit,
 } from "./evm-forward-fee";
 
 const ARC = { name: "Arc", maxForwardFeeUnits: 100_000 };
@@ -39,6 +42,9 @@ describe("planEvmFee", () => {
       maxFee: 16_778n,
       deliveryFee: 16_778n,
       speedFee: 0n,
+      // No contract of ours on a direct route: Circle's fee is the whole fee.
+      xebraFee: 0n,
+      fee: 16_778n,
       received: 4_983_222n,
     });
   });
@@ -122,5 +128,96 @@ describe("minimumEvmAmount", () => {
     const min = minimumEvmAmount({ ...STANDARD, high: 1_376_978 });
     expect(min).toBe(13_769_780n);
     expect(suggestedEvmMinimum(min)).toBe(14_460_000n);
+  });
+});
+
+describe("planWrapperFee", () => {
+  /** The wrapper's mainnet settings: Stellar's fee, at most 100 USDC per transfer. */
+  const terms: WrapperTerms = {
+    paused: false,
+    feeBps: 10,
+    minFee: 300_000n,
+    minTransfer: 1_000_000n,
+    maxTransfer: 100_000_000n,
+    maxFastFeeBps: 5,
+    domain: { maxForwardFee: 500_000n, accountCreation: false, maxForwardFeeNewAccount: 0n },
+  };
+  const toBase = { name: "Base", maxForwardFeeUnits: 500_000 };
+  const standard = (high: number): FeeTier => ({ finalityThreshold: 2000, high, minimumFeePpb: 0 });
+  const plan = (amount: bigint, high: number, over: Partial<WrapperTerms> = {}, opensAccount = false) =>
+    planWrapperFee({
+      amount,
+      tier: standard(high),
+      destination: toBase,
+      terms: { ...terms, ...over },
+      opensAccount,
+      sourceName: "Arc",
+    });
+
+  it("prices what the contract charged on Arc testnet, to the unit", () => {
+    // 2026-10-14, Arc testnet -> Base Sepolia: Circle quoted 0.054099, the wrapper kept 0.245901
+    // and the recipient was minted exactly 1.70.
+    expect(plan(2_000_000n, 54_099)).toEqual({
+      ok: true,
+      maxFee: 54_099n,
+      deliveryFee: 54_099n,
+      speedFee: 0n,
+      xebraFee: 245_901n,
+      fee: 300_000n,
+      received: 1_700_000n,
+    });
+  });
+
+  it("charges Circle's fee alone, and keeps nothing, when it is above Xebra's", () => {
+    const opening = { ...terms.domain, accountCreation: true, maxForwardFeeNewAccount: 1_000_000n };
+    const p = plan(10_000_000n, 450_000, { domain: opening }, true);
+    expect(p.ok && [p.fee, p.xebraFee, p.received]).toEqual([450_000n, 0n, 9_550_000n]);
+  });
+
+  it("refuses what the contract refuses, and says why", () => {
+    expect(plan(2_000_000n, 54_099, { paused: true })).toMatchObject({ ok: false, kind: "cap" });
+    expect(plan(2_000_000n, 54_099, { domain: null })).toMatchObject({ ok: false, kind: "cap" });
+    expect(plan(2_000_000n, 54_099, {}, true)).toMatchObject({ ok: false, kind: "cap" });
+    expect(plan(2_000_000n, 54_099, { domain: { ...terms.domain!, maxForwardFee: 50_000n } })).toMatchObject({
+      ok: false,
+      kind: "cap",
+    });
+    expect(plan(100_000_001n, 54_099)).toMatchObject({ ok: false, kind: "maximum" });
+  });
+
+  it("names a minimum the contract would accept", () => {
+    const below = plan(500_000n, 54_099);
+    expect(below).toMatchObject({ ok: false, kind: "minimum" });
+    const named = BigInt(Math.round(Number((below as { reason: string }).reason.match(/least ([\d.]+)/)![1]) * 1e6));
+    expect(plan(named, 54_099).ok).toBe(true);
+  });
+
+  it("allows Fast its speed fee on top of the destination's cap", () => {
+    const capped = { domain: { ...terms.domain!, maxForwardFee: 290_000n } };
+    const fast: FeeTier = { finalityThreshold: 1000, high: 280_000, minimumFeePpb: 100_000 };
+    const p = planWrapperFee({
+      amount: 100_000_000n,
+      tier: fast,
+      destination: toBase,
+      terms: { ...terms, ...capped },
+      opensAccount: false,
+      sourceName: "Arc",
+    });
+    // 0.28 delivery + 0.01 speed = 0.29: over the 0.29 cap by nothing, and within the 5 bps allowance.
+    expect(p.ok).toBe(true);
+  });
+
+  it("agrees with the contract's split on every amount", () => {
+    for (const [amount, maxFee] of [
+      [1_000_000n, 1n],
+      [3_000_000n, 285_520n],
+      [100_000_000n, 2_000_000n],
+      [400_000_000n, 60_000n],
+    ] as const) {
+      const s = wrapperSplit(amount, maxFee, terms);
+      if (!s) continue;
+      expect(s.xebraFee + s.netBurned).toBe(amount);
+      expect(s.netBurned - maxFee).toBe(amount - s.fee);
+    }
   });
 });

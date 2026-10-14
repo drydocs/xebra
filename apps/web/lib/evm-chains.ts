@@ -307,6 +307,19 @@ export const SOLANA_FROM_ARC = {
   maxForwardFeeNewAccountUnits: 1_000_000,
 } as const;
 
+/**
+ * Xebra's fee wrapper on each source chain that has one. A copy of `XEBRA_WRAPPERS` in
+ * `packages/network-config`, held to it by `evm-chains.test.ts`. A transfer approves this address
+ * for the whole amount, so it is never configurable at run time; `NEXT_PUBLIC_ARC_USE_WRAPPER` only
+ * chooses whether a pinned one is used.
+ */
+export const XEBRA_WRAPPERS: Partial<Record<EvmChainId, string>> = {};
+
+/** The wrapper a transfer from `chain` goes through in this build, or null to call Circle directly. */
+export function wrapperFor(chain: EvmChain, useWrapper: boolean): string | null {
+  return useWrapper ? (XEBRA_WRAPPERS[chain.id] ?? null) : null;
+}
+
 /** What a build can switch on: an EVM chain both ways with Arc, or Solana as a place Arc sends to. */
 export type PeerId = Exclude<EvmChainId, "arc"> | "solana";
 
