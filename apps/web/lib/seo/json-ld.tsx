@@ -55,7 +55,7 @@ export function webApplicationLd() {
     description: SITE_DESCRIPTION,
     applicationCategory: "FinanceApplication",
     operatingSystem: "Any (web browser)",
-    browserRequirements: "A browser wallet: Freighter for Stellar, or any EVM wallet",
+    browserRequirements: "A browser wallet: Freighter or LOBSTR for Stellar, or any EVM wallet",
     offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
     publisher: { "@id": ORG_ID },
   };

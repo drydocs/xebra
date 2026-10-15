@@ -40,7 +40,7 @@ export function faqFor(arcViaWrapper: boolean): Faq[] {
     },
     {
       q: "Which wallets can I use?",
-      a: "To send from Stellar, Freighter. To send from Arc, any browser EVM wallet, such as MetaMask or Rabby. To receive, you only need an address on the destination chain; connecting a wallet there just fills it in.",
+      a: "To send from Stellar, Freighter or the LOBSTR browser extension. To send from Arc, any browser EVM wallet, such as MetaMask or Rabby. To receive, you only need an address on the destination chain; connecting a wallet there just fills it in.",
     },
     {
       q: "Is there a minimum or maximum amount?",

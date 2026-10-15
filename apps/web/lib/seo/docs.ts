@@ -47,7 +47,7 @@ Xebra moves native USDC between blockchains over Circle's Cross-Chain Transfer P
 
 ## What you can do
 
-- **From Stellar** to ${list(fromStellar)}, through Xebra's contract on Stellar, with one signature in Freighter.
+- **From Stellar** to ${list(fromStellar)}, through Xebra's contract on Stellar, with one signature in Freighter or LOBSTR.
 ${fromArc.length ? `- **From Arc** to ${list(fromArc)}.\n` : ""}
 Every live route has its own page under [routes](/routes).
 
@@ -93,7 +93,7 @@ Because the USDC on the destination is minted by Circle itself, it is the same n
 
 ## What you sign
 
-- **From Stellar**, one transaction in Freighter. Xebra's contract on Stellar takes its fee and hands the burn to Circle in that same transaction, so either both happen or neither does.
+- **From Stellar**, one transaction in Freighter or the LOBSTR extension. Xebra's contract on Stellar takes its fee and hands the burn to Circle in that same transaction, so either both happen or neither does.
 - **From Arc**, two prompts in your EVM wallet: approving the amount, then the transfer itself. Arc charges its gas in USDC, so keep a few cents in the wallet.
 
 ## How long it takes
@@ -316,7 +316,9 @@ function routeDoc(r: RouteInfo, all: RouteInfo[]): Doc {
   const recipient = toEvm
     ? `any ${to} address (0x…)`
     : `any Solana wallet address; the bridge finds its USDC account${r.deliveryCapNewAccountUnits !== null ? ", and Circle opens one if it is missing" : ""}`;
-  const wallet = fromStellar ? "Freighter" : "any browser EVM wallet (MetaMask, Rabby and others)";
+  const wallet = fromStellar
+    ? "Freighter or the LOBSTR extension"
+    : "any browser EVM wallet (MetaMask, Rabby and others)";
   const limits = viaXebra
     ? `${FEES.minTransferUsdc} to ${FEES.maxTransferUsdc} USDC per transfer`
     : "No Xebra limit; Circle's fee may be at most a tenth of the amount";
