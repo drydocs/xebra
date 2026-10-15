@@ -2,7 +2,8 @@ import type { Wallet, WalletAccount } from "@wallet-standard/base";
 import { describe, expect, it } from "vitest";
 import { applyEvmEvent, connectEvm, evmEntries, parseChainId, reduceAnnouncements } from "./evm";
 import { isSolanaWallet, pickSolanaAccount, solanaEntries } from "./solana";
-import type { Connection, Eip1193Provider } from "./types";
+import { keepDetected, stellarEntries } from "./stellar";
+import type { Connection, Eip1193Provider, WalletEntry } from "./types";
 
 const provider = (accounts: unknown): Eip1193Provider => ({
   request: async () => accounts,
@@ -128,5 +129,49 @@ describe("Wallet Standard (Solana)", () => {
     ]);
     expect(picked?.address).toBe("SoL111");
     expect(pickSolanaAccount([acct("0xabc", ["eip155:1"])])).toBeNull();
+  });
+});
+
+describe("Stellar detection", () => {
+  const entry = (id: string, installed: boolean): WalletEntry => ({
+    key: `stellar:${id}`,
+    family: "stellar",
+    name: id,
+    icon: null,
+    installed,
+  });
+  // The kit is asked for icons only; its own availability answer must play no part.
+  const kit = {
+    getSupportedWallets: async () => [
+      { id: "freighter", icon: "https://x/f.png", isAvailable: false },
+      { id: "lobstr", icon: "https://x/l.png", isAvailable: false },
+    ],
+  } as unknown as Parameters<typeof stellarEntries>[0];
+
+  it("takes availability from the page's own probe, not the kit's 500 ms one", async () => {
+    const out = await stellarEntries(kit, async (id) => id === "lobstr");
+    expect(out.map((e) => [e.name, e.installed])).toEqual([
+      ["Freighter", false],
+      ["LOBSTR", true],
+    ]);
+    expect(out[1]?.icon).toBe("https://x/l.png");
+  });
+
+  it("reads no answer as not found", async () => {
+    const out = await stellarEntries(kit, async () => null);
+    expect(out.every((e) => !e.installed)).toBe(true);
+  });
+
+  it("does not take back a detected wallet when a later check gets no answer", () => {
+    const out = keepDetected(
+      [entry("freighter", true), entry("lobstr", false)],
+      [entry("freighter", false), entry("lobstr", false)],
+    );
+    expect(out.map((e) => e.installed)).toEqual([true, false]);
+  });
+
+  it("marks a newly detected wallet", () => {
+    const out = keepDetected([entry("lobstr", false)], [entry("lobstr", true)]);
+    expect(out[0]?.installed).toBe(true);
   });
 });
