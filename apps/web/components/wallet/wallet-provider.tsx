@@ -12,7 +12,7 @@ import {
   useState,
 } from "react";
 import { formatError } from "../../lib/format-error";
-import { createStellarWalletKit } from "../../lib/stellar-wallet";
+import { createStellarWalletKit, probeStellarWallet } from "../../lib/stellar-wallet";
 import {
   type Eip6963Detail,
   type EvmEvent,
@@ -24,7 +24,7 @@ import {
   watchEvmWallets,
 } from "../../lib/wallets/evm";
 import { connectSolana, solanaEntries, watchSolanaWallets } from "../../lib/wallets/solana";
-import { connectStellar, stellarEntries } from "../../lib/wallets/stellar";
+import { connectStellar, keepDetected, stellarEntries } from "../../lib/wallets/stellar";
 import type { Connection, Eip1193Provider, Family, WalletEntry } from "../../lib/wallets/types";
 import { WalletModal } from "./wallet-modal";
 
@@ -74,14 +74,16 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     setKit(createStellarWalletKit());
   }, []);
 
-  // Freighter's "is it there" check is a round trip to the extension. Asked once at page load it often
-  // answers "no" (the content script is not ready, or the wallet was unlocked afterwards), and a stale
-  // "not installed" is the worst answer to keep. So it is asked again shortly after load, whenever the
-  // tab regains focus, and whenever the modal opens.
+  // "Is the wallet there" is a round trip to the extension, and an idle extension is asleep: the first
+  // question wakes it and may go unanswered, which used to read as "not detected" for a wallet that was
+  // installed (see `probeStellarWallet`). A stale "not installed" is the worst answer to keep, so it is
+  // asked again for the first few seconds after load, whenever the tab regains focus, and whenever the
+  // modal opens, and a "detected" is never taken back.
   const refreshStellar = useCallback(async () => {
     if (!kit) return;
     try {
-      setStellar(await stellarEntries(kit));
+      const next = await stellarEntries(kit, probeStellarWallet);
+      setStellar((previous) => keepDetected(previous, next));
     } catch {
       /* keep the last answer */
     }
@@ -90,7 +92,9 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!kit) return;
     void refreshStellar();
-    const timers = [600, 1800, 4000].map((ms) => setTimeout(() => void refreshStellar(), ms));
+    const timers = [600, 1800, 4000, 9000, 16000].map((ms) =>
+      setTimeout(() => void refreshStellar(), ms),
+    );
     const onFocus = () => void refreshStellar();
     window.addEventListener("focus", onFocus);
     document.addEventListener("visibilitychange", onFocus);

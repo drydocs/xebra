@@ -1,6 +1,7 @@
 import {
   FreighterModule,
   LobstrModule,
+  type ModuleInterface,
   StellarWalletsKit,
   WalletNetwork,
 } from "@creit.tech/stellar-wallets-kit";
@@ -27,6 +28,40 @@ const NETWORK_BY_PASSPHRASE: Record<string, WalletNetwork> = {
   [WalletNetwork.TESTNET]: WalletNetwork.TESTNET,
 };
 
+/**
+ * One instance of each module, shared by the kit and by `probeStellarWallet`. Built on first use
+ * rather than at import, so nothing here runs during server rendering.
+ */
+let modules: ModuleInterface[] | null = null;
+function stellarModules(): ModuleInterface[] {
+  modules ??= [new FreighterModule(), new LobstrModule()];
+  return modules;
+}
+
+/**
+ * Whether a wallet extension is there: true or false when it answered, null when it did not answer
+ * in time.
+ *
+ * The kit's own `getSupportedWallets` cannot be used for this. It races each wallet against a fixed
+ * 500 ms timer that answers "not available", and a browser extension that has been idle goes to
+ * sleep and needs longer than that to wake. So the screen said "not detected" for a wallet that was
+ * installed and would connect fine, and only said "detected" for one opened a moment ago. The
+ * question is also what wakes the extension, so asking again soon after gets a real answer.
+ */
+export async function probeStellarWallet(id: string, timeoutMs = 5_000): Promise<boolean | null> {
+  const mod = stellarModules().find((m) => m.productId === id);
+  if (!mod) return false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const silent = new Promise<null>((resolve) => {
+    timer = setTimeout(() => resolve(null), timeoutMs);
+  });
+  try {
+    return await Promise.race([mod.isAvailable().catch(() => false), silent]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export function createStellarWalletKit(): StellarWalletsKit {
   const network = NETWORK_BY_PASSPHRASE[env.stellarNetworkPassphrase];
   if (!network) {
@@ -38,6 +73,6 @@ export function createStellarWalletKit(): StellarWalletsKit {
   return new StellarWalletsKit({
     network,
     selectedWalletId: "freighter",
-    modules: [new FreighterModule(), new LobstrModule()],
+    modules: stellarModules(),
   });
 }

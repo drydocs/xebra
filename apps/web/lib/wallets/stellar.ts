@@ -21,19 +21,43 @@ export const VERIFIED_STELLAR_WALLETS: ReadonlyArray<{
   { id: "lobstr", name: "LOBSTR", installUrl: "https://lobstr.co/signer-extension" },
 ];
 
-export async function stellarEntries(kit: StellarWalletsKit): Promise<WalletEntry[]> {
-  const supported = await kit.getSupportedWallets();
-  return VERIFIED_STELLAR_WALLETS.map((w) => {
-    const found = supported.find((s) => s.id === w.id);
+/**
+ * Asks each wallet whether it is there. `probe` is the page's own check (`probeStellarWallet`),
+ * with a timeout long enough for a sleeping extension to wake; the kit is asked only for icons,
+ * because its own availability answer gives up after 500 ms. No answer is reported as "not found".
+ */
+export async function stellarEntries(
+  kit: StellarWalletsKit,
+  probe: (id: string) => Promise<boolean | null>,
+): Promise<WalletEntry[]> {
+  const [supported, found] = await Promise.all([
+    kit.getSupportedWallets().catch(() => []),
+    Promise.all(VERIFIED_STELLAR_WALLETS.map((w) => probe(w.id))),
+  ]);
+  return VERIFIED_STELLAR_WALLETS.map((w, i) => {
+    const info = supported.find((s) => s.id === w.id);
     return {
       key: `stellar:${w.id}`,
       family: "stellar" as const,
       name: w.name,
-      icon: found?.icon && /^(data:image\/|https:\/\/)/.test(found.icon) ? found.icon : null,
-      installed: found?.isAvailable ?? false,
+      icon: info?.icon && /^(data:image\/|https:\/\/)/.test(info.icon) ? info.icon : null,
+      installed: found[i] === true,
       installUrl: w.installUrl,
     };
   });
+}
+
+/**
+ * A wallet that answered "here" stays detected for the rest of the visit. An extension does not
+ * uninstall itself mid-session, but it does stop answering while it sleeps, and a later "no
+ * answer" must not take back a "detected" the screen already showed.
+ */
+export function keepDetected(previous: WalletEntry[], next: WalletEntry[]): WalletEntry[] {
+  return next.map((entry) =>
+    !entry.installed && previous.some((p) => p.key === entry.key && p.installed)
+      ? { ...entry, installed: true }
+      : entry,
+  );
 }
 
 export async function connectStellar(
