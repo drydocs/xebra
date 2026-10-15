@@ -354,6 +354,18 @@ export const SOLANA_FROM_ARC = {
   maxForwardFeeNewAccountUnits: 1_000_000,
 } as const;
 
+/**
+ * Xebra's fee wrapper (`contracts/arc-evm`, `XebraCctpWrapper`) on each source chain that has one.
+ *
+ * Pinned like Circle's addresses, because a transfer approves it for the whole amount: an address
+ * here changes only by a commit, after `scripts/deploy-arc-wrapper.sh` has recorded the deployment
+ * in `deployments/mainnet.json` (a test holds the two together).
+ */
+export const XEBRA_WRAPPERS: Partial<Record<EvmChainId, string>> = {
+  // Deployed 2026-10-15, tx 0x5a3855c72d0025f0e7848e538862abf4b4fb2888434e58db79379487e212719d.
+  arc: "0x11b30470DAE40B2Fc27b7AA90dc58e6B4fE9f4c3",
+};
+
 export interface EvmRoute {
   from: EvmChainId;
   to: EvmChainId;

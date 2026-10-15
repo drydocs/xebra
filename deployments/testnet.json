@@ -1,0 +1,19 @@
+{
+  "arcWrapper": {
+    "address": "0xEdf6867df28F6A5EdE4c3B701c9E9e5091FDef75",
+    "admin": "0x400a9774BA511f6C225Ab28874cF507fEE0FF867",
+    "chainId": 5042002,
+    "deployTx": "0x2a6238a55a7eaeaee51138b951090df2fa1d85e8bc2f5cf1a9b1bba9bcb167ed",
+    "deployedAt": "2026-10-14T22:12:49.043191+00:00",
+    "deployer": "0xe78B36D25c5a53a87ef565ACD7e0CA7204AEF57f",
+    "domains": "[(1,true,500000,false,0),(2,true,500000,false,0),(3,true,500000,false,0),(6,true,500000,false,0),(7,true,500000,false,0),(10,true,500000,false,0),(12,true,500000,false,0),(13,true,500000,false,0),(14,true,500000,false,0),(15,true,500000,false,0),(16,true,500000,false,0),(18,true,500000,false,0),(19,true,500000,false,0),(21,true,500000,false,0),(5,false,500000,true,1000000)]",
+    "feeRecipient": "0xc3726574400F3a6e5Ff018c648938401bCeec8D0",
+    "gitCommit": "804958f3bf6193d76c3902c5247ef914bdd0bb8e",
+    "gitDirty": false,
+    "params": "(10,300000,1000000,100000000,5)",
+    "pauser": "0xBDb9f0863586644F015B9B96E4E5AbE751B8b025",
+    "runtimeCodeKeccak": "0xde9c71d1398af616360787798011ddd4951732cec2713b397828c46a309eb4e0",
+    "tokenMessenger": "0x8FE6B999Dc680CcFDD5Bf7EB0974218be2542DAA",
+    "usdc": "0x3600000000000000000000000000000000000000"
+  }
+}

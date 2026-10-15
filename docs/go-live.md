@@ -157,6 +157,45 @@ Known gaps, none of which lose money silently but all worth knowing:
 - Arc's Fast Transfer allowance is set by Circle and was not checked here. Iris quotes a zero fee
   for both thresholds today.
 
+## Turning on the Arc wrapper
+
+Transfers out of Arc are free today: the page calls Circle directly. `XebraCctpWrapper.sol`
+(`contracts/arc-evm`) takes Stellar's fee on them (0.10%, 0.30 USDC floor, Circle's delivery fee paid
+out of it). **Deployed on Arc mainnet** on 2026-10-15 at `0x11b30470DAE40B2Fc27b7AA90dc58e6B4fE9f4c3`
+(`deployments/mainnet.json`) and pinned in `XEBRA_WRAPPERS`; steps 1–4 below are done, the page does
+not use it until step 6, and no mainnet transfer has gone through it yet. Its keys are files in
+`~/.xebra-mainnet` on the maintainer's machine, like the Stellar admin and pauser identities.
+
+What is proven: the Foundry suite (unit, fuzz, and a deploy against Circle's real Arc testnet
+contracts in a fork), and on 2026-10-14 a deployment on Arc testnet
+(`0xEdf6867df28F6A5EdE4c3B701c9E9e5091FDef75`) carrying five real transfers through
+`scripts/test-arc-wrapper-testnet.sh`: Base Sepolia, OP Sepolia, Arbitrum Sepolia and Avalanche Fuji
+each received 1.70 of 2 USDC, and a brand-new Solana devnet wallet 2.70 of 3 with its USDC account
+opened by Circle. Circle executed exactly the `maxFee` the wrapper passed every time. The burn cannot
+be run in a local fork, because Arc's USDC moves through Arc-only precompiles.
+
+Unlike the Soroban wrapper, this one holds the principal for the length of the transaction (see "What
+is not a risk" below). In this order:
+
+1. **Two EVM keys, held by different people**, for admin and pauser (`cast wallet new`, then
+   `cast wallet import <name> --private-key …`, or a hardware wallet), and an address for fees.
+2. **A deployer** keystore holding at least 0.2 USDC on Arc mainnet. The deployment costs about 0.083
+   (4.14M gas at 20 gwei, measured on testnet); the script refuses to start with less than 0.2. Give
+   the admin and pauser a few cents each too: their calls cost 0.001–0.002 USDC.
+3. **Deploy.** `pnpm --filter @xebra/network-config build`, then
+   `NETWORK=mainnet ACCOUNT=<deployer> ADMIN=0x… PAUSER=0x… FEE_RECIPIENT=0x… scripts/deploy-arc-wrapper.sh`
+   for the dry run, and again with `CONFIRM="deploy the arc wrapper to mainnet"`. It reads the
+   contract back and records it in `deployments/mainnet.json` under `arcWrapper`.
+4. **Pin it.** Set `XEBRA_WRAPPERS = { arc: "0x…" }` in `packages/network-config/src/evm-chains.ts`
+   and `apps/web/lib/evm-chains.ts`; a test holds both to the deployment record. The address is never
+   read from the environment, because a transfer approves it for the whole amount.
+5. **Verify the source** on Arc's block explorer (`forge verify-contract`).
+6. **Switch it on and send your own transfer first.** `NEXT_PUBLIC_ARC_USE_WRAPPER=1` in Vercel, then
+   a small transfer from the live site, and `NETWORK=mainnet scripts/arc-wrapper-admin.sh status` to
+   see the fee accrue.
+7. **Keep `maxTransfer` at 100 USDC** through the bug bounty. Raising it is
+   `scripts/arc-wrapper-admin.sh propose-params …` and a 48-hour wait.
+
 ## 3. One more reason to deploy the wrapper early
 
 Moot since the relay was removed: nobody sponsors a mint any more, so there is nothing to grief.
@@ -214,10 +253,16 @@ Steps 1–5 are done. 6–8 are what is still open.
 
 Worth being clear, because most bridge failures are custody failures and this one cannot be.
 
-The wrapper never holds principal. The user is `caller` on `deposit_for_burn`, so USDC moves
-from the user directly to Circle inside a single transaction — if any part of it fails, the whole
-transaction reverts and the user still has their money. `withdraw_fees` can only ever move the
+The Soroban wrapper never holds principal. The user is `caller` on `deposit_for_burn`, so USDC
+moves from the user directly to Circle inside a single transaction — if any part of it fails, the
+whole transaction reverts and the user still has their money. `withdraw_fees` can only ever move the
 accrued-fee counter, so a stolen admin key cannot reach a transfer in flight.
+
+The EVM wrapper does hold the principal, for the length of one transaction: Circle's EVM messenger
+burns from `msg.sender`, so the wrapper pulls the amount, approves exactly what it burns, and burns.
+It reverts unless the allowance to Circle is back to zero and it still holds at least what it owes
+the fee recipient, so between transactions it holds fees and nothing else, and `withdrawFees` can
+move only those.
 
 And `destination_caller` is set to zero, which makes every message permissionlessly mintable.
 If this company disappears mid-transfer, the burned USDC is still claimable by anyone holding

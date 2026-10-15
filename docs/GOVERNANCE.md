@@ -50,10 +50,24 @@ something looks wrong, and *change it deliberately* for everything else, with en
 users and other maintainers have a window to notice and react before a parameter change takes
 effect. 48 hours is chosen to be long enough to notice, short enough to still be useful.
 
+## The EVM wrapper
+
+`contracts/arc-evm/src/XebraCctpWrapper.sol`, the fee wrapper for transfers out of Arc, is governed
+the same way: an admin and a pauser, instant pause and veto, 48 hours for anything that loosens. The
+functions are the Soroban ones in camelCase (`pause`, `unpause`, `proposeParams`/`commitParams`,
+`tightenParams`, `proposeDomain`/`commitDomain`, `tightenDomain`, `removeDomain`, `cancelPending`,
+`proposeAdmin`/`acceptAdmin`, `proposePauser`/`commitPauser`,
+`proposeFeeRecipient`/`commitFeeRecipient`, `withdrawFees`). Two differences follow from there being
+no relay: a domain on its list is a domain Circle forwards to, so there is no `forward` switch, and
+`removeDomain` is the kill switch for one chain. Its keys are EVM keys, separate from the Stellar
+ones. Until `/admin` has an EVM section it is governed with `scripts/arc-wrapper-admin.sh`: `status`
+reads, and every other command shows the call and asks for a typed `yes`.
+
 ## What this doesn't cover
 
 The Iris rate counter (`apps/web/convex/`) and frontend (`apps/web`) have no on-chain governance —
-they're ordinary deployed software, changed by ordinary PRs and deploys. The routes between Arc and
-the EVM chains call Circle's contracts directly, so there is no contract of ours there to govern. Nothing about them requires a
+they're ordinary deployed software, changed by ordinary PRs and deploys. Until the EVM wrapper is
+deployed and switched on, the routes between Arc and the EVM chains call Circle's contracts directly,
+so there is no contract of ours there to govern. Nothing about them requires a
 timelock because they hold no funds and confer no authority the contract doesn't independently
 check; the contract is the only thing here whose bugs are irreversible by design.

@@ -41,17 +41,21 @@ export type FeePlan =
       maxFee: bigint;
       deliveryFee: bigint;
       speedFee: bigint;
+      /** What Xebra keeps: zero on a direct route, the wrapper's take through it. */
+      xebraFee: bigint;
+      /** Everything the sender pays besides what the recipient gets. */
+      fee: bigint;
       /** What the recipient is minted. */
       received: bigint;
     }
   | {
       ok: false;
       /**
-       * `amount`: nothing to price yet. `minimum`: this amount is too small for the route, which
-       * belongs under the amount field. `cap`: Circle's quote is one we will not sign, which is
-       * about the route and not about anything the person typed.
+       * `amount`: nothing to price yet. `minimum` / `maximum`: this amount does not fit the route,
+       * which belongs under the amount field. `cap`: Circle's quote is one we will not sign, or the
+       * wrapper will not send, which is about the route and not about anything the person typed.
        */
-      kind: "amount" | "minimum" | "cap";
+      kind: "amount" | "minimum" | "maximum" | "cap";
       reason: string;
     };
 
@@ -80,12 +84,17 @@ function withinTenth(amount: bigint, tier: FeeTier): boolean {
  * as `minimumForwardedAmount` is, so the figure shown can never disagree with the rule applied.
  */
 export function minimumEvmAmount(tier: FeeTier): bigint {
+  return smallestPassing((amount) => withinTenth(amount, tier));
+}
+
+/** The smallest amount `passes`, given that every larger one passes too. */
+function smallestPassing(passes: (amount: bigint) => boolean): bigint {
   let lo = 1n;
   let hi = 100_000_000_000n; // 100,000 USDC: far above any fee this bound could need
-  if (!withinTenth(hi, tier)) return hi;
+  if (!passes(hi)) return hi;
   while (lo < hi) {
     const mid = (lo + hi) / 2n;
-    if (withinTenth(mid, tier)) hi = mid;
+    if (passes(mid)) hi = mid;
     else lo = mid + 1n;
   }
   return lo;
@@ -132,5 +141,158 @@ export function planEvmFee(input: {
       reason: `Fees would take more than a tenth of this transfer. Send at least ${formatUsdc6(minimum)} USDC to ${destination.name}.`,
     };
   }
-  return { ok: true, maxFee, deliveryFee, speedFee, received: amount - maxFee };
+  return {
+    ok: true,
+    maxFee,
+    deliveryFee,
+    speedFee,
+    xebraFee: 0n,
+    fee: maxFee,
+    received: amount - maxFee,
+  };
+}
+
+/**
+ * The wrapper's settings that price a transfer through it, read from the contract
+ * (`lib/evm-wrapper.ts`): they change through its 48-hour timelock, so they are never pinned here.
+ */
+export interface WrapperTerms {
+  paused: boolean;
+  feeBps: number;
+  minFee: bigint;
+  minTransfer: bigint;
+  maxTransfer: bigint;
+  maxFastFeeBps: number;
+  /** The destination's caps on the wrapper, or null when it does not send there. */
+  domain: {
+    maxForwardFee: bigint;
+    accountCreation: boolean;
+    maxForwardFeeNewAccount: bigint;
+  } | null;
+}
+
+/**
+ * The wrapper's split, exactly as `XebraCctpWrapper.computeSplit` makes it: the fee is the larger of
+ * Xebra's (percentage, or the floor) and Circle's, Circle's is paid out of it, and the recipient gets
+ * the amount less the fee. Null where the contract would refuse it because nothing would arrive.
+ */
+export function wrapperSplit(
+  amount: bigint,
+  maxFee: bigint,
+  terms: Pick<WrapperTerms, "feeBps" | "minFee">,
+): { fee: bigint; xebraFee: bigint; netBurned: bigint } | null {
+  const pct = (amount * BigInt(terms.feeBps)) / 10_000n;
+  const base = pct > terms.minFee ? pct : terms.minFee;
+  const fee = base > maxFee ? base : maxFee;
+  if (fee >= amount) return null;
+  const xebraFee = fee - maxFee;
+  const netBurned = amount - xebraFee;
+  return netBurned > maxFee ? { fee, xebraFee, netBurned } : null;
+}
+
+/**
+ * `planEvmFee` for a transfer through Xebra's wrapper. Every bound the contract enforces is applied
+ * here first, so a wallet is never asked to sign what the contract would refuse: its pause, the
+ * destination being on its list, its transfer range, its per-destination cap (with the Fast
+ * allowance), and Circle's fee at most a tenth of what is burned. The chain table's own ceiling still
+ * applies on top, as it does on a direct route.
+ */
+export function planWrapperFee(input: {
+  amount: bigint;
+  tier: FeeTier;
+  destination: FeeDestination;
+  terms: WrapperTerms;
+  /** Circle is to open the recipient's Solana USDC account. */
+  opensAccount: boolean;
+  /** The chain the transfer leaves from, for sentences. */
+  sourceName: string;
+}): FeePlan {
+  const { amount, tier, destination, terms, opensAccount, sourceName } = input;
+  if (amount <= 0n) return { ok: false, kind: "amount", reason: "Enter an amount to send." };
+  if (terms.paused) {
+    return {
+      ok: false,
+      kind: "cap",
+      reason: `Xebra has paused transfers from ${sourceName}. Nothing can be sent until they resume.`,
+    };
+  }
+  const domain = terms.domain;
+  if (!domain) {
+    return {
+      ok: false,
+      kind: "cap",
+      reason: `Xebra's contract on ${sourceName} does not send to ${destination.name} yet.`,
+    };
+  }
+  if (opensAccount && !domain.accountCreation) {
+    return {
+      ok: false,
+      kind: "cap",
+      reason: `Xebra's contract cannot have Circle open a USDC account on ${destination.name} right now. Send to a wallet that already holds USDC there.`,
+    };
+  }
+  if (!Number.isSafeInteger(tier.high) || tier.high <= 0) {
+    return {
+      ok: false,
+      kind: "cap",
+      reason: "Circle's delivery fee could not be read. Try again shortly.",
+    };
+  }
+
+  const { deliveryFee, speedFee } = feesFor(amount, tier);
+  const tableCap = BigInt(destination.maxForwardFeeUnits);
+  if (deliveryFee > tableCap) {
+    return {
+      ok: false,
+      kind: "cap",
+      reason: `Circle's delivery fee (${formatUsdc6(deliveryFee)} USDC) is above the limit we allow for ${destination.name} right now (${formatUsdc6(tableCap)} USDC). Try again shortly.`,
+    };
+  }
+  if (amount > terms.maxTransfer) {
+    return {
+      ok: false,
+      kind: "maximum",
+      reason: `Xebra sends at most ${formatUsdc6(terms.maxTransfer)} USDC per transfer for now.`,
+    };
+  }
+
+  const fits = (a: bigint): boolean => {
+    if (a < terms.minTransfer) return false;
+    const { deliveryFee: d, speedFee: s } = feesFor(a, tier);
+    const split = wrapperSplit(a, d + s, terms);
+    return split !== null && d + s <= split.netBurned / FEE_FRACTION_DENOM;
+  };
+  const maxFee = deliveryFee + speedFee;
+  const split = wrapperSplit(amount, maxFee, terms);
+  if (!fits(amount) || split === null) {
+    const minimum = suggestedEvmMinimum(smallestPassing(fits));
+    return {
+      ok: false,
+      kind: "minimum",
+      reason: `Send at least ${formatUsdc6(minimum)} USDC to ${destination.name}: below that, fees would take more than a tenth of the transfer.`,
+    };
+  }
+
+  const cap = opensAccount ? domain.maxForwardFeeNewAccount : domain.maxForwardFee;
+  const fastAllowance =
+    tier.finalityThreshold === 1000
+      ? (split.netBurned * BigInt(terms.maxFastFeeBps) + 9_999n) / 10_000n
+      : 0n;
+  if (maxFee > cap + fastAllowance) {
+    return {
+      ok: false,
+      kind: "cap",
+      reason: `Circle's fee (${formatUsdc6(maxFee)} USDC) is above what Xebra's contract allows for ${destination.name} right now (${formatUsdc6(cap + fastAllowance)} USDC). Try again shortly.`,
+    };
+  }
+
+  return {
+    ok: true,
+    maxFee,
+    deliveryFee,
+    speedFee,
+    xebraFee: split.xebraFee,
+    fee: split.fee,
+    received: amount - split.fee,
+  };
 }

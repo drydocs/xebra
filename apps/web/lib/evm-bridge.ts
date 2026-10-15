@@ -6,12 +6,14 @@ import {
   encodeApprove,
   encodeBalanceOf,
   encodeDepositForBurnWithHook,
+  encodeWrapperBridge,
 } from "@xebra/cctp-evm";
 import type { EvmChain } from "./evm-chains";
 import {
   type Hex,
   ensureChain,
   ethCall,
+  readBlockTimestamp,
   readChainId,
   sendTransaction,
   waitForReceipt,
@@ -21,10 +23,13 @@ import { formatUsdc6 } from "./usdc6";
 import type { Eip1193Provider } from "./wallets/types";
 
 /**
- * Starting a USDC transfer from an EVM chain by calling Circle's contracts directly.
+ * Starting a USDC transfer from an EVM chain, by calling Circle's contracts directly or through
+ * Xebra's fee wrapper where the chain has one (`via`).
  *
- * No Xebra contract is involved: the wallet approves Circle's `TokenMessengerV2` for the amount and
- * then calls `depositForBurnWithHook` on it. Circle's Forwarding Service mints on the destination.
+ * Direct, the wallet approves Circle's `TokenMessengerV2` for the amount and calls
+ * `depositForBurnWithHook` on it. Through the wrapper it approves the wrapper and calls its
+ * `bridge`, which keeps Xebra's fee and makes the same burn itself. Either way Circle's Forwarding
+ * Service mints on the destination.
  * There is no relay, so everything that can be checked is checked *before* the burn, which is the
  * one step that cannot be undone:
  *
@@ -79,14 +84,14 @@ export async function getUsdcBalance6(
   return decodeUint256(await ethCall(provider, chain.usdcAddress, encodeBalanceOf(owner)));
 }
 
-export async function getMessengerAllowance(
+/** What `owner` has approved `spender` (Circle's messenger, or the wrapper) to take. */
+export async function getAllowance(
   provider: Eip1193Provider,
   chain: EvmChain,
   owner: string,
+  spender: string,
 ): Promise<bigint> {
-  return decodeUint256(
-    await ethCall(provider, chain.usdcAddress, encodeAllowance(owner, chain.tokenMessengerAddress)),
-  );
+  return decodeUint256(await ethCall(provider, chain.usdcAddress, encodeAllowance(owner, spender)));
 }
 
 export interface EvmBridgeRequest {
@@ -112,7 +117,15 @@ export interface EvmBridgeRequest {
    * and Circle's quote moves. Returning more than `maxFee` stops the transfer before the burn.
    */
   currentMaxFee?: () => Promise<bigint>;
+  /**
+   * Send through Xebra's wrapper at this address, paying at most `maxWrapperFee` in all (Circle's
+   * fee included). Absent: call Circle directly.
+   */
+  via?: { address: string; maxWrapperFee: bigint } | null;
 }
+
+/** How long a request through the wrapper stays good, from the chain's latest block. */
+const WRAPPER_DEADLINE_SECS = 600n;
 
 export interface EvmBridgeResult {
   /** The burn. On chain as soon as this is returned; watch it with `watchBurn`. */
@@ -124,17 +137,33 @@ const NOTHING_BURNED = "Nothing was burned.";
 
 export async function submitEvmBridge(req: EvmBridgeRequest): Promise<EvmBridgeResult> {
   const { provider, from, source, destination, amount, maxFee } = req;
+  const via = req.via ?? null;
   const step = (s: EvmBridgeStep) => req.onStep?.(s);
+  // Who takes the USDC and is called: the wrapper, or Circle's messenger.
+  const target = via?.address ?? source.tokenMessengerAddress;
+  const encodeBurn = (deadline: bigint) =>
+    via
+      ? encodeWrapperBridge({
+          amount,
+          destinationDomain: destination.cctpDomainId,
+          recipient: req.recipient,
+          maxFee,
+          minFinalityThreshold: req.finality,
+          maxWrapperFee: via.maxWrapperFee,
+          deadline,
+        })
+      : encodeDepositForBurnWithHook({
+          amount,
+          destinationDomain: destination.cctpDomainId,
+          recipient: req.recipient,
+          burnToken: source.usdcAddress,
+          maxFee,
+          minFinalityThreshold: req.finality,
+        });
 
-  // Built first: an argument the encoder refuses must fail before any wallet prompt.
-  const burn = encodeDepositForBurnWithHook({
-    amount,
-    destinationDomain: destination.cctpDomainId,
-    recipient: req.recipient,
-    burnToken: source.usdcAddress,
-    maxFee,
-    minFinalityThreshold: req.finality,
-  });
+  // Built first: an argument the encoder refuses must fail before any wallet prompt. The deadline
+  // is set for real just before the burn, after any approval has confirmed.
+  let burn = encodeBurn(0n);
 
   step("switching");
   await ensureChain(provider, source);
@@ -153,12 +182,12 @@ export async function submitEvmBridge(req: EvmBridgeRequest): Promise<EvmBridgeR
   }
 
   let approvalTxHash: Hex | null = null;
-  if ((await getMessengerAllowance(provider, source, from)) < amount) {
+  if ((await getAllowance(provider, source, from, target)) < amount) {
     step("approving");
     approvalTxHash = await sendTransaction(provider, {
       from,
       to: source.usdcAddress,
-      data: encodeApprove(source.tokenMessengerAddress, amount),
+      data: encodeApprove(target, amount),
       chainId: source.chainId,
     });
 
@@ -178,7 +207,7 @@ export async function submitEvmBridge(req: EvmBridgeRequest): Promise<EvmBridgeR
         `Your wallet left ${source.name} while the approval confirmed. ${NOTHING_BURNED} Switch back and send again; the approval is still in place.`,
       );
     }
-    if ((await getMessengerAllowance(provider, source, from)) < amount) {
+    if ((await getAllowance(provider, source, from, target)) < amount) {
       throw new Error(
         `The approval in your wallet was for less than this transfer. ${NOTHING_BURNED} Send again and approve the full ${formatUsdc6(amount)} USDC.`,
       );
@@ -193,10 +222,12 @@ export async function submitEvmBridge(req: EvmBridgeRequest): Promise<EvmBridgeR
     }
   }
 
+  if (via) burn = encodeBurn((await readBlockTimestamp(provider)) + WRAPPER_DEADLINE_SECS);
+
   // A burn that would revert is found here, as the sender, instead of in a wallet warning or,
-  // worse, on chain after gas is spent.
+  // worse, on chain after gas is spent. Through the wrapper this runs every one of its checks.
   try {
-    await ethCall(provider, source.tokenMessengerAddress, burn, from);
+    await ethCall(provider, target, burn, from);
   } catch (err) {
     throw new Error(
       `${source.name} says this transfer would fail: ${formatError(err)}. ${NOTHING_BURNED}`,
@@ -207,7 +238,7 @@ export async function submitEvmBridge(req: EvmBridgeRequest): Promise<EvmBridgeR
   step("burning");
   const txHash = await sendTransaction(provider, {
     from,
-    to: source.tokenMessengerAddress,
+    to: target,
     data: burn,
     chainId: source.chainId,
   });

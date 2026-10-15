@@ -6,6 +6,7 @@ import type React from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { bytesToHex } from "viem";
 import { type DeliveryView, getDelivery, getRouteHealth } from "../../lib/circle-status";
+import { env } from "../../lib/env";
 import { checkAddressOn } from "../../lib/evm-address";
 import {
   ARC_GAS_RESERVE_UNITS,
@@ -21,9 +22,17 @@ import {
   type RouteDestinationId,
   evmDestinationsFrom,
   explorerTxUrl,
+  wrapperFor,
 } from "../../lib/evm-chains";
-import { type FeeTier, planEvmFee, speedFeeFor } from "../../lib/evm-forward-fee";
+import {
+  type FeePlan,
+  type FeeTier,
+  planEvmFee,
+  planWrapperFee,
+  speedFeeFor,
+} from "../../lib/evm-forward-fee";
 import { ensureChain } from "../../lib/evm-rpc";
+import { type WrapperSettings, getWrapperSettings, termsFor } from "../../lib/evm-wrapper";
 import { formatError, reportError } from "../../lib/format-error";
 import {
   type RouteDestination,
@@ -55,9 +64,11 @@ import { type Speed, SpeedPicker } from "./speed-picker";
  * contracts directly.
  *
  * The sibling of `StellarBridgeForm`, and deliberately a sibling and not a branch inside it. That
- * form talks to a Soroban contract that bounds the fee and fixes the hook; this one has no contract
- * of ours to lean on, so the bounds are applied here before signing (`lib/evm-forward-fee.ts`,
- * `lib/evm-bridge.ts`) and the two never share a code path that money runs through.
+ * form talks to a Soroban contract that bounds the fee and fixes the hook. This one calls Circle
+ * directly unless the source chain has Xebra's own wrapper pinned and switched on
+ * (`NEXT_PUBLIC_ARC_USE_WRAPPER`); either way every bound is applied here before signing
+ * (`lib/evm-forward-fee.ts`, `lib/evm-bridge.ts`), and through the wrapper the contract applies
+ * them again. The two forms never share a code path that money runs through.
  *
  * # What is different for the person
  *
@@ -120,6 +131,13 @@ export function EvmBridgeForm({
   );
   const [destId, setDestId] = useState<RouteDestinationId>(destinations[0]?.id ?? "arc");
   const dest = useMemo(() => routeDestination(destId), [destId]);
+
+  // Xebra's wrapper on this chain, when the build uses it, and its live settings: `undefined` while
+  // the first read is out, null when it could not be read. A transfer is never priced without them.
+  const wrapperAddress = wrapperFor(source, env.arcUseWrapper);
+  const [wrapperSettings, setWrapperSettings] = useState<WrapperSettings | null | undefined>(
+    undefined,
+  );
 
   const [amountInput, setAmountInput] = useState("5");
   const [recipientInput, setRecipientInput] = useState("");
@@ -231,21 +249,66 @@ export function EvmBridgeForm({
   const chosenSpeed: Speed = fastOffered ? speed : "standard";
   const tier = tierFor(health, source, chosenSpeed);
 
+  // The wrapper's settings change only through its timelock, but a pause is instant: re-read every
+  // minute, and again just before signing.
+  useEffect(() => {
+    if (!wrapperAddress) return;
+    let cancelled = false;
+    const read = () =>
+      getWrapperSettings(source.cctpDomainId).then((s) => {
+        if (!cancelled) setWrapperSettings(s);
+      });
+    void read();
+    const timer = setInterval(read, 60_000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [wrapperAddress, source.cctpDomainId]);
+
+  /** Prices a transfer the way it will be sent: through the wrapper, or straight to Circle. */
+  const planFor = useCallback(
+    (
+      value: bigint,
+      feeTier: FeeTier,
+      destination: RouteDestination,
+      opening: boolean,
+      settings: WrapperSettings | null | undefined,
+    ): FeePlan | null => {
+      const feeDest = feeDestination(destination, opening);
+      if (!wrapperAddress)
+        return planEvmFee({ amount: value, tier: feeTier, destination: feeDest });
+      if (!settings) return null;
+      return planWrapperFee({
+        amount: value,
+        tier: feeTier,
+        destination: feeDest,
+        terms: termsFor(settings, destination.cctpDomainId),
+        opensAccount: opening,
+        sourceName: source.name,
+      });
+    },
+    [wrapperAddress, source.name],
+  );
+
   const plan = useMemo(
     () =>
       amount !== null && amount > 0n && tier
-        ? planEvmFee({ amount, tier, destination: feeDestination(dest, opensAccount) })
+        ? planFor(amount, tier, dest, opensAccount, wrapperSettings)
         : null,
-    [amount, tier, dest, opensAccount],
+    [amount, tier, dest, opensAccount, wrapperSettings, planFor],
   );
-  const minimumProblem = plan && !plan.ok && plan.kind === "minimum" ? plan.reason : null;
+  const minimumProblem =
+    plan && !plan.ok && (plan.kind === "minimum" || plan.kind === "maximum") ? plan.reason : null;
   const amountProblem = amountError ?? minimumProblem;
   const quoteError =
     plan && !plan.ok && plan.kind === "cap"
       ? plan.reason
-      : healthUnavailable
-        ? "We could not get Circle's delivery fee just now. Try again in a moment."
-        : null;
+      : wrapperAddress && wrapperSettings === null
+        ? `We could not read Xebra's contract on ${source.name} just now. Try again in a moment.`
+        : healthUnavailable
+          ? "We could not get Circle's delivery fee just now. Try again in a moment."
+          : null;
 
   // The wallet's USDC on the source chain. Only asked once the wallet is known to be on that
   // chain: the token address is a different contract, or nothing at all, anywhere else.
@@ -377,7 +440,13 @@ export function EvmBridgeForm({
         createAccountFor: opening ? bytesToHex(recipientCheck.bytes) : undefined,
       };
     }
-    const priceNow = async (): Promise<{ tier: FeeTier; maxFee: bigint } | string> => {
+    const priceNow = async (): Promise<{ tier: FeeTier; maxFee: bigint; fee: bigint } | string> => {
+      // Through the wrapper its settings are read again too: a pause or a lowered cap is instant.
+      const settings = wrapperAddress ? await getWrapperSettings(source.cctpDomainId) : undefined;
+      if (wrapperAddress) {
+        setWrapperSettings(settings);
+        if (!settings) return `We could not read Xebra's contract on ${source.name} just now.`;
+      }
       const fresh = await getRouteHealth(source.cctpDomainId, destination.cctpDomainId, opening);
       setHealthState({ key: healthKey, value: fresh });
       if (fresh?.status === "down") {
@@ -389,12 +458,11 @@ export function EvmBridgeForm({
           ? "Circle is not offering Fast on this route right now. Choose Standard, or try again shortly."
           : "We could not get Circle's delivery fee just now.";
       }
-      const latest = planEvmFee({
-        amount,
-        tier: freshTier,
-        destination: feeDestination(destination, opening),
-      });
-      return latest.ok ? { tier: freshTier, maxFee: latest.maxFee } : latest.reason;
+      const latest = planFor(amount, freshTier, destination, opening, settings);
+      if (!latest) return `We could not read Xebra's contract on ${source.name} just now.`;
+      return latest.ok
+        ? { tier: freshTier, maxFee: latest.maxFee, fee: latest.fee }
+        : latest.reason;
     };
 
     try {
@@ -405,11 +473,12 @@ export function EvmBridgeForm({
         setSubmitError(`${priced} Nothing was sent.`);
         return;
       }
-      // Circle's fee drifts by a few percent over minutes. If it went up, stop and show it
-      // instead of signing a number the user did not see. Nothing on chain would refuse it.
-      if (priced.maxFee > plan.maxFee) {
+      // Circle's fee drifts by a few percent over minutes. If the total went up, stop and show it
+      // instead of signing a number the user did not see. Through the wrapper a small rise is
+      // often absorbed by Xebra's own fee, and then the total, which is what the user saw, holds.
+      if (priced.fee > plan.fee) {
         setSubmitError(
-          `Circle's fee moved while you were reviewing: it is now ${formatUsdc6(priced.maxFee)} USDC, was ${formatUsdc6(plan.maxFee)}. Nothing was sent. Check the new total and confirm again.`,
+          `The fee moved while you were reviewing: it is now ${formatUsdc6(priced.fee)} USDC, was ${formatUsdc6(plan.fee)}. Nothing was sent. Check the new total and confirm again.`,
         );
         return;
       }
@@ -423,6 +492,7 @@ export function EvmBridgeForm({
         amount,
         maxFee: priced.maxFee,
         finality: priced.tier.finalityThreshold,
+        via: wrapperAddress ? { address: wrapperAddress, maxWrapperFee: priced.fee } : null,
         onStep: (s) => setStep(EVM_STEP_LABEL[s](source.name)),
         // An approval can take minutes on a busy chain; the fee is asked for again after it.
         currentMaxFee: async () => {

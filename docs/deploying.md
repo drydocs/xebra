@@ -77,6 +77,7 @@ NEXT_PUBLIC_ARC_SENDS_TO                              # optional: where Arc may 
 NEXT_PUBLIC_ARC_RECEIVES_FROM                         # optional: EVM chains that may send into Arc
 NEXT_PUBLIC_STELLAR_SENDS_TO                          # optional: EVM chains Stellar may send to, or `all`;
                                                       # each is offered once the wrapper commits its domain
+NEXT_PUBLIC_ARC_USE_WRAPPER                           # optional: `1` sends through the pinned EVM wrapper
 ```
 
 Server-side only:
@@ -153,9 +154,14 @@ watch is Circle and the deployment itself:
 
 ## What is still missing
 
-No mainnet transfer has gone through the routes between Arc and the EVM chains yet; they were proven
-on testnet on 2026-10-14. EVM chains → Arc is off in production (`NEXT_PUBLIC_ARC_RECEIVES_FROM`
+Arc → Base went through on mainnet on 2026-10-15: 0.78 USDC delivered as 0.72577 in 237 seconds,
+Circle's `feeExecuted` equal to `maxFee` (forward tx `0xcfd8f187…7563`). The other routes between Arc
+and the EVM chains were proven on testnet on 2026-10-14. They call Circle directly and charge no fee of ours: the EVM fee wrapper is
+deployed on Arc mainnet but not switched on (`NEXT_PUBLIC_ARC_USE_WRAPPER`,
+[`go-live.md`](./go-live.md#turning-on-the-arc-wrapper)). EVM chains → Arc is off in production (`NEXT_PUBLIC_ARC_RECEIVES_FROM`
 unset).
 
-Stellar → the EVM chains other than Arc waits on the wrapper: none of their domains is committed yet,
-and each takes a 48-hour proposal ([`admin-panel.md`](./admin-panel.md#adding-a-chain)).
+Stellar → the EVM chains other than Arc waits on the wrapper, one 48-hour proposal per chain
+([`admin-panel.md`](./admin-panel.md#adding-a-chain)). Base (domain 6) was proposed on 2026-10-15 and
+can be committed from 2026-10-17 08:15 UTC; Monad (15) is next, then Arbitrum. Production is built with
+`NEXT_PUBLIC_STELLAR_SENDS_TO=all`, so each chain appears on the page as its commit lands.

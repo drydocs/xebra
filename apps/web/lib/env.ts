@@ -61,6 +61,7 @@ const RAW = {
   NEXT_PUBLIC_ARC_SENDS_TO: process.env.NEXT_PUBLIC_ARC_SENDS_TO,
   NEXT_PUBLIC_ARC_RECEIVES_FROM: process.env.NEXT_PUBLIC_ARC_RECEIVES_FROM,
   NEXT_PUBLIC_STELLAR_SENDS_TO: process.env.NEXT_PUBLIC_STELLAR_SENDS_TO,
+  NEXT_PUBLIC_ARC_USE_WRAPPER: process.env.NEXT_PUBLIC_ARC_USE_WRAPPER,
   NEXT_PUBLIC_STELLAR_ESCROW_CONTRACT_ID: process.env.NEXT_PUBLIC_STELLAR_ESCROW_CONTRACT_ID,
   NEXT_PUBLIC_STELLAR_CCTP_WRAPPER_CONTRACT_ID:
     process.env.NEXT_PUBLIC_STELLAR_CCTP_WRAPPER_CONTRACT_ID,
@@ -169,6 +170,13 @@ export const env = {
    * before the chains are added, and each one switches on by itself as its commit lands.
    */
   stellarSendsTo: parseStellarSendsTo(optional("NEXT_PUBLIC_STELLAR_SENDS_TO")),
+  /**
+   * Send transfers out of a chain through Xebra's fee wrapper where one is pinned
+   * (`XEBRA_WRAPPERS` in `lib/evm-chains.ts`), instead of calling Circle directly. Exactly `1` to
+   * switch on. The address itself is never read from the environment: a transfer approves it for
+   * the whole amount, so it changes only by a commit. With no wrapper pinned this does nothing.
+   */
+  arcUseWrapper: optional("NEXT_PUBLIC_ARC_USE_WRAPPER") === "1",
   /**
    * Intent/swap-rail only, which is out of scope: the product is a USDC bridge over CCTP.
    * Optional so a mainnet build is not blocked on deploying an escrow the product does not

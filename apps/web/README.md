@@ -8,8 +8,8 @@ works is in the root [README](../../README.md); deploying is in
   `NEXT_PUBLIC_STELLAR_SENDS_TO` names, through wrapper v2, signed in Freighter
   (`components/bridge/stellar-bridge-form.tsx`). When the build switches them on
   (`NEXT_PUBLIC_ARC_SENDS_TO`, `NEXT_PUBLIC_ARC_RECEIVES_FROM`), Arc → EVM chains and Solana, and EVM
-  chains → Arc, through Circle's `TokenMessengerV2` directly
-  (`components/bridge/evm-bridge-form.tsx`).
+  chains → Arc, through Circle's `TokenMessengerV2` directly, or through Xebra's EVM fee wrapper
+  where one is pinned and `NEXT_PUBLIC_ARC_USE_WRAPPER=1` (`components/bridge/evm-bridge-form.tsx`).
 - `/claim` — completes a transfer whose forward failed, from the owner's wallet.
 - `/admin` — console for the v2 wrapper ([`docs/admin-panel.md`](../../docs/admin-panel.md)).
 - `/recover` — countersigns the rescue of a v1 burn that named a wallet instead of a token account

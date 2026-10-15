@@ -5,6 +5,7 @@ import {
   EVM_CHAINS,
   EVM_ROUTES,
   SOLANA_FROM_ARC,
+  XEBRA_WRAPPERS,
   evmChainForDomain,
   isArcToSolana,
   isEvmRoute,
@@ -112,6 +113,22 @@ describe("EVM_CHAINS", () => {
   it("points at no test network", () => {
     for (const chain of Object.values(EVM_CHAINS)) {
       expect(`${chain.rpcUrl} ${chain.explorerUrl}`).not.toMatch(/testnet|sepolia|fuji|amoy/i);
+    }
+  });
+});
+
+describe("XEBRA_WRAPPERS", () => {
+  it("pins Arc's wrapper exactly as the mainnet deployment recorded it, or none before it", () => {
+    // A transfer approves this address for the whole amount. It may only ever be the contract
+    // scripts/deploy-arc-wrapper.sh deployed and wrote down.
+    const record = JSON.parse(
+      readFileSync(new URL("../../../deployments/mainnet.json", import.meta.url), "utf8"),
+    ) as { arcWrapper?: { address: string; chainId: number } };
+    if (record.arcWrapper) {
+      expect(record.arcWrapper.chainId).toBe(EVM_CHAINS.arc.chainId);
+      expect(XEBRA_WRAPPERS).toEqual({ arc: record.arcWrapper.address });
+    } else {
+      expect(XEBRA_WRAPPERS).toEqual({});
     }
   });
 });
