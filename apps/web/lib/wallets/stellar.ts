@@ -5,8 +5,9 @@ import type { Connection, WalletEntry } from "./types";
  * The Stellar wallets this app will sign with.
  *
  * Deliberately a short list. Every transfer and every admin call carries a Soroban authorization
- * tree that the wallet must sign entry by entry, and signing parity across wallets has only been
- * checked for Freighter (see stellar-wallet.ts). Listing a wallet here is a promise that money
+ * tree that the wallet must sign entry by entry, and signing parity across wallets has been
+ * checked for Freighter (see stellar-wallet.ts); LOBSTR is listed on the strength of its extension's
+ * `signTransaction`, which is the only call open-intent.ts needs, and still wants a real transfer. Listing a wallet here is a promise that money
  * moves correctly through it, so it is added after a real transfer has gone through it, not
  * because the kit happens to support it.
  */
@@ -14,7 +15,11 @@ export const VERIFIED_STELLAR_WALLETS: ReadonlyArray<{
   id: string;
   name: string;
   installUrl: string;
-}> = [{ id: "freighter", name: "Freighter", installUrl: "https://www.freighter.app" }];
+}> = [
+  { id: "freighter", name: "Freighter", installUrl: "https://www.freighter.app" },
+  // Browser extension only. LOBSTR's phone app is not reachable through this module.
+  { id: "lobstr", name: "LOBSTR", installUrl: "https://lobstr.co/signer-extension" },
+];
 
 export async function stellarEntries(kit: StellarWalletsKit): Promise<WalletEntry[]> {
   const supported = await kit.getSupportedWallets();
