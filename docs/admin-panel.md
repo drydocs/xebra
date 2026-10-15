@@ -3,6 +3,10 @@
 A console for the v2 wrapper: read its state, change fees and destinations, pause it, take the fees,
 and watch contract rent run down. Built in `apps/web` (`app/admin`, `components/admin`, `lib/admin`).
 
+It covers the Stellar wrapper only. The Arc fee wrapper (`contracts/arc-evm`, on Arc mainnet at
+`0x11b30470DAE40B2Fc27b7AA90dc58e6B4fE9f4c3`) has the same roles and timelock and is governed with
+`scripts/arc-wrapper-admin.sh` ([`GOVERNANCE.md`](./GOVERNANCE.md#the-evm-wrapper)).
+
 ## Who can do what
 
 The panel is a client. Every change is a Soroban call signed by the connected wallet and checked on

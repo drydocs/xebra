@@ -5,29 +5,33 @@
 <sub>The 67-second film, looping. [Full quality, 1080p](film/xebra-film.mp4). It shows the first
 version, where a relay paid for the mint; Circle's Forwarding Service does that now.</sub>
 
-USDC from Stellar to Solana and Arc, and from Arc to fourteen EVM chains and Solana, over Circle's
-CCTP. One asset, **mainnet only**.
+USDC from Stellar to Solana, Arc and, one by one as the wrapper commits them, fourteen EVM chains;
+and from Arc to those fourteen chains and Solana. All over Circle's CCTP. One asset, **mainnet only**.
 
-A user connects a Stellar wallet, enters an amount and a Solana or Arc address, and signs once. A
+A user connects a Stellar wallet, enters an amount and an address on the destination chain, and signs once. A
 Soroban wrapper contract takes the fee and hands the burn to Circle, with Circle's forwarding hook,
 in the same transaction. Circle attests the burn and its Forwarding Service mints on the far side,
 paying the gas and taking its delivery fee out of ours. If a forward fails, the transfer is still
 claimable by anyone — including the user, from `/claim`.
 
-From Arc, the page calls Circle's `TokenMessengerV2` directly: no Xebra contract and no Xebra fee
-on those routes ([below](#routes-around-arc)).
+From Arc, the page calls Circle's `TokenMessengerV2` directly today: no Xebra contract and no Xebra
+fee on those routes ([below](#routes-around-arc)). Xebra's EVM fee wrapper is deployed on Arc mainnet
+and takes over when it is switched on.
 
-The wrapper never holds a user's principal. Either the fee is taken and the burn happens in the
-same transaction, or the whole transaction reverts and the user keeps every stroop.
+The Stellar wrapper never holds a user's principal. Either the fee is taken and the burn happens in
+the same transaction, or the whole transaction reverts and the user keeps every stroop. (The EVM
+wrapper does hold it, within one transaction, because Circle's EVM messenger burns from the caller;
+see [`SECURITY.md`](./SECURITY.md).)
 
 ## Status
 
 | | |
 |---|---|
 | Wrapper contract | **v2 live on Stellar mainnet** — `CCPVTWII2TW6VVSVA4JQ2KFHICGBG4QVAHPIGUPSIW3E4VNPUI4Y2WQR` ([`deployments/mainnet.json`](./deployments/mainnet.json), `cctpWrapperV2`). v1 (`CCNWLGFM…`) is retired |
-| Corridor | Stellar → Solana and Stellar → Arc. **Real transfers have completed end to end**, first through v1 and a relay, then through v2 and Circle's forwarder. One burn is unrecoverable forever — see [`writeups/01-the-lost-dollar.md`](./writeups/01-the-lost-dollar.md) |
+| Corridor | Stellar → Solana and Stellar → Arc; Stellar → Base proposed on 2026-10-15 (committable 2026-10-17), Monad next. **Real transfers have completed end to end**, first through v1 and a relay, then through v2 and Circle's forwarder. One burn is unrecoverable forever — see [`writeups/01-the-lost-dollar.md`](./writeups/01-the-lost-dollar.md) |
 | Delivery | Circle's Forwarding Service. There is no relay and no hot wallet; a failed forward is claimed by its owner at `/claim` |
-| Routes around Arc | Arc → 14 EVM chains and Solana are live. Proven on testnet (2026-10-14); no mainnet transfer on them yet. EVM chains → Arc is built and switched off |
+| Routes around Arc | Arc → 14 EVM chains and Solana are live. Proven on testnet (2026-10-14); first mainnet transfer Arc → Base on 2026-10-15. EVM chains → Arc is built and switched off |
+| Arc fee wrapper | **Deployed on Arc mainnet** — `0x11b30470DAE40B2Fc27b7AA90dc58e6B4fE9f4c3` (`deployments/mainnet.json`, `arcWrapper`), five real transfers through it on Arc testnet. Not used by the page until `NEXT_PUBLIC_ARC_USE_WRAPPER=1` ([`docs/go-live.md`](./docs/go-live.md#turning-on-the-arc-wrapper)) |
 | Frontend | **Live** — [xebra-sandy.vercel.app](https://xebra-sandy.vercel.app/) |
 | CI | lint, typecheck, `vitest`, `cargo test` and `forge test` on every push |
 
@@ -85,10 +89,15 @@ Both are explained in [`contracts/stellar-cctp-wrapper/README.md`](./contracts/s
 Arc sends to Avalanche, OP Mainnet, Arbitrum, Base, Polygon, Unichain, Codex, Sonic, World Chain,
 Monad, Sei, XDC, HyperEVM and Ink, and to Solana. The wallet approves Circle's `TokenMessengerV2`
 for the amount and calls `depositForBurnWithHook` with the forwarding hook, so Circle mints on the
-destination and takes its delivery fee out of the amount. There is no contract of ours in between,
-so the bounds a wrapper would enforce are applied in the page before signing
+destination and takes its delivery fee out of the amount. There is no contract of ours in between
+today, so the bounds a wrapper would enforce are applied in the page before signing
 (`apps/web/lib/evm-forward-fee.ts`), and every constant is pinned in
 `packages/network-config/src/evm-chains.ts` and re-read from the chains by `pnpm check:evm`.
+
+`contracts/arc-evm/src/XebraCctpWrapper.sol` changes that: Stellar's fee (0.10%, 0.30 USDC floor,
+Circle's delivery fee paid out of it), the same caps and the same 48-hour governance, enforced on
+chain. It is deployed on Arc mainnet and pinned in `XEBRA_WRAPPERS`; with
+`NEXT_PUBLIC_ARC_USE_WRAPPER=1` the page approves and calls it instead of Circle.
 Ethereum, Linea, Plume and EDGE are left out on purpose.
 
 Two build-time lists switch them on, one direction at a time: `NEXT_PUBLIC_ARC_SENDS_TO` (chain
@@ -102,7 +111,8 @@ for them: each chain's CCTP domain is proposed in `/admin`, and committed 48 hou
 wrapper holds one pending domain at a time, so they are added one by one. The page reads the
 wrapper's committed domains and offers a chain only when it is committed *and* named in
 `NEXT_PUBLIC_STELLAR_SENDS_TO` (chain names, or `all`), so a chain appears by itself when its commit
-lands. Today the wrapper has Solana and Arc only. `pnpm check:evm` reads back, for each chain, that
+lands. Today it has Solana and Arc; Base is proposed (committable 2026-10-17) and Monad is next.
+`pnpm check:evm` reads back, for each chain, that
 Circle's contracts know Stellar both ways and that Iris prices forwarding under the cap.
 
 ## Repo layout
@@ -112,18 +122,23 @@ The corridor — everything on the deployment path:
 ```
 apps/web/                    Next.js frontend (Vercel) and its server routes
   app/                         / bridge · /claim · /admin · /recover · /intent/[hash]
-  app/api/                     Circle pre-flight, delivery status, attestation, re-attestation, Solana RPC, recipient
+  app/api/                     Circle pre-flight, delivery status, attestation, re-attestation, Solana RPC, recipient, Arc wrapper settings
   convex/                      the shared Iris rate counter (irisBudget)
 contracts/stellar-cctp-wrapper-v2/  XebraCctpWrapper v2, live: Circle mints on the destination (84 tests)
 contracts/stellar-cctp-wrapper/  v1, retired — fee-taking front door to CCTP V2 (41 tests)
+contracts/arc-evm/           XebraCctpWrapper.sol, the Arc fee wrapper, on Arc mainnet (34 Foundry tests);
+                               also XebraEscrow.sol, which is not on the deployment path
 packages/
   cctp-solana/                 receiveMessage instruction, for /claim
-  cctp-evm/                    EVM calldata: receiveMessage for /claim; approve and depositForBurnWithHook for the Arc routes
+  cctp-evm/                    EVM calldata: receiveMessage for /claim; approve, depositForBurnWithHook and the wrapper's bridge for the Arc routes
   network-config/              pinned mainnet constants + a validator that refuses an incoherent mix; the EVM chain table
   cctp-client/                 Iris client, rate budget, Circle pre-flight, delivery state
   observability/               OTel traces/metrics, wired in through apps/web's instrumentation.ts
 scripts/
   deploy-cctp-wrapper-v2.sh    gated v2 deploy (interface check, tests, release build, typed confirm)
+  deploy-arc-wrapper.sh        gated Arc wrapper deploy (chain, Circle's messenger, tests, balance, typed confirm)
+  arc-wrapper-admin.sh         the Arc wrapper's state, and its governance calls behind a typed yes
+  test-arc-wrapper-testnet.sh  one real transfer out of Arc testnet through the wrapper, checked at the recipient
   smoke-prod.sh                read-only check of a deployed app
   check-cctp-interface.sh      our trait vs. the live mainnet Circle contract
   check-arc-cctp.sh            every Arc corridor constant vs. the live chains (read-only)
