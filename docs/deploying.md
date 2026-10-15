@@ -152,8 +152,9 @@ watch is Circle and the deployment itself:
 
 ## What is still missing
 
-No mainnet transfer has gone through the routes between Arc and the EVM chains yet; they were proven
-on testnet on 2026-10-14. They call Circle directly and charge no fee of ours: the EVM fee wrapper is
+Arc → Base went through on mainnet on 2026-10-15: 0.78 USDC delivered as 0.72577 in 237 seconds,
+Circle's `feeExecuted` equal to `maxFee` (forward tx `0xcfd8f187…7563`). The other routes between Arc
+and the EVM chains were proven on testnet on 2026-10-14. They call Circle directly and charge no fee of ours: the EVM fee wrapper is
 deployed on Arc mainnet but not switched on (`NEXT_PUBLIC_ARC_USE_WRAPPER`,
 [`go-live.md`](./go-live.md#turning-on-the-arc-wrapper)). EVM chains → Arc is off in production (`NEXT_PUBLIC_ARC_RECEIVES_FROM`
 unset).
