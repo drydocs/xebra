@@ -1,10 +1,16 @@
-import { FreighterModule, StellarWalletsKit, WalletNetwork } from "@creit.tech/stellar-wallets-kit";
+import {
+  FreighterModule,
+  LobstrModule,
+  StellarWalletsKit,
+  WalletNetwork,
+} from "@creit.tech/stellar-wallets-kit";
 import { env } from "./env";
 
 /**
- * Freighter only for now (Stellar Wallets Kit supports more, but auth-entry/transaction-signing
- * parity across wallets isn't independently verified here — see docs/architecture.md §2's
- * "verify at build time" note before adding more modules).
+ * Freighter and the LOBSTR browser extension. Stellar Wallets Kit supports more, but
+ * transaction-signing parity across wallets isn't independently verified here — see
+ * docs/architecture.md §2's "verify at build time" note before adding more modules. LOBSTR's
+ * extension has no `signAuthEntry`, which is fine: open-intent.ts signs the whole transaction.
  *
  * # The network is derived, never defaulted
  *
@@ -32,6 +38,6 @@ export function createStellarWalletKit(): StellarWalletsKit {
   return new StellarWalletsKit({
     network,
     selectedWalletId: "freighter",
-    modules: [new FreighterModule()],
+    modules: [new FreighterModule(), new LobstrModule()],
   });
 }
