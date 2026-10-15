@@ -69,10 +69,15 @@ describe("normaliseTxHash", () => {
 });
 
 describe("isOfferedRoute", () => {
-  it("offers the wrapper's two Stellar routes", () => {
+  it("offers Stellar to Solana and to every EVM chain in the table, and nothing else", () => {
     expect(isOfferedRoute(27, 5, STELLAR)).toBe(true);
-    expect(isOfferedRoute(27, 26, STELLAR)).toBe(true);
-    expect(isOfferedRoute(27, 6, STELLAR)).toBe(false);
+    for (const domain of [1, 2, 3, 6, 7, 10, 12, 13, 14, 15, 16, 18, 19, 21, 26]) {
+      expect(isOfferedRoute(27, domain, STELLAR), String(domain)).toBe(true);
+    }
+    // The chains left out on purpose, Stellar itself, and a Circle domain we do not serve (Sui).
+    for (const no of [0, 11, 22, 28, 27, 8]) {
+      expect(isOfferedRoute(27, no, STELLAR), String(no)).toBe(false);
+    }
   });
 
   it("offers each EVM peer with Arc, both ways, and nothing between peers", () => {

@@ -82,6 +82,24 @@ export function chooseMaxFee(input: {
   return { ok: true, maxFee };
 }
 
+/**
+ * A committed domain's caps, lowered to this app's own ceiling for the chain where that is tighter.
+ *
+ * The contract's cap for an EVM chain is set by whoever commits it; the chain table's
+ * `maxForwardFeeUnits` is the figure checked live by `pnpm check:evm`. The stricter of the two
+ * applies, so neither a generous commit nor a stale table can let the page sign more than both
+ * allow. Solana has no table ceiling from Stellar (`tableCeilingUnits` null): the contract's caps,
+ * which differ for opening an account, stand alone.
+ */
+export function withTableCeiling(
+  cfg: DomainForwardConfig,
+  tableCeilingUnits: number | null,
+): DomainForwardConfig {
+  if (tableCeilingUnits === null) return cfg;
+  const ceiling = unitsToStroops(tableCeilingUnits);
+  return { ...cfg, maxForwardFee: cfg.maxForwardFee < ceiling ? cfg.maxForwardFee : ceiling };
+}
+
 /** The wrapper's on-chain fee parameters that decide how small a forwarded transfer can be. */
 export interface FeeParams {
   feeBps: bigint;

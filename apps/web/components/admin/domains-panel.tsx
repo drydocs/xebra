@@ -8,41 +8,36 @@ import {
   validateDomainCfg,
 } from "../../lib/admin/policy";
 import { fieldToStroops, stroopsToField } from "../../lib/admin/units";
+import { EVM_CHAINS } from "../../lib/evm-chains";
 import type { PanelProps } from "./context";
 import { Btn, KindTag, NumField, Panel, Toggle } from "./primitives";
 
-/** Circle's ids for the chains people are likely to add. Names only; the contract knows domains by number. */
+/**
+ * Circle's ids, named. Every chain in the table comes from the table itself, so a chain added there
+ * is named here too; the rest are Circle domains that are not in it. Names only; the contract knows
+ * domains by number.
+ */
 const KNOWN: Record<number, string> = {
   0: "Ethereum",
-  1: "Avalanche",
-  2: "OP Mainnet",
-  3: "Arbitrum",
   5: "Solana",
-  6: "Base",
-  7: "Polygon PoS",
-  10: "Unichain",
   11: "Linea",
-  12: "Codex",
-  13: "Sonic",
-  14: "World Chain",
-  16: "Sei",
   17: "BNB Smart Chain",
-  19: "HyperEVM",
-  21: "Ink",
   22: "Plume",
   25: "Starknet",
-  26: "Arc",
   27: "Stellar",
+  28: "EDGE",
+  ...Object.fromEntries(Object.values(EVM_CHAINS).map((c) => [c.cctpDomainId, c.name])),
 };
 export const domainName = (d: number) => KNOWN[d] ?? `Domain ${d}`;
 
 const u = (s: bigint) => `${stroopsToField(s)} USDC`;
 
+/** An EVM chain from Stellar: forwarding on, capped at 0.25 USDC, about twice today's dearest quote. */
 const NEW_DOMAIN: DomainCfg = {
   domain: 0,
   evmStyle: true,
   forward: true,
-  maxForwardFee: 1_000_000n,
+  maxForwardFee: 2_500_000n,
   accountCreation: false,
   maxForwardFeeNewAccount: 0n,
 };

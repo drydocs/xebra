@@ -4,7 +4,8 @@ Next.js (App Router) app for the USDC routes over Circle's CCTP, deployed on Ver
 works is in the root [README](../../README.md); deploying is in
 [`docs/deploying.md`](../../docs/deploying.md).
 
-- `/` — the bridge. Stellar → Solana or Arc through wrapper v2, signed in Freighter
+- `/` — the bridge. Stellar → Solana, Arc, and each EVM chain the wrapper has committed and
+  `NEXT_PUBLIC_STELLAR_SENDS_TO` names, through wrapper v2, signed in Freighter
   (`components/bridge/stellar-bridge-form.tsx`). When the build switches them on
   (`NEXT_PUBLIC_ARC_SENDS_TO`, `NEXT_PUBLIC_ARC_RECEIVES_FROM`), Arc → EVM chains and Solana, and EVM
   chains → Arc, through Circle's `TokenMessengerV2` directly

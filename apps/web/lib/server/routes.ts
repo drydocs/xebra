@@ -56,8 +56,13 @@ export function readDomain(raw: string | null): number | null {
 }
 
 /**
- * Whether a quote may be asked for between two domains: the wrapper's Stellar routes, and the
- * direct routes (each EVM peer with Arc, both ways, and Arc to Solana).
+ * Whether a quote may be asked for between two domains: the wrapper's Stellar routes (to Solana and
+ * to every EVM chain in the table, Arc included), and the direct routes (each EVM peer with Arc,
+ * both ways, and Arc to Solana).
+ *
+ * Stellar's list is every destination the wrapper *could* have committed, not the ones it has: a
+ * quote is a public fact about Circle, and the contract, which is read by the page, decides what can
+ * actually be sent.
  */
 export function isOfferedRoute(
   source: number,
@@ -65,7 +70,7 @@ export function isOfferedRoute(
   stellarDomain: number,
 ): boolean {
   if (source === stellarDomain) {
-    return destination === CCTP_DOMAIN.solana || destination === CCTP_DOMAIN.arc;
+    return destination === CCTP_DOMAIN.solana || evmChainForDomain(destination) !== null;
   }
   return isEvmRoute(source, destination) || isArcToSolana(source, destination);
 }

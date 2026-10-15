@@ -1,4 +1,4 @@
-import { parseArcReceivesFrom, parseArcSendsTo } from "./evm-chains";
+import { parseArcReceivesFrom, parseArcSendsTo, parseStellarSendsTo } from "./evm-chains";
 
 /**
  * The frontend's single source of network truth.
@@ -60,6 +60,7 @@ const RAW = {
   NEXT_PUBLIC_ARC_ENABLED: process.env.NEXT_PUBLIC_ARC_ENABLED,
   NEXT_PUBLIC_ARC_SENDS_TO: process.env.NEXT_PUBLIC_ARC_SENDS_TO,
   NEXT_PUBLIC_ARC_RECEIVES_FROM: process.env.NEXT_PUBLIC_ARC_RECEIVES_FROM,
+  NEXT_PUBLIC_STELLAR_SENDS_TO: process.env.NEXT_PUBLIC_STELLAR_SENDS_TO,
   NEXT_PUBLIC_STELLAR_ESCROW_CONTRACT_ID: process.env.NEXT_PUBLIC_STELLAR_ESCROW_CONTRACT_ID,
   NEXT_PUBLIC_STELLAR_CCTP_WRAPPER_CONTRACT_ID:
     process.env.NEXT_PUBLIC_STELLAR_CCTP_WRAPPER_CONTRACT_ID,
@@ -158,6 +159,16 @@ export const env = {
     arcSendsTo: parseArcSendsTo(optional("NEXT_PUBLIC_ARC_SENDS_TO")),
     arcReceivesFrom: parseArcReceivesFrom(optional("NEXT_PUBLIC_ARC_RECEIVES_FROM")),
   },
+  /**
+   * The EVM chains other than Arc that Stellar may send to, through the wrapper: a comma-separated
+   * list of chain names, or `all`. Absent means none.
+   *
+   * Necessary and not sufficient. The wrapper must also have the chain's CCTP domain committed
+   * (`propose_domain`, then `commit_domain` 48 hours later), and the form reads that list from the
+   * contract: a chain named here appears only once it is committed. So `all` is safe to build with
+   * before the chains are added, and each one switches on by itself as its commit lands.
+   */
+  stellarSendsTo: parseStellarSendsTo(optional("NEXT_PUBLIC_STELLAR_SENDS_TO")),
   /**
    * Intent/swap-rail only, which is out of scope: the product is a USDC bridge over CCTP.
    * Optional so a mainnet build is not blocked on deploying an escrow the product does not

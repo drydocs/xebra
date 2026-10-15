@@ -36,7 +36,10 @@ const geistMono = localFont({
 // What the site says it does follows what this build offers: Stellar's routes alone, or those
 // and the routes that start on Arc or another EVM chain. Inlined at build time, like the flags.
 const MANY_ROUTES = hasEvmRoutes(env.evmRoutes);
-const STELLAR_DESTINATIONS = env.arcEnabled ? "Solana or Arc" : "Solana";
+// Which further chains Stellar reaches is decided by the contract at run time, so a build that
+// names any only promises "other chains".
+const STELLAR_DESTINATIONS =
+  env.stellarSendsTo.length > 0 ? "other chains" : env.arcEnabled ? "Solana or Arc" : "Solana";
 const TITLE = MANY_ROUTES
   ? "Xebra — native USDC between chains"
   : `Xebra — USDC from Stellar to ${STELLAR_DESTINATIONS}`;

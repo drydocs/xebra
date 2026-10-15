@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { getCircleHealth, getDelivery, getRouteHealth, requestReattest } from "./circle-status";
+import { getDelivery, getRouteHealth, requestReattest } from "./circle-status";
 
 const reply = (body: unknown, status = 200) =>
   vi.stubGlobal(
@@ -30,36 +30,6 @@ describe("getDelivery", () => {
       vi.fn(async () => Promise.reject(new Error("offline"))),
     );
     expect((await getDelivery("ab")).status).toBe("unknown");
-  });
-});
-
-describe("getCircleHealth", () => {
-  it("returns the server's verdict", async () => {
-    reply({ status: "down", reasons: ["x"], quote: null });
-    expect((await getCircleHealth("solana", false))?.status).toBe("down");
-  });
-
-  it("asks for the account-creation quote only when told to", async () => {
-    const f = vi.fn(async () => Response.json({ status: "ok", reasons: [] }));
-    vi.stubGlobal("fetch", f);
-    await getCircleHealth("solana", true);
-    await getCircleHealth("arc", false);
-    expect(f.mock.calls.map((c) => String((c as unknown[])[0]))).toEqual([
-      "/api/circle-health?dest=solana&newAccount=1",
-      "/api/circle-health?dest=arc",
-    ]);
-  });
-
-  it("returns null, not down, when the check itself cannot run", async () => {
-    reply({}, 500);
-    expect(await getCircleHealth("arc", false)).toBeNull();
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => Promise.reject(new Error("offline"))),
-    );
-    expect(await getCircleHealth("arc", false)).toBeNull();
-    reply({ status: "banana" });
-    expect(await getCircleHealth("arc", false)).toBeNull();
   });
 });
 
@@ -95,6 +65,9 @@ describe("getRouteHealth", () => {
     expect(f.mock.calls[0]?.[0]).toBe("/api/circle-health?src=6&dst=26");
     await getRouteHealth(26, 5, true);
     expect(f.mock.calls[1]?.[0]).toBe("/api/circle-health?src=26&dst=5&newAccount=1");
+    // A Stellar burn names Stellar's domain, the same way.
+    await getRouteHealth(27, 5, true);
+    expect(f.mock.calls[2]?.[0]).toBe("/api/circle-health?src=27&dst=5&newAccount=1");
   });
 
   it("is null, not down, when the check itself could not run", async () => {
@@ -104,6 +77,8 @@ describe("getRouteHealth", () => {
       "fetch",
       vi.fn(async () => Promise.reject(new Error("offline"))),
     );
+    expect(await getRouteHealth(6, 26)).toBeNull();
+    reply({ status: "banana" });
     expect(await getRouteHealth(6, 26)).toBeNull();
   });
 });
