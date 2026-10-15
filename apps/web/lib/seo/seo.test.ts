@@ -26,7 +26,15 @@ const cfg = (cap: bigint, forward = true): DomainForwardConfig => ({
 
 /** The wrapper's live list on 2026-10-15: Solana and Arc. */
 const LIVE = new Map<number, DomainForwardConfig>([
-  [5, { forward: true, maxForwardFee: 2_500_000n, accountCreation: true, maxForwardFeeNewAccount: 4_500_000n }],
+  [
+    5,
+    {
+      forward: true,
+      maxForwardFee: 2_500_000n,
+      accountCreation: true,
+      maxForwardFeeNewAccount: 4_500_000n,
+    },
+  ],
   [26, cfg(1_000_000n)],
 ]);
 
@@ -95,7 +103,15 @@ describe("the written pages", () => {
       expect(`${d.title} · Xebra`.length, d.path).toBeLessThanOrEqual(60);
     }
     expect(Object.keys(OG_PAGES)).toEqual(
-      expect.arrayContaining(["home", "how-it-works", "fees", "routes", "security", "faq", "claim"]),
+      expect.arrayContaining([
+        "home",
+        "how-it-works",
+        "fees",
+        "routes",
+        "security",
+        "faq",
+        "claim",
+      ]),
     );
   });
 
@@ -136,7 +152,9 @@ describe("structured data", () => {
     if (!route) throw new Error("missing route page");
     const crumbs = breadcrumbLd(route);
     expect(crumbs.itemListElement.map((i) => i.position)).toEqual([1, 2, 3]);
-    expect(crumbs.itemListElement.at(-1)?.item).toBe("https://xebra.exchange/bridge/stellar-to-solana");
+    expect(crumbs.itemListElement.at(-1)?.item).toBe(
+      "https://xebra.exchange/bridge/stellar-to-solana",
+    );
 
     const article = articleLd(route, "2026-10-15");
     expect(article.image).toBe("https://xebra.exchange/og/bridge/stellar-to-solana");
@@ -153,9 +171,13 @@ describe("structured data", () => {
 
 describe("markdown", () => {
   it("gives headings ids and opens links off the site in a new tab", () => {
-    const html = renderMarkdown("## What it costs\n\n[CCTP](https://developers.circle.com) and [fees](/fees)");
+    const html = renderMarkdown(
+      "## What it costs\n\n[CCTP](https://developers.circle.com) and [fees](/fees)",
+    );
     expect(html).toContain('<h2 id="what-it-costs">What it costs</h2>');
-    expect(html).toContain('href="https://developers.circle.com" target="_blank" rel="noopener noreferrer"');
+    expect(html).toContain(
+      'href="https://developers.circle.com" target="_blank" rel="noopener noreferrer"',
+    );
     expect(html).toContain('<a href="/fees">fees</a>');
   });
 

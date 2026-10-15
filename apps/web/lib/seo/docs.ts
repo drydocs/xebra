@@ -74,7 +74,7 @@ function howItWorks(): Doc {
   return {
     path: "/how-it-works",
     markdownPath: md("/how-it-works"),
-    title: "How Xebra moves USDC between chains",
+    title: "How USDC moves between chains",
     description:
       "How a Xebra transfer works: Circle burns USDC on one chain, attests it, and mints native USDC on the other. What you sign, timing, and failed deliveries.",
     section: "docs",
@@ -130,7 +130,7 @@ function fees(routes: RouteInfo[], arcViaWrapper: boolean): Doc {
   return {
     path: "/fees",
     markdownPath: md("/fees"),
-    title: "Fees for bridging USDC with Xebra",
+    title: "Fees for bridging USDC",
     description: `What a Xebra transfer costs: ${xebraFeeRule} from Stellar, Circle's delivery fee included${arcViaWrapper ? ", and the same from Arc" : "; from Arc, Circle's delivery fee only"}.`,
     section: "docs",
     breadcrumb: crumbs("Fees", "/fees"),
@@ -258,7 +258,7 @@ function faqDoc(faq: Faq[]): Doc {
   return {
     path: "/faq",
     markdownPath: md("/faq"),
-    title: "Questions about bridging USDC with Xebra",
+    title: "Questions about bridging USDC",
     description:
       "Answers about Xebra: native or wrapped USDC, fees, timing, stuck transfers, custody, wallets, limits and audits.",
     section: "docs",

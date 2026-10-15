@@ -9,7 +9,7 @@ import type { Metadata } from "next";
  */
 export const SITE_URL = "https://xebra.exchange";
 export const SITE_NAME = "Xebra";
-export const SITE_TAGLINE = "Native USDC between chains";
+export const SITE_TAGLINE = "native USDC between chains";
 export const SITE_DESCRIPTION =
   "Move native USDC between Stellar, Solana, Arc and EVM chains over Circle's CCTP. Circle burns it on one chain and mints it on the other: no wrapped token, no pool, and nobody holds your funds.";
 export const SOURCE_URL = "https://github.com/drydocs/xebra";

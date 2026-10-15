@@ -5,23 +5,30 @@ import { OG_PAGES, ogImageParams } from "../../../lib/seo/og";
 import { ENDPOINT_NAMES, parseSlug } from "../../../lib/seo/routes";
 
 /**
- * Each page's link preview, 1200×630, drawn at build time in the site's own type and colours.
+ * Each page's link preview, 1200×630, in the site's own type and colours.
  *
- * Built for every page and for every route that could ever be offered, so a Stellar chain that goes
- * live after a deploy already has its image. Static: nothing is drawn at request time.
+ * Drawn on its first request and then cached for a day, not at build time: some fifty images at
+ * several seconds each made the build fail its per-page time limit on a busy machine. Any page or
+ * candidate route has one, so a Stellar chain that goes live after a deploy already has its image;
+ * anything else is a 404. The fonts and logos it reads are traced into the function by
+ * `outputFileTracingIncludes` in `next.config.ts`.
  */
 export const dynamic = "force-static";
-export const dynamicParams = false;
+export const revalidate = 86400;
 
+/** None at build time; each is drawn on first request and kept (incremental static regeneration). */
 export function generateStaticParams() {
-  return ogImageParams();
+  return [];
 }
+
+const KNOWN = new Set(ogImageParams().map((p) => p.path.join("/")));
 
 const BONE = "#f6f3ee";
 const OBSIDIAN = "#0a0b0e";
 
 export async function GET(_request: Request, { params }: { params: Promise<{ path: string[] }> }) {
   const { path } = await params;
+  if (!KNOWN.has(path.join("/"))) return new Response("Not found\n", { status: 404 });
   const root = process.cwd();
   const [regular, semibold, mark] = await Promise.all([
     readFile(join(root, "assets/og/Geist-Regular.ttf")),
@@ -123,17 +130,12 @@ export async function GET(_request: Request, { params }: { params: Promise<{ pat
 
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <span style={{ fontSize: 22, color: "rgba(246,243,238,0.6)" }}>xebra.exchange</span>
-        <div style={{ display: "flex", gap: 6 }}>
-          {[3, 6, 2, 4].map((w, i) => (
+        <div style={{ display: "flex", gap: 7 }}>
+          {[3, 7, 2, 5, 3].map((w, i) => (
             <div
-              // biome-ignore lint/suspicious/noArrayIndexKey: a fixed decoration.
+              // biome-ignore lint/suspicious/noArrayIndexKey: a fixed decoration, the zebra stripe.
               key={i}
-              style={{
-                width: w * 4,
-                height: 28,
-                borderRadius: 14,
-                background: "rgba(246,243,238,0.18)",
-              }}
+              style={{ width: w, height: 30, borderRadius: 2, background: "rgba(246,243,238,0.2)" }}
             />
           ))}
         </div>
