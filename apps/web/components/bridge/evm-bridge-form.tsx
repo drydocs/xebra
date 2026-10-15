@@ -34,6 +34,7 @@ import {
 import { ensureChain } from "../../lib/evm-rpc";
 import { type WrapperSettings, getWrapperSettings, termsFor } from "../../lib/evm-wrapper";
 import { formatError, reportError } from "../../lib/format-error";
+import { unitsToInput } from "../../lib/max-amount";
 import {
   type RouteDestination,
   feeDestination,
@@ -53,7 +54,7 @@ import { StripeRule } from "../ui/stripe-rule";
 import { useWallets } from "../wallet/wallet-provider";
 import { ChainPicker, PickerLabel } from "./chain-picker";
 import { EvmQuotePanel } from "./evm-quote-panel";
-import { QUICK_AMOUNTS, QuickAmount } from "./quick-amount";
+import { MaxAmount, QUICK_AMOUNTS, QuickAmount } from "./quick-amount";
 import { type ReceiptRoute, SubmittedNotice } from "./receipt";
 import { ArcRecipientPanel, RecipientPanel, UseMyWallet } from "./recipient-panels";
 import { RouteTrack } from "./route-track";
@@ -339,6 +340,8 @@ export function EvmBridgeForm({
   // Only a *known* shortfall blocks. An unread balance is not a zero balance.
   const spendable = balance === null ? null : spendableUsdc(source, balance);
   const short = spendable !== null && amount !== null && amount > spendable;
+  // Null until the balance has been read, so Max is never offered on a guess.
+  const maxInput = spendable !== null && spendable > 0n ? unitsToInput(spendable, 6) : null;
 
   // Poll until Circle reports an outcome. As on the Stellar receipt, except that "claimable" is
   // not final here until Circle has had time to deliver (`CLAIM_GRACE_MS`).
@@ -607,6 +610,13 @@ export function EvmBridgeForm({
                   onSelect={setAmountInput}
                 />
               ))}
+              {maxInput !== null && (
+                <MaxAmount
+                  value={maxInput}
+                  active={amountInput.trim() === maxInput}
+                  onSelect={setAmountInput}
+                />
+              )}
             </div>
           }
         >
