@@ -31,6 +31,7 @@ import {
   suggestedMinimum,
   withTableCeiling,
 } from "../../lib/forward-fee";
+import { unitsToInput } from "../../lib/max-amount";
 import { type RecipientResolution, resolveRecipient } from "../../lib/solana-address";
 import { Button } from "../ui/button";
 import { Field, Input } from "../ui/field";
@@ -39,7 +40,7 @@ import { Notice } from "../ui/notice";
 import { StripeRule } from "../ui/stripe-rule";
 import { useWallets } from "../wallet/wallet-provider";
 import { ChainPicker, PickerLabel } from "./chain-picker";
-import { QUICK_AMOUNTS, QuickAmount } from "./quick-amount";
+import { MaxAmount, QUICK_AMOUNTS, QuickAmount } from "./quick-amount";
 import { SubmittedNotice } from "./receipt";
 import { ArcRecipientPanel, RecipientPanel, UseMyWallet } from "./recipient-panels";
 import { RouteTrack } from "./route-track";
@@ -512,6 +513,10 @@ export function StellarBridgeForm({
   const shortfall =
     balance !== null && quote !== null && balance < quote.amount ? quote.amount - balance : null;
 
+  // The whole balance: the fee comes out of the amount sent, and gas on Stellar is paid in XLM.
+  // Null until the balance has been read, so Max is never offered on a guess.
+  const maxInput = balance !== null && balance > 0n ? unitsToInput(balance, 7) : null;
+
   const ready =
     Boolean(kit && address && quote && destinationCheck.ok && isCctpRailConfigured) &&
     quote?.forwarded === true &&
@@ -677,6 +682,13 @@ export function StellarBridgeForm({
                   onSelect={setAmountInput}
                 />
               ))}
+              {maxInput !== null && (
+                <MaxAmount
+                  value={maxInput}
+                  active={amountInput.trim() === maxInput}
+                  onSelect={setAmountInput}
+                />
+              )}
             </div>
           }
         >
