@@ -3,7 +3,7 @@
 import type { CircleHealth } from "@xebra/cctp-client";
 import type { BurnRecipient } from "@xebra/cctp-evm";
 import type React from "react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { bytesToHex } from "viem";
 import { type DeliveryView, getDelivery, getRouteHealth } from "../../lib/circle-status";
 import { env } from "../../lib/env";
@@ -111,6 +111,7 @@ export function EvmBridgeForm({
   routes,
   sourcePicker,
   onBusyChange,
+  presetTo,
 }: {
   source: EvmChain;
   routes: EnabledRoutes;
@@ -118,6 +119,8 @@ export function EvmBridgeForm({
   sourcePicker?: React.ReactNode;
   /** True while a transfer is being signed or its receipt is on show. */
   onBusyChange?: (busy: boolean) => void;
+  /** A destination a link asked for (`/?to=base`), chosen if this source sends there. */
+  presetTo?: string | null;
 }) {
   const { connections, open: openWallets, syncEvmChain } = useWallets();
   const wallet = connections.evm ?? null;
@@ -392,6 +395,17 @@ export function EvmBridgeForm({
     setDestId(id);
     setSubmitError(null);
   }
+
+  // A link's destination, applied once if this source sends there.
+  const presetApplied = useRef(false);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: chooseDestination is stable enough here; this runs once.
+  useEffect(() => {
+    if (presetApplied.current || !presetTo) return;
+    const offered = destinations.find((d) => d.id === presetTo);
+    if (!offered) return;
+    presetApplied.current = true;
+    chooseDestination(offered.id);
+  }, [presetTo, destinations]);
 
   const connect = useCallback(() => openWallets(["evm"]), [openWallets]);
 

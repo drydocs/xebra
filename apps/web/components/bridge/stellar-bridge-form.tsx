@@ -2,7 +2,7 @@
 
 import type { CircleHealth } from "@xebra/cctp-client";
 import type React from "react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   type BridgeChainConfig,
   type BridgeQuote,
@@ -91,11 +91,14 @@ const REQUEST_TTL_SECONDS = 600;
 export function StellarBridgeForm({
   sourcePicker,
   onBusyChange,
+  presetTo,
 }: {
   /** The "Send from" control, owned by the screen because it chooses which form this is. */
   sourcePicker?: React.ReactNode;
   /** True while a transfer is being signed or its receipt is on show. */
   onBusyChange?: (busy: boolean) => void;
+  /** A destination a link asked for (`/?to=base`), chosen once if this form offers it. */
+  presetTo?: string | null;
 } = {}) {
   // Wallets live in <WalletProvider>: Stellar signs and pays; a Solana or EVM wallet can fill in the
   // recipient. Only the Stellar connection is the sender.
@@ -506,6 +509,17 @@ export function StellarBridgeForm({
     setDestId(id);
     setSubmitError(null);
   }
+
+  // A link's destination is applied once, as soon as the contract's list shows it is offered.
+  const presetApplied = useRef(false);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: chooseDestination is stable enough here; this runs once.
+  useEffect(() => {
+    if (presetApplied.current || !presetTo) return;
+    const offered = destinations.find((d) => d.id === presetTo);
+    if (!offered) return;
+    presetApplied.current = true;
+    chooseDestination(offered.id);
+  }, [presetTo, destinations]);
 
   const connect = useCallback(() => openWallets(["stellar", "solana", "evm"]), [openWallets]);
 
